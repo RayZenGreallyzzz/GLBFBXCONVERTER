@@ -70,6 +70,8 @@ test('required EXT_texture_webp loads and remains valid without re-encoding orig
  const loaded=await io.readBinary(glb);
  assert.equal(loaded.getRoot().listTextures()[0].getMimeType(),'image/webp');
  const original=globalThis.createImageBitmap;
+ const previousWindow=globalThis.window;
+ globalThis.window={};
  globalThis.createImageBitmap=async()=>({width:2,height:2,close(){}});
  try{
    const stats=await resizeTextures(loaded,1024);
@@ -78,5 +80,5 @@ test('required EXT_texture_webp loads and remains valid without re-encoding orig
    const reread=await io.readBinary(output);
    assert.equal(reread.getRoot().listTextures()[0].getMimeType(),'image/webp');
    assert.ok(reread.getRoot().listExtensionsRequired().some(x=>x.extensionName==='EXT_texture_webp'));
- }finally{globalThis.createImageBitmap=original}
+ }finally{globalThis.createImageBitmap=original;globalThis.window=previousWindow}
 });
