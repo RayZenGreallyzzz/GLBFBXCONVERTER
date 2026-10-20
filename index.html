@@ -17,8 +17,14 @@
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <label>Профиль<select id="preset"><option value="mobile">Экономия · 512 px</option><option value="balanced" selected>Баланс · 1024 px</option><option value="high">Качество · 2048 px</option><option value="original">Максимум · 4096 px</option></select></label>
+    <label>Упрощение полигонов<select id="geometry">
+      <option value="0.22">Сильное · цель 22% исходных треугольников</option>
+      <option value="0.50" selected>Баланс · цель 50% исходных треугольников</option>
+      <option value="0.75">Бережно · цель 75% исходных треугольников</option>
+      <option value="none">Без упрощения геометрии</option>
+    </select></label>
     <label>Размер текстур<select id="texture"><option value="512">512 px</option><option value="1024" selected>1024 px</option><option value="2048">2048 px</option><option value="4096">4096 px</option></select></label>
-    <p class="tip">Кости, веса, UV, геометрия и анимации сохраняются. В первой версии меняется только разрешение текстур. Исходник не перезаписывается.</p>
+    <p class="tip">Кости, веса, UV и анимации сохраняются. Для моделей без скелета используется Meshoptimizer: реальное уменьшение треугольников. На моделях со скелетом пока безопасно уменьшаются только текстуры. Исходник не перезаписывается.</p>
     <button class="primary" id="opt-export" disabled>▣ СОХРАНИТЬ ОПТИМИЗИРОВАННЫЙ GLB</button>
   </section>
   <section id="tab-convert" class="tab-panel hidden">
