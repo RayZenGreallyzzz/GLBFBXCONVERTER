@@ -113,12 +113,20 @@ export async function exportAdditional(format,root,animations=[]) {
   }
   if(format==='obj')return {content:new OBJExporter().parse(root),mime:'text/plain'};
   if(format==='ply'){
-    let callbackData;
-    const result=new PLYExporter().parse(root,data=>{callbackData=data;},
-      {binary:true,littleEndian:true});
-    return {content:result||callbackData,mime:'application/octet-stream'};
+    // PLYExporter v0.170 invokes its callback on requestAnimationFrame,
+    // so the result must be awaited before Android starts saving it.
+    const output=await new Promise((resolve,reject)=>{
+      try{new PLYExporter().parse(root,result=>resolve(result),{binary:true,littleEndian:true})}
+      catch(error){reject(error)}
+    });
+    return {content:output,mime:'application/octet-stream'};
   }
-  if(format==='stl')return {content:new STLExporter().parse(root,{binary:true}),mime:'model/stl'};
+  if(format==='stl'){
+    // STLExporter binary returns a DataView; normalize it to real bytes.
+    const result=new STLExporter().parse(root,{binary:true});
+    const content=ArrayBuffer.isView(result)?arrayBuffer(result):result;
+    return {content,mime:'model/stl'};
+  }
   if(format==='usdz')return {content:await new USDZExporter().parseAsync(root,{
     maxTextureSize:1024,onlyVisible:false,includeAnchoringProperties:false
   }),mime:'model/vnd.usdz+zip'};
