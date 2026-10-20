@@ -49,9 +49,10 @@ function encodeCanvas(canvas, mime, quality) {
 
 export async function resizeTextures(document, maxSize, quality = 0.83) {
   if (typeof document === 'undefined' || !document.getRoot) throw Error('Нет данных glTF');
+  const stats = { resized: 0, lossy: 0, unchanged: 0 };
+  if (!document.getRoot().listTextures().length) return stats;
   if (typeof window === 'undefined' || typeof createImageBitmap !== 'function')
     throw Error('Обработка текстур требует Android/WebView с Canvas');
-  const stats = { resized: 0, lossy: 0, unchanged: 0 };
   for (const texture of document.getRoot().listTextures()) {
     const bytes = texture.getImage(), type = texture.getMimeType();
     if (!bytes || !['image/jpeg', 'image/png'].includes(type)) {
@@ -116,7 +117,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
     onProgress(35, 'Упрощаем сетку с помощью Meshoptimizer...');
     await document.transform(weld(), simplify({
       simplifier: MeshoptSimplifier, ratio, error,
-      lockBorder: true, cleanup: false
+      lockBorder: true, cleanup: true
     }));
   } else if (skins) {
     geometryNote = 'Скелет обнаружен: упрощение сетки отключено для защиты весов и анимаций.';
