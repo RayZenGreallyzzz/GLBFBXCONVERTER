@@ -64,8 +64,8 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
       const scale = Math.min(1, maxSize / Math.max(width, height));
       const w = Math.max(1, Math.round(width * scale));
       const h = Math.max(1, Math.round(height * scale));
-      const tryJpeg = colorOnly(document, texture) && type !== 'image/jpeg';
-      if (scale === 1 && type !== 'image/webp' && !tryJpeg) {
+      const tryJpeg = colorOnly(document, texture) && type === 'image/png';
+      if (scale === 1 && !tryJpeg) {
         stats.unchanged++;
         continue; // preserve exact original embedded PNG/JPEG bytes.
       }
@@ -75,9 +75,9 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
       const ctx = surface.getContext('2d', { willReadFrequently: tryJpeg });
       if (!ctx) throw Error('Canvas 2D не поддерживается');
       ctx.drawImage(bitmap, 0, 0, w, h);
-      // WebP is intentionally decoded to PNG/JPEG so the exported GLB
-      // does not require EXT_texture_webp (not available to every Godot importer).
-      let outMime = type === 'image/webp' ? 'image/png' : type;
+      // Preserve WebP as WebP: Godot 4.x supports EXT_texture_webp and a
+      // WebP→PNG conversion can greatly increase file size on alpha textures.
+      let outMime = type;
       let out = await encodeCanvas(surface, outMime, quality);
       if (tryJpeg) {
         const image = ctx.getImageData(0, 0, w, h).data;
@@ -92,15 +92,14 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
           }
         }
       }
-      if (type === 'image/webp' || out.byteLength < bytes.byteLength || scale < 1) {
+      if (out.byteLength < bytes.byteLength || scale < 1) {
         texture.setImage(out);
         texture.setMimeType(outMime);
         stats.resized++;
       } else stats.unchanged++;
     } finally { bitmap.close?.(); }
   }
-  // Drop EXT_texture_webp only AFTER all texture payloads have been
-  // converted, otherwise the exported JSON can still require WebP.
+  // Only drop WebP extension when no WebP textures remain.
   if (!document.getRoot().listTextures().some(t => t.getMimeType() === 'image/webp')) {
     for (const extension of document.getRoot().listExtensionsUsed()) {
       if (extension.extensionName === 'EXT_texture_webp') extension.dispose();
@@ -147,9 +146,10 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
       formatSize(output.byteLength) + '. Не сохраняем ухудшенный результат. ' +
       'Попробуй режим «Экономия» или меньше текстуры.');
   }
-  // No Draco, meshopt buffer compression, or WebP requirement is added.
+  // No Draco, meshopt buffer compression, or BasisU requirement is added.
+  // Existing EXT_texture_webp is supported and preserved when necessary.
   const forbidden = ['KHR_draco_mesh_compression', 'EXT_meshopt_compression',
-    'KHR_texture_basisu', 'EXT_texture_webp'];
+    'KHR_texture_basisu'];
   const optimizedIO = await io.readBinary(output);
   const required = optimizedIO.getRoot().listExtensionsRequired().map(e => e.extensionName);
   if (required.some(e => forbidden.includes(e)))
