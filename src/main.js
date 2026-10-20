@@ -6,6 +6,8 @@ import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
+import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
+ SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
 const $=id=>document.getElementById(id),saver=registerPlugin('ModelSaver');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#0a1423');
@@ -85,9 +87,12 @@ function display(){
  const m=modelStats(state.root,state.clips),metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
  $('metrics').replaceChildren();
  for(const [label,value] of metrics){const row=document.createElement('div');row.className='metric';const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row)}
- $('compat').textContent=state.info+'\n'+(m.skinned?'Найдены меши со скелетом. Проверяй движения в Godot.':'Модель без привязанного скелета. Для Mixamo может потребоваться авториггинг.');
+ $('compat').textContent=state.info+'\n'+
+   (m.skinned?'Есть привязка к скелету; проверь анимацию в Godot.':'Скелет отсутствует либо не привязан.')+
+   '\nПоддерживаемые входные форматы: '+SUPPORTED_INPUTS.map(x=>x.toUpperCase()).join(', ')+
+   '\nUSD/USDC и VRM-экспорт в текущей версии не поддерживаются.';
 }
-async function load(file){
+async function load(file,attachments=[file]){
  if(!file||state.busy)return;
  if(file.size>250*1048576){status('Большой файл: больше 250 МБ. Отмена для защиты памяти Android.');return}
  state.busy=true;buttons();progress(10);status('Читаем и проверяем модель…');
@@ -102,11 +107,17 @@ async function load(file){
    }else if(ext==='fbx'){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
      info=check.label+'. FBX может импортироваться не полностью: проверь материалы и движения.';
-   }else throw Error('Нужен файл GLB или FBX');
+   }else if(['gltf','vrm','obj','ply','stl','dae','usdz'].includes(ext)){
+     const result=await importAdditional(file,data,attachments);
+     root=result.root;clips=result.clips||[];info=result.notice;
+   }else throw Error('Неизвестный входной формат: '+ext);
    if(!root)throw Error('Модель не найдена');
    discardPreview();
    if(state.root){scene.remove(state.root);release(state.root)}
-   scene.add(root);state.root=root;state.clips=clips;state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);state.bytes=file.size;state.type=ext;state.sourceBuffer=ext==='glb'?data:null;state.info=info;
+   scene.add(root);state.root=root;state.clips=clips;
+   state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
+   state.bytes=file.size;state.type=ext;state.sourceBuffer=ext==='glb'?data:null;state.info=info;
+   updateExportWarnings();
    $('filename').textContent=file.name;$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),900)}
@@ -117,7 +128,7 @@ function downloadBrowser(value,name,mime){
 }
 async function save(value,name,mime){
  if(!Capacitor.isNativePlatform()){downloadBrowser(value,name,mime);status('✓ Отправлено в загрузки: '+name);return}
- const b=value instanceof Uint8Array?value:new Uint8Array(value);
+ const b=typeof value==='string'?new TextEncoder().encode(value):value instanceof Uint8Array?value:new Uint8Array(value);
  await saver.begin({name,mime});
  try{
    for(let offset=0;offset<b.length;offset+=75000){
@@ -219,6 +230,17 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
+   }else if(['gltf','obj','ply','stl','usdz'].includes(target)){
+     const messages=getExportWarnings(target,current);
+     if(messages.length&&!window.confirm(
+        target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
+        '\n\nПродолжить экспорт статичной модели?'))return;
+     status('Готовим '+target.toUpperCase()+'…');
+     const file=await exportAdditional(target,state.root,state.clips);
+     const content=file.content;
+     if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
+     progress(70);
+     await save(content,state.name+'_converted'+outputNameExt(target),file.mime);
    }else{
      const version=Number(target);
      if(![7200,7300,7400,7500].includes(version))
@@ -248,7 +270,12 @@ async function exportAs(target){
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
 }
-$('model-file').addEventListener('change',e=>{const file=e.target.files?.[0];e.target.value='';load(file)});
+$('model-file').addEventListener('change',e=>{
+ const files=Array.from(e.target.files||[]);
+ e.target.value='';
+ try{const file=validateImportFiles(files);load(file,files)}
+ catch(error){status('Ошибка выбора файла: '+error.message)}
+});
 function changeQuality(id){
  if(state.busy)return;
  const preset=MOBILE_PRESETS[id]||MOBILE_PRESETS.balanced;
@@ -273,10 +300,15 @@ $('view-original').addEventListener('click',()=>showComparison(false));
 $('view-optimized').addEventListener('click',()=>showComparison(true));
 $('preview-opt').addEventListener('click',preparePreview);
 $('opt-export').addEventListener('click',savePreview);
-$('target').addEventListener('change',()=>{
- const version=Number($('target').value);
+function updateExportWarnings(){
+ const target=$('target').value;
+ const version=Number(target);
  $('mixamo-notice').hidden=!(version===7200||version===7300);
-});
+ const warnings=state.root?getExportWarnings(target,modelStats(state.root,state.clips)):[];
+ $('export-warning').hidden=!warnings.length;
+ $('export-warning').textContent=warnings.length?'Важно: '+warnings.join('; ')+'.':'';
+}
+$('target').addEventListener('change',updateExportWarnings);
 $('convert-export').addEventListener('click',()=>exportAs($('target').value));
 for(const button of document.querySelectorAll('[data-tab]'))button.addEventListener('click',()=>{
  for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('active',b===button);
