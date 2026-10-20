@@ -221,14 +221,29 @@ async function exportAs(target){
      }
    }else{
      const version=Number(target);
-     if(![7400,7500].includes(version))throw Error('Этот FBX нельзя достоверно экспортировать в текущем движке');
-     status('Создаём FBX '+version+'…');
+     if(![7200,7300,7400,7500].includes(version))
+       throw Error('Этот FBX нельзя достоверно экспортировать в текущем движке');
+     const mixamo=version===7200||version===7300;
+     if(mixamo && current.skinned>0){
+       if(!window.confirm('Модель уже содержит скелет. Mixamo может принять его для анимаций, '+
+         'но для автоматического создания нового скелета обычно нужна модель без рига. '+
+         'Экспортировать FBX '+version+' с существующими костями?'))return;
+     }
+     status((mixamo?'Готовим старый FBX для Mixamo ':'Создаём FBX ')+version+'…');
      const {FBXExporter}=await import('@comfyorg/fbx-exporter-three');
-     const file=await new FBXExporter().parseAsync(state.root,{version,preset:'blender',fps:30,animations:state.clips,embedTextures:true,onlyVisible:false});
+     const file=await new FBXExporter().parseAsync(state.root,{
+       version,preset:mixamo?'threejs':'blender',fps:30,
+       animations:state.clips,embedTextures:true,onlyVisible:false
+     });
      const checked=inspectFbx(file);
-     if(checked.version!==version)throw Error('Экспортёр выдал другую версию FBX: '+checked.version);
+     if(checked.version!==version||!checked.binary)
+       throw Error('Экспортёр выдал неверный формат FBX: '+checked.label);
+     if(mixamo){
+       const {verifyLegacyFbxMetadata}=await import('./legacy-fbx.js');
+       verifyLegacyFbxMetadata(file,version);
+     }
      progress(70);
-     await save(file,state.name+'_fbx'+version+'.fbx','application/octet-stream');
+     await save(file,state.name+(mixamo?'_mixamo_':'_fbx')+version+'.fbx','application/octet-stream');
    }
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
@@ -258,6 +273,10 @@ $('view-original').addEventListener('click',()=>showComparison(false));
 $('view-optimized').addEventListener('click',()=>showComparison(true));
 $('preview-opt').addEventListener('click',preparePreview);
 $('opt-export').addEventListener('click',savePreview);
+$('target').addEventListener('change',()=>{
+ const version=Number($('target').value);
+ $('mixamo-notice').hidden=!(version===7200||version===7300);
+});
 $('convert-export').addEventListener('click',()=>exportAs($('target').value));
 for(const button of document.querySelectorAll('[data-tab]'))button.addEventListener('click',()=>{
  for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('active',b===button);
