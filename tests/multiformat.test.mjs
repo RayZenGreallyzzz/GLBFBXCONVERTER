@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+globalThis.requestAnimationFrame ??= callback => setTimeout(callback,0);
 import { importAdditional, exportAdditional, getExportWarnings,
  SUPPORTED_INPUTS, SUPPORTED_OUTPUTS, validateImportFiles } from '../src/model-formats.js';
 
