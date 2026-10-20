@@ -8,23 +8,51 @@
 <header><div class="logo">◆ <strong>PHOENIX <em>MODEL FORGE</em></strong></div><small>GLB · FBX · ANDROID · GODOT</small></header>
 <main>
 <section class="view">
-  <div id="viewport"><div id="empty">Добавь GLB или FBX, чтобы увидеть модель</div></div>
+  <div id="viewport">
+    <div id="empty">Добавь GLB или FBX, чтобы увидеть модель</div>
+    <div id="preview-switch" class="preview-switch" hidden>
+      <button type="button" id="view-original" class="active" aria-pressed="true">Исходник</button>
+      <button type="button" id="view-optimized" aria-pressed="false">Результат</button>
+    </div>
+    <div id="view-label" class="view-label" hidden>Исходная модель</div>
+  </div>
   <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" accept=".glb,.fbx"></label><span id="filename">Файл не выбран</span></div>
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
   <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
-    <h2>Оптимизация под Android</h2>
-    <label>Профиль<select id="preset"><option value="mobile">Экономия · 512 px</option><option value="balanced" selected>Баланс · 1024 px</option><option value="high">Качество · 2048 px</option><option value="original">Максимум · 4096 px</option></select></label>
-    <label>Размер текстур<select id="texture"><option value="512">512 px</option><option value="1024" selected>1024 px</option><option value="2048">2048 px</option><option value="4096">4096 px</option></select></label>
-    <p class="tip">Кости, веса, UV, геометрия и анимации сохраняются. В первой версии меняется только разрешение текстур. Исходник не перезаписывается.</p>
-    <button class="primary" id="opt-export" disabled>▣ СОХРАНИТЬ ОПТИМИЗИРОВАННЫЙ GLB</button>
+    <h2>Выбери качество модели</h2>
+    <p class="tip">Сначала смотри, как выглядит упрощённая модель. Сохраняй только после сравнения.</p>
+    <div class="quality-grid" role="group" aria-label="Уровень качества модели">
+      <button type="button" data-quality="mobile"><strong>Экономия</strong><small>Меньше деталей<br>512 px</small></button>
+      <button type="button" data-quality="balanced" class="active" aria-pressed="true"><strong>Баланс</strong><small>Для Android<br>1024 px</small></button>
+      <button type="button" data-quality="high"><strong>Качество</strong><small>Больше деталей<br>2048 px</small></button>
+      <button type="button" data-quality="original"><strong>Максимум</strong><small>Без упрощения<br>4096 px</small></button>
+    </div>
+    <select id="preset" hidden aria-label="Текущий профиль"><option value="mobile">mobile</option><option value="balanced" selected>balanced</option><option value="high">high</option><option value="original">original</option></select>
+    <details class="advanced">
+      <summary>Точные настройки (необязательно)</summary>
+      <label>Упрощение сетки<select id="geometry">
+        <option value="0.22">Сильное · цель 22%</option>
+        <option value="0.50" selected>Баланс · цель 50%</option>
+        <option value="0.75">Бережно · цель 75%</option>
+        <option value="none">Без упрощения</option>
+      </select></label>
+      <label>Размер текстуры<select id="texture"><option value="512">512 px</option><option value="1024" selected>1024 px</option><option value="2048">2048 px</option><option value="4096">4096 px</option></select></label>
+    </details>
+    <button class="primary" id="preview-opt" disabled>◉ СОЗДАТЬ ПРЕДПРОСМОТР</button>
+    <div class="compare-report" id="compare-report" aria-live="polite">
+      <p>Загрузи модель, выбери качество и нажми «Создать предпросмотр».</p>
+    </div>
+    <p class="tip">Кнопки «Исходник / Результат» появятся поверх 3D-просмотра. Поворачивай модель и сравнивай детали. Для моделей со скелетом упрощение сетки пока отключено, кости и анимации не меняются.</p>
+    <button class="primary save-btn" id="opt-export" disabled>▣ СОХРАНИТЬ ЭТОТ ВАРИАНТ GLB</button>
   </section>
   <section id="tab-convert" class="tab-panel hidden">
     <h2>Конвертация</h2>
-    <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7200" disabled>FBX 7.2 (2012) — в разработке</option><option value="7300" disabled>FBX 7.3 (2013 / старый Mixamo) — в разработке</option><option value="7700" disabled>FBX 7.7+ — в разработке</option></select></label>
-    <p class="tip">Экспорт FBX 2012/2013 пока недоступен. Номер версии не подменяется. Для Godot рекомендуем GLB.</p>
+    <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7200">FBX 7.2 (2012) · Mixamo, экспериментальный</option><option value="7300">FBX 7.3 (2013) · Mixamo, экспериментальный</option><option value="7700" disabled>FBX 7.7+ — в разработке</option></select></label>
+    <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. FBX 2012/2013 доступны в экспериментальном режиме: создаются настоящие двоичные файлы FBX 7.2/7.3. Сначала проверь их загрузкой в Mixamo. Для автоматического риггинга лучше использовать персонажа в T/A-позе без готового скелета.</p>
+    <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-check" class="tab-panel hidden">
