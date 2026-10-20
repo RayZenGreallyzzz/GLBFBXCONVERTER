@@ -197,14 +197,25 @@ async function exportAs(target){
  try{
    const current=modelStats(state.root,state.clips);
    if(target==='glb'){
-     const maxTextureSize=4096;
-     {
-       status('Создаём обычный GLB...');
+     if(state.type==='glb'&&state.sourceBuffer){
+       // A GLB-to-GLB conversion is not needed: re-exporting an already
+       // optimized file with Three.js can rewrite texture payloads, change
+       // material extensions, or inflate the binary. The exact original
+       // bytes are retained, including UV transforms and quantization.
+       const original=state.sourceBuffer;
+       const result=inspectGlb(original);
+       if(result.meshes<1)throw Error('GLB не содержит геометрии');
+       status('GLB уже готов: сохраняем исходные данные без повторного кодирования.');
+       progress(70);
+       await save(original,state.name+'_copy.glb','model/gltf-binary');
+     }else{
+       status('Конвертируем FBX → GLB 2.0...');
        const file=await new GLTFExporter().parseAsync(state.root,{
          binary:true,trs:true,onlyVisible:false,animations:state.clips,
-         maxTextureSize,includeCustomExtensions:false
+         maxTextureSize:4096,includeCustomExtensions:false
        });
-       const result=inspectGlb(file);assertGlbPreserved(current,result,state.clips);
+       const result=inspectGlb(file);
+       assertGlbPreserved(current,result,state.clips);
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
