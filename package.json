@@ -12,7 +12,11 @@
   "dependencies": {
     "@capacitor/core": "^7.0.0",
     "@comfyorg/fbx-exporter-three": "^1.0.2",
-    "three": "0.170.0"
+    "three": "0.170.0",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "meshoptimizer": "^0.25.0"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
