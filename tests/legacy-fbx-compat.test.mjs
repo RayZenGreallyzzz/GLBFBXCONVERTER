@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { FBXExporter } from '@comfyorg/fbx-exporter-three';
 import { inspectFbx } from '../src/format.js';
+import { verifyLegacyFbxMetadata } from '../src/legacy-fbx.js';
 
 function model() {
   const group = new THREE.Group(); group.name='Humanoid';
@@ -31,6 +32,8 @@ for(const version of [7200,7300]){
     });
     const v=inspectFbx(bytes);
     assert.equal(v.version,version,'real binary FBX version is '+version);
+    const meta=verifyLegacyFbxMetadata(bytes,version);
+    assert.equal(meta.internalVersion,version,'FBXHeaderExtension is genuine target version');
     assert.ok(bytes.byteLength>1000);
     const view=bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);
     const result=new FBXLoader().parse(view,'');
@@ -42,3 +45,13 @@ for(const version of [7200,7300]){
     assert.ok((result.animations||[]).length>=1,'animation must survive');
   });
 }
+
+test('rejects a mismatch between binary FBX header and internal version metadata',async()=>{
+ const {group,clip}=model();
+ const data=await new FBXExporter().parseAsync(group,{
+   version:7400,preset:'threejs',animations:[clip],embedTextures:false
+ });
+ const hacked=new Uint8Array(data);
+ new DataView(hacked.buffer).setUint32(23,7300,true);
+ assert.throws(()=>verifyLegacyFbxMetadata(hacked,7300),/FBXHeaderExtension/);
+});
