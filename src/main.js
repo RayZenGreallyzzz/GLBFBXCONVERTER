@@ -5,6 +5,7 @@ import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
+import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
 import './style.css';
 const $=id=>document.getElementById(id),saver=registerPlugin('ModelSaver');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#0a1423');
@@ -17,7 +18,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',busy:false,info:''};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:''};
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
 function buttons(){const active=!!state.root&&!state.busy;$('opt-export').disabled=!active;$('convert-export').disabled=!active}
@@ -53,7 +54,7 @@ async function load(file){
    }else throw Error('Нужен файл GLB или FBX');
    if(!root)throw Error('Модель не найдена');
    if(state.root){scene.remove(state.root);release(state.root)}
-   scene.add(root);state.root=root;state.clips=clips;state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);state.bytes=file.size;state.type=ext;state.info=info;
+   scene.add(root);state.root=root;state.clips=clips;state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);state.bytes=file.size;state.type=ext;state.sourceBuffer=ext==='glb'?data:null;state.info=info;
    $('filename').textContent=file.name;$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),900)}
@@ -85,14 +86,39 @@ async function exportAs(target,optimized){
    const current=modelStats(state.root,state.clips);
    if(target==='glb'){
      const maxTextureSize=optimized?Number($('texture').value):4096;
-     status('Создаём GLB, обрабатываем текстуры…');
-     const file=await new GLTFExporter().parseAsync(state.root,{binary:true,trs:true,onlyVisible:false,animations:state.clips,maxTextureSize,includeCustomExtensions:false});
-     const result=inspectGlb(file);assertGlbPreserved(current,result,state.clips);
-     const forbidden=['KHR_draco_mesh_compression','EXT_meshopt_compression','KHR_texture_basisu','EXT_texture_webp'];
-     if(result.required.some(x=>forbidden.includes(x)))throw Error('Файл требует нестандартное расширение сжатия');
-     const name=state.name+(optimized?'_android_'+maxTextureSize:'_converted')+'.glb';
-     progress(70);status('GLB проверен: '+result.meshes+' мешей, '+result.skins+' скелетов, '+result.animations+' анимаций. Выбери файл…');
-     await save(file,name,'model/gltf-binary');
+     if(optimized){
+       const sourceGLB=state.sourceBuffer||
+         await new GLTFExporter().parseAsync(state.root,{
+           binary:true,trs:true,onlyVisible:false,animations:state.clips,
+           includeCustomExtensions:false
+         });
+       const preset=MOBILE_PRESETS[$('preset').value]||MOBILE_PRESETS.balanced;
+       const geometryMode=$('geometry').value;
+       const ratio=geometryMode==='none'?1:Number(geometryMode)||preset.ratio;
+       const optimizedResult=await optimizeGlb(sourceGLB,{
+         texture:maxTextureSize,ratio,error:preset.error,geometry:ratio<1,
+         onProgress:(percent,message)=>{progress(percent);status(message)}
+       });
+       const file=optimizedResult.bytes;
+       const output=inspectGlb(file);
+       assertGlbPreserved(current,output,state.clips);
+       const before=optimizedResult.sourceTriangles,after=optimizedResult.optimizedTriangles;
+       const name=state.name+'_android_'+maxTextureSize+'.glb';
+       await save(file,name,'model/gltf-binary');
+       status('✓ '+name+' | '+formatSize(optimizedResult.beforeBytes)+' → '+
+         formatSize(optimizedResult.afterBytes)+' | Треугольники: '+
+         before.toLocaleString('ru-RU')+' → '+after.toLocaleString('ru-RU')+
+         (optimizedResult.note?' | '+optimizedResult.note:''));
+     }else{
+       status('Создаём обычный GLB...');
+       const file=await new GLTFExporter().parseAsync(state.root,{
+         binary:true,trs:true,onlyVisible:false,animations:state.clips,
+         maxTextureSize,includeCustomExtensions:false
+       });
+       const result=inspectGlb(file);assertGlbPreserved(current,result,state.clips);
+       progress(70);
+       await save(file,state.name+'_converted.glb','model/gltf-binary');
+     }
    }else{
      const version=Number(target);
      if(![7400,7500].includes(version))throw Error('Этот FBX нельзя достоверно экспортировать в текущем движке');
@@ -108,7 +134,12 @@ async function exportAs(target,optimized){
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
 }
 $('model-file').addEventListener('change',e=>{const file=e.target.files?.[0];e.target.value='';load(file)});
-$('preset').addEventListener('change',e=>{$('texture').value={mobile:'512',balanced:'1024',high:'2048',original:'4096'}[e.target.value]});
+$('preset').addEventListener('change',e=>{
+ const preset=MOBILE_PRESETS[e.target.value]||MOBILE_PRESETS.balanced;
+ $('texture').value=String(preset.texture);
+ $('geometry').value=e.target.value==='original'?'none':
+   String(preset.ratio);
+ });
 $('opt-export').addEventListener('click',()=>exportAs('glb',true));
 $('convert-export').addEventListener('click',()=>exportAs($('target').value,false));
 for(const button of document.querySelectorAll('[data-tab]'))button.addEventListener('click',()=>{
