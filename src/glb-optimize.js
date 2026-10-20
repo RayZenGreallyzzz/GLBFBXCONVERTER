@@ -1,7 +1,7 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
 import { WebIO } from '@gltf-transform/core';
-import { KHRONOS_EXTENSIONS } from '@gltf-transform/extensions';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { weld, simplify } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 
@@ -55,7 +55,7 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
     throw Error('Обработка текстур требует Android/WebView с Canvas');
   for (const texture of document.getRoot().listTextures()) {
     const bytes = texture.getImage(), type = texture.getMimeType();
-    if (!bytes || !['image/jpeg', 'image/png'].includes(type)) {
+    if (!bytes || !['image/jpeg', 'image/png', 'image/webp'].includes(type)) {
       throw Error('Неизвестный формат текстуры: ' + (type || 'нет MIME'));
     }
     const bitmap = await createImageBitmap(new Blob([bytes], { type }));
@@ -64,8 +64,8 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
       const scale = Math.min(1, maxSize / Math.max(width, height));
       const w = Math.max(1, Math.round(width * scale));
       const h = Math.max(1, Math.round(height * scale));
-      const tryJpeg = colorOnly(document, texture) && type === 'image/png';
-      if (scale === 1 && !tryJpeg) {
+      const tryJpeg = colorOnly(document, texture) && type !== 'image/jpeg';
+      if (scale === 1 && type !== 'image/webp' && !tryJpeg) {
         stats.unchanged++;
         continue; // preserve exact original embedded PNG/JPEG bytes.
       }
@@ -75,7 +75,10 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
       const ctx = surface.getContext('2d', { willReadFrequently: tryJpeg });
       if (!ctx) throw Error('Canvas 2D не поддерживается');
       ctx.drawImage(bitmap, 0, 0, w, h);
-      let out = await encodeCanvas(surface, type, quality), outMime = type;
+      // WebP is intentionally decoded to PNG/JPEG so the exported GLB
+      // does not require EXT_texture_webp (not available to every Godot importer).
+      let outMime = type === 'image/webp' ? 'image/png' : type;
+      let out = await encodeCanvas(surface, outMime, quality);
       if (tryJpeg) {
         const image = ctx.getImageData(0, 0, w, h).data;
         let opaque = true;
@@ -89,12 +92,19 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
           }
         }
       }
-      if (out.byteLength < bytes.byteLength || scale < 1) {
+      if (type === 'image/webp' || out.byteLength < bytes.byteLength || scale < 1) {
         texture.setImage(out);
         texture.setMimeType(outMime);
         stats.resized++;
       } else stats.unchanged++;
     } finally { bitmap.close?.(); }
+  }
+  // Drop EXT_texture_webp only AFTER all texture payloads have been
+  // converted, otherwise the exported JSON can still require WebP.
+  if (!document.getRoot().listTextures().some(t => t.getMimeType() === 'image/webp')) {
+    for (const extension of document.getRoot().listExtensionsUsed()) {
+      if (extension.extensionName === 'EXT_texture_webp') extension.dispose();
+    }
   }
   return stats;
 }
@@ -104,12 +114,13 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   if (!originalBuffer) throw Error('Отсутствует исходный GLB');
   const original = originalBuffer instanceof Uint8Array
     ? originalBuffer : new Uint8Array(originalBuffer);
-  const io = new WebIO().registerExtensions(KHRONOS_EXTENSIONS);
+  const io = new WebIO().registerExtensions(ALL_EXTENSIONS);
   onProgress(12, 'Читаем оригинальный GLB без повторного кодирования...');
   const document = await io.readBinary(original);
   const sourceTriangles = countTriangles(document);
   const skins = document.getRoot().listSkins().length;
   const animations = document.getRoot().listAnimations().length;
+  const sourceImages = document.getRoot().listTextures().length;
   onProgress(28, 'Анализируем геометрию и скелеты...');
   let geometryNote = '';
   if (geometry && ratio < 1 && skins === 0 && sourceTriangles > 0) {
@@ -144,8 +155,9 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   if (required.some(e => forbidden.includes(e)))
     throw Error('Результат требует внешнего декодера: ' + required.join(', '));
   if (optimizedIO.getRoot().listSkins().length !== skins ||
-      optimizedIO.getRoot().listAnimations().length !== animations)
-    throw Error('Обнаружена потеря скелета или анимаций. Сохранение отменено.');
+      optimizedIO.getRoot().listAnimations().length !== animations ||
+      optimizedIO.getRoot().listTextures().length !== sourceImages)
+    throw Error('Обнаружена потеря скелета, анимаций или текстур. Сохранение отменено.');
   onProgress(100, 'Готово');
   return { bytes: output, beforeBytes: original.byteLength,
     afterBytes: output.byteLength, sourceTriangles, optimizedTriangles,
