@@ -1,0 +1,46 @@
+name: Build GLB FBX Converter APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test
+        run: npm test
+      - name: Build web frontend
+        run: npm run build
+      - name: Create Android project
+        run: npx cap add android
+      - name: Register native file saver
+        run: |
+          mkdir -p android/app/src/main/java/com/phoenix/glbfbxconverter
+          cp android-native/MainActivity.java android/app/src/main/java/com/phoenix/glbfbxconverter/MainActivity.java
+          cp android-native/ModelSaverPlugin.java android/app/src/main/java/com/phoenix/glbfbxconverter/ModelSaverPlugin.java
+      - name: Sync Android
+        run: npx cap sync android
+      - name: Assemble Android APK
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GLB-FBX-Converter-debug-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

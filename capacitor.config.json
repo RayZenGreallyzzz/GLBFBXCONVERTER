@@ -1,0 +1,8 @@
+{
+  "appId": "com.phoenix.glbfbxconverter",
+  "appName": "GLB FBX Converter",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
