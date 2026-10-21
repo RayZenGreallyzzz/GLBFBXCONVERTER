@@ -235,18 +235,32 @@ async function exportAs(target){
      if(messages.length&&!window.confirm(
         target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
         '\n\nПродолжить экспорт статичной модели?'))return;
-     const useOptimized=target==='obj-mixamo'&&!!state.previewRoot;
+     const mixamoObj=target==='obj-mixamo';
+     const useOptimized=mixamoObj&&$('mixamo-obj-source').value==='preview';
+     if(useOptimized&&!state.previewRoot)throw Error(
+       'Сначала создай предпросмотр на вкладке «Оптимизация» или выбери исходную сетку.');
      const exportRoot=useOptimized?state.previewRoot:state.root;
-     status(target==='obj-mixamo'?'Готовим совместимый OBJ ZIP для Mixamo'+
-       (useOptimized?' из оптимизированной модели':' из исходной модели')+'…':
+     const triangles=mixamoObj?modelStats(exportRoot,[]).triangles:0;
+     if(mixamoObj&&triangles>350000&&!window.confirm(
+       'В выбранной сетке '+triangles.toLocaleString('ru-RU')+
+       ' треугольников. OBJ ZIP может получиться большим, а Mixamo не всегда обрабатывает тяжёлые модели.'+
+       '\\n\\nПродолжить сохранение без упрощения?'))return;
+     status(mixamoObj?'Готовим OBJ ZIP для Mixamo'+
+       (useOptimized?' из предпросмотра':' из исходной модели')+'…':
        'Готовим '+target.toUpperCase()+'…');
-     const file=await exportAdditional(target,exportRoot,state.clips,{name:state.name});
+     const file=await exportAdditional(target,exportRoot,state.clips,{
+       name:state.name,
+       mixamoTextureSize:mixamoObj?Number($('mixamo-obj-texture').value):undefined
+     });
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
      progress(70);
      await save(content,state.name+
        (target==='obj-mixamo'?'_mixamo':'_converted')+
        outputNameExt(target),file.mime);
+     if(mixamoObj && file.largeForMixamo)
+       status('ZIP создан ('+formatSize(content.byteLength)+
+         '). Размер большой: если Mixamo не примет архив, попробуй более лёгкую сетку.');
    }else{
      const version=Number(target);
      if(![7300,7400,7500].includes(version))
@@ -324,6 +338,7 @@ function updateExportWarnings(){
  const target=$('target').value;
  const version=Number(target);
  $('mixamo-notice').hidden=!(version===7300);
+ $('mixamo-obj-quality').hidden=target!=='obj-mixamo';
  const warnings=state.root?getExportWarnings(target,modelStats(state.root,state.clips)):[];
  $('export-warning').hidden=!warnings.length;
  $('export-warning').textContent=warnings.length?'Важно: '+warnings.join('; ')+'.':'';
