@@ -29,9 +29,9 @@ test('autorig flatten removes nested Null objects and preserves world transforms
  const plan=createMixamoAutorigInput(root,[]);
  assert.equal(plan.flat,true);
  assert.equal(plan.meshes,1);
- assert.equal(plan.input.children.length,1);
- assert.equal(plan.input.children[0].isMesh,true);
- assert.equal(plan.input.children[0].getWorldPosition(new THREE.Vector3()).distanceTo(world)<1e-6,true);
+ assert.equal(plan.input.children.length,0,'mesh passed without fake hierarchy');
+ assert.equal(plan.input.isMesh,true);
+ assert.equal(plan.input.getWorldPosition(new THREE.Vector3()).distanceTo(world)<1e-6,true);
  assert.equal(mesh.parent,originalParent,'source hierarchy must not be edited');
  assert.equal(mesh.geometry,originalGeometry);
 });
