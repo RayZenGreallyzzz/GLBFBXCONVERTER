@@ -253,10 +253,22 @@ async function exportAs(target){
      }
      status((mixamo?'Готовим старый FBX для Mixamo ':'Создаём FBX ')+version+'…');
      const {FBXExporter}=await import('@comfyorg/fbx-exporter-three');
-     const file=await new FBXExporter().parseAsync(state.root,{
-       version,preset:mixamo?'threejs':'blender',fps:30,
-       animations:state.clips,embedTextures:true,onlyVisible:false
-     });
+     let file,description='';
+     if(mixamo&&$('mixamo-diffuse').checked){
+       const {exportMixamoDiffuse}=await import('./mixamo-diffuse.js');
+       const output=await exportMixamoDiffuse(
+         state.root,state.clips,version,FBXExporter,
+         {maxTextureSize:Number($('mixamo-texture').value)}
+       );
+       file=output.bytes;
+       description=' | Albedo PNG встроено: '+output.manifest.embeddedPNG+
+         ', DiffuseColor: '+output.manifest.diffuseConnections;
+     }else{
+       file=await new FBXExporter().parseAsync(state.root,{
+         version,preset:mixamo?'threejs':'blender',fps:30,
+         animations:state.clips,embedTextures:true,onlyVisible:false
+       });
+     }
      const checked=inspectFbx(file);
      if(checked.version!==version||!checked.binary)
        throw Error('Экспортёр выдал неверный формат FBX: '+checked.label);
@@ -265,7 +277,10 @@ async function exportAs(target){
        verifyLegacyFbxMetadata(file,version);
      }
      progress(70);
-     await save(file,state.name+(mixamo?'_mixamo_':'_fbx')+version+'.fbx','application/octet-stream');
+     await save(file,state.name+(mixamo&&$('mixamo-diffuse').checked?'_mixamo_diffuse_':mixamo?'_mixamo_':'_fbx')+
+       version+'.fbx','application/vnd.autodesk.fbx');
+     if(description)status('✓ FBX '+version+' создан. '+description+
+       '. Проверь отображение в Mixamo.');
    }
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
