@@ -59,7 +59,8 @@ test('temporary Diffuse material contains map only, no PBR maps, and can be rest
  assert.ok(mesh.material.isMeshPhongMaterial);
  assert.ok(mesh.material.normalMap == null);
  assert.ok(mesh.material.metalnessMap == null);
- assert.equal(mesh.material.map,material.map);
+ assert.notEqual(mesh.material.map,material.map,'export texture is an isolated identity-transform copy');
+ assert.equal(mesh.material.map.image,material.map.image,'the same albedo image bytes are reused');
  assert.equal(session.maps,1);
  session.restore();
  assert.equal(mesh.material,material);
