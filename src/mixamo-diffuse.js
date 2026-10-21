@@ -108,8 +108,16 @@ export function bakeDiffuseUV(object, originalMaps, temps) {
   if(!baked.count){geo.dispose();throw Error('У модели пустая UV-развёртка');}
   // Remove only global integer tile offsets. Keep the triangle topology
   // and any true multi-tile repeats intact.
-  const shiftU=Math.floor(minU+0.000001);
-  const shiftV=Math.floor(minV+0.000001);
+  // Slight rounding in imported KHR_texture_transform can put the first
+  // UV at 14.989 instead of 15.0. Prefer the nearest tile when very close
+  // to its integer boundary so Mixamo receives an atlas in ~0..1 rather
+  // than ~1..2 (which depends on its sampler wrapping).
+  const tileShift = minimum => {
+    const nearest=Math.round(minimum);
+    return Math.abs(minimum-nearest)<0.05?nearest:Math.floor(minimum);
+  };
+  const shiftU=tileShift(minU);
+  const shiftV=tileShift(minV);
   for(let i=0;i<baked.count;i++)baked.setXY(i,baked.getX(i)-shiftU,baked.getY(i)-shiftV);
   baked.needsUpdate=true;
   geo.setAttribute('uv',baked);
