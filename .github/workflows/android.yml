@@ -1,6 +1,8 @@
 name: Build GLB FBX Converter APK
 on:
   push:
+    branches: [main, fix/real-geometry-optimizer]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 permissions:
