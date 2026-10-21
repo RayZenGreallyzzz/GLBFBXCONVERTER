@@ -370,3 +370,14 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 function tick(){requestAnimationFrame(tick);orbit.update();renderer.render(scene,camera)}tick();buttons();
+
+// Launcher overlay only; model processing and preview stay intact.
+function hideBrandSplash(){
+ const el=document.getElementById('brand-splash');
+ if(!el)return;
+ el.classList.add('brand-splash--hide');
+ el.addEventListener('transitionend',()=>el.remove(),{once:true});
+ setTimeout(()=>el.remove(),800);
+}
+if(document.readyState==='complete')setTimeout(hideBrandSplash,1700);
+else window.addEventListener('load',()=>setTimeout(hideBrandSplash,1700),{once:true});
