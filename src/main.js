@@ -121,3 +121,13 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 function tick(){requestAnimationFrame(tick);orbit.update();renderer.render(scene,camera)}tick();buttons();
+// Only the startup overlay is affected; converter/model state is untouched.
+function finishBrandSplash(){
+ const splash=document.getElementById('brand-splash');
+ if(!splash)return;
+ splash.classList.add('brand-splash--hide');
+ splash.addEventListener('transitionend',()=>splash.remove(),{once:true});
+ setTimeout(()=>splash.remove(),550);
+}
+if(document.readyState==='complete')setTimeout(finishBrandSplash,1650);
+else window.addEventListener('load',()=>setTimeout(finishBrandSplash,1650),{once:true});
