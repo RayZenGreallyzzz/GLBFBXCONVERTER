@@ -4,6 +4,7 @@ import { WebIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { weld, simplify, resample } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
+import { simplifySkinnedMeshes } from './skin-simplify.js';
 
 export const MOBILE_PRESETS = Object.freeze({
   mobile: { texture: 512, ratio: 0.22, error: 0.07 },
@@ -144,8 +145,14 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
       simplifier: MeshoptSimplifier, ratio, error,
       lockBorder: true, cleanup: true
     }));
-  } else if (plan.geometry && skins) {
-    geometryNote = 'Для скелетной модели сетка оставлена без изменений: безопасный перенос весов пока не реализован.';
+  } else if (plan.geometry && skins && sourceTriangles>0) {
+    onProgress(35, 'Защищаем суставы, UV и веса костей при упрощении сетки...');
+    const stats=await simplifySkinnedMeshes(document,{ratio,error});
+    geometryNote=stats.reduced
+      ?'Скелетная сетка: '+stats.trianglesBefore.toLocaleString('ru-RU')+
+       ' → '+stats.trianglesAfter.toLocaleString('ru-RU')+
+       ' треугольников. Веса и кости сохранены.'
+      :'Скелетная сетка: безопасных сокращений не найдено, веса и кости не изменены.';
   } else {
     geometryNote = 'Сетка оставлена без изменений по выбору пользователя.';
   }
