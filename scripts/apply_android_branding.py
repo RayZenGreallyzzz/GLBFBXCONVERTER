@@ -14,6 +14,17 @@ for f in (ICON, SPLASH):
 
 icon = Image.open(ICON).convert("RGBA")
 splash = Image.open(SPLASH).convert("RGB")
+
+# Capacitor 7's default Android template also contains
+# drawable-anydpi-v24/ic_launcher_foreground.xml. On Android 8+, this more
+# specific XML *wins* over drawable/ic_launcher_foreground.png, showing the
+# template's old foreground despite our PNG being packaged correctly.
+# Remove ALL variant-specific foreground vectors, not just drawable/*.xml.
+old_vectors = sorted(RES.rglob("ic_launcher_foreground.xml"))
+for old_vector in old_vectors:
+    old_vector.unlink()
+    print("Removed overriding Android launcher vector:", old_vector.relative_to(RES))
+
 if icon.width < 400 or icon.height < 400 or splash.height < 900:
     raise SystemExit("Brand images have unexpectedly small dimensions")
 
@@ -41,9 +52,20 @@ foreground.alpha_composite(
     icon.resize((400, 400), Image.Resampling.LANCZOS), (16, 16)
 )
 foreground.save(drawable / "ic_launcher_foreground.png", optimize=True)
-old_vector_foreground = drawable / "ic_launcher_foreground.xml"
-if old_vector_foreground.exists():
-    old_vector_foreground.unlink()
+# Keep the Android Studio default foreground density names in sync as well,
+# even if a launcher selects mipmap rather than drawable by manufacturer.
+for density, size in {
+    "mdpi": 108, "hdpi": 162, "xhdpi": 216,
+    "xxhdpi": 324, "xxxhdpi": 432
+}.items():
+    folder = RES / f"mipmap-{density}"
+    folder.mkdir(parents=True, exist_ok=True)
+    foreground.resize((size, size), Image.Resampling.LANCZOS).save(
+        folder / "ic_launcher_foreground.png", optimize=True
+    )
+assert not list(RES.rglob("ic_launcher_foreground.xml")), (
+    "An Android resource qualifier overrides the new mascot PNG icon"
+)
 
 values = RES / "values"
 values.mkdir(parents=True, exist_ok=True)
