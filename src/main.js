@@ -230,17 +230,23 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
-   }else if(['gltf','obj','ply','ply-lite','stl','usdz'].includes(target)){
+   }else if(['gltf','obj','obj-mixamo','ply','ply-lite','stl','usdz'].includes(target)){
      const messages=getExportWarnings(target,current);
      if(messages.length&&!window.confirm(
         target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
         '\n\nПродолжить экспорт статичной модели?'))return;
-     status('Готовим '+target.toUpperCase()+'…');
-     const file=await exportAdditional(target,state.root,state.clips,{name:state.name});
+     const useOptimized=target==='obj-mixamo'&&!!state.previewRoot;
+     const exportRoot=useOptimized?state.previewRoot:state.root;
+     status(target==='obj-mixamo'?'Готовим совместимый OBJ ZIP для Mixamo'+
+       (useOptimized?' из оптимизированной модели':' из исходной модели')+'…':
+       'Готовим '+target.toUpperCase()+'…');
+     const file=await exportAdditional(target,exportRoot,state.clips,{name:state.name});
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
      progress(70);
-     await save(content,state.name+'_converted'+outputNameExt(target),file.mime);
+     await save(content,state.name+
+       (target==='obj-mixamo'?'_mixamo':'_converted')+
+       outputNameExt(target),file.mime);
    }else{
      const version=Number(target);
      if(![7300,7400,7500].includes(version))
