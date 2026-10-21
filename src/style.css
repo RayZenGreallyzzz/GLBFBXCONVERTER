@@ -30,5 +30,5 @@
 
 /* Branded startup illustration, no changes to viewer/renderer. */
 .brand-splash{position:fixed;inset:0;z-index:9999;background:#090d1f;display:flex;align-items:center;justify-content:center;transition:opacity .4s ease;opacity:1;pointer-events:all}
-.brand-splash img{height:100%;width:100%;object-fit:contain;object-position:center}
+.brand-splash img{height:100%;width:100%;object-fit:cover;object-position:center}
 .brand-splash.brand-splash--hide{opacity:0;pointer-events:none}
