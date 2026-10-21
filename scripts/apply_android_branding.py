@@ -19,6 +19,9 @@ draw=ImageDraw.Draw(canvas)
 draw.ellipse((15,15,497,497),outline=(34,216,246,255),width=12)
 draw.arc((28,28,484,484),15,220,fill=(234,42,220,255),width=9)
 canvas.alpha_composite(icon.convert("RGBA"))
+draw=ImageDraw.Draw(canvas)
+draw.ellipse((15,15,497,497),outline=(34,216,246,255),width=10)
+draw.arc((28,28,484,484),15,220,fill=(234,42,220,255),width=8)
 # Compact launcher densities.
 for density,size in {"mdpi":48,"hdpi":72,"xhdpi":96,"xxhdpi":144,"xxxhdpi":192}.items():
     folder=APP/f"mipmap-{density}";folder.mkdir(parents=True,exist_ok=True)
@@ -52,4 +55,7 @@ splash.paste(art,((720-art.width)//2,140))
 d=ImageDraw.Draw(splash)
 d.text((165,1180),"PHOENIX MODEL FORGE",fill=(102,227,249))
 splash.save(drawable/"splash.png",optimize=True)
+web_splash=ROOT/"dist"/"branding"/"splash.png"
+web_splash.parent.mkdir(parents=True,exist_ok=True)
+splash.save(web_splash,optimize=True)
 print("Installed mascot launcher and portrait splash",canvas.size,splash.size)
