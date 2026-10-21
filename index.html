@@ -12,14 +12,14 @@
 <main>
 <section class="view">
   <div id="viewport">
-    <div id="empty">Загрузи 3D-модель: GLB, FBX, glTF, VRM, OBJ, PLY, STL, DAE, USDZ</div>
+    <div id="empty">Загрузи 3D-модель или BVH-движение: GLB, FBX, glTF, VRM, OBJ, PLY, STL, DAE, USDZ, BVH</div>
     <div id="preview-switch" class="preview-switch" hidden>
       <button type="button" id="view-original" class="active" aria-pressed="true">Исходник</button>
       <button type="button" id="view-optimized" aria-pressed="false">Результат</button>
     </div>
     <div id="view-label" class="view-label" hidden>Исходная модель</div>
   </div>
-  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ply,.stl,.dae,.usdz"></label><span id="filename">Файл не выбран</span></div>
+  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ply,.stl,.dae,.usdz,.bvh"></label><span id="filename">Файл не выбран</span></div>
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
@@ -62,6 +62,7 @@
     <h2>Конвертация 3D-моделей</h2><p class="tip">Выбери выходной формат. Для glTF выбирай .gltf + .bin + изображения; для OBJ — .obj + .mtl + изображения. Выбрать несколько файлов можно за один раз. Все операции работают офлайн.</p>
     <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7300">FBX 7.3 (2013) · Mixamo</option><option value="7700" disabled>FBX 7.7+ — в разработке</option>
 <option value="gltf">glTF 2.0 (один JSON со встроенными ресурсами)</option>
+<option value="vrm-source">VRM (.vrm) — точная копия VRM-источника</option>
 <option value="obj-mixamo">OBJ для Mixamo — Diffuse + MTL + PNG (ZIP)</option>
 <option value="obj">OBJ + MTL + все PBR-текстуры (ZIP)</option>
 <option value="ply">PLY полный · нормали, UV, цвета</option>
@@ -87,7 +88,7 @@
       </label>
       <p class="tip">PNG не увеличивается искусственно: если в исходной модели текстура 512 px, выбор 4096 px не добавит ей деталей. Ограничение по числу полигонов снято, но крупные архивы могут долго обрабатываться или не приниматься Mixamo.</p>
     </div>
-    <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. Для Mixamo оставлен FBX 2013 (7.3), однако правильность материалов и анимаций нужно проверить в Mixamo. Компактный PLY убирает нормали, UV и цвета вершин, но не уменьшает число полигонов. Обычный OBJ сохраняется единым ZIP: геометрия, MTL и доступные карты текстур. Для Mixamo используй отдельный OBJ-профиль: только цветная Albedo, простой MTL и ZIP — сам архив загружай в Mixamo без распаковки.
+    <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. Для Mixamo оставлен FBX 2013 (7.3), однако правильность материалов и анимаций нужно проверить в Mixamo. Компактный PLY убирает нормали, UV и цвета вершин, но не уменьшает число полигонов. BVH (.bvh) можно загрузить и посмотреть движения костей, но перенос на персонажа требует настройки соответствия костей. VRM (.vrm) можно безопасно сохранить без изменений, а полноценный VRM-экспорт из обычного GLB пока не реализован. Обычный OBJ сохраняется единым ZIP: геометрия, MTL и доступные карты текстур. Для Mixamo используй отдельный OBJ-профиль: только цветная Albedo, простой MTL и ZIP — сам архив загружай в Mixamo без распаковки.
 Для Mixamo можно отдельно выбрать исходную сетку или созданный предпросмотр и размер цветной текстуры. Чем больше исходная модель, тем сложнее Mixamo обработать архив. Для других программ распаковывай OBJ, MTL и PNG в одну папку. Скелет и анимации формат OBJ не поддерживает. Для автоматического риггинга лучше использовать персонажа в T/A-позе без готового скелета.</p>
     <div id="export-warning" class="compare-report" hidden role="note"></div>
     <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
