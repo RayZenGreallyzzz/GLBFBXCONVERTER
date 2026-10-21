@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { unzipSync, strFromU8 } from 'fflate';
 globalThis.requestAnimationFrame ??= callback => setTimeout(callback,0);
 import { importAdditional, importObjWithMaterials, exportAdditional, getExportWarnings,
- SUPPORTED_INPUTS, SUPPORTED_OUTPUTS, validateImportFiles } from '../src/model-formats.js';
+ SUPPORTED_INPUTS, SUPPORTED_OUTPUTS, validateImportFiles, outputNameExt as outputNameExtForTest } from '../src/model-formats.js';
 
 function tinyMesh() {
  const root=new THREE.Group();
@@ -23,15 +24,23 @@ test('offline format matrix includes all promised basic additions',()=>{
    assert.ok(SUPPORTED_OUTPUTS.includes(ext),'export '+ext);
  assert.equal(SUPPORTED_INPUTS.includes('usd'),false,'do not claim unsupported USD input');
 });
-test('OBJ round trip imports static triangles without internet',async()=>{
- const text=await exportAdditional('obj',tinyMesh());
- assert.equal(text.mime,'text/plain');
- assert.match(text.content,/^v /m);
- const [file,data]=input('mesh.obj',text.content);
- const result=await importAdditional(file,data);
- assert.ok(result.root);
+test('OBJ ZIP contains linked OBJ and MTL, and plain OBJ can be imported',async()=>{
+ const result=await exportAdditional('obj',tinyMesh(),[],{name:'hero'});
+ assert.equal(result.mime,'application/zip');
+ const files=unzipSync(result.content);
+ assert.ok(files['hero.obj']);
+ assert.ok(files['hero.mtl']);
+ assert.ok(files['README.txt']);
+ const obj=strFromU8(files['hero.obj']),mtl=strFromU8(files['hero.mtl']);
+ assert.match(obj,/^mtllib hero\.mtl$/m);
+ assert.match(obj,/^usemtl Mat_001_/m);
+ assert.match(obj,/^v /m);
+ assert.match(mtl,/^newmtl Mat_001_/m);
+ const [file,data]=input('hero.obj',obj.replace(/^mtllib [^\n]+\n/,''));
+ const parsed=await importAdditional(file,data);
+ assert.ok(parsed.root);
  let faces=0;
- result.root.traverse(n=>{if(n.isMesh)faces++});
+ parsed.root.traverse(n=>{if(n.isMesh)faces++});
  assert.ok(faces>0);
 });
 test('PLY binary round trip',async()=>{
@@ -109,4 +118,82 @@ test('the modern Mixamo menu provides 2013 but does not advertise 2012',()=>{
  assert.ok(SUPPORTED_OUTPUTS.includes('fbx7300'));
  assert.ok(!SUPPORTED_OUTPUTS.includes('fbx7200'));
  assert.ok(SUPPORTED_OUTPUTS.includes('ply-lite'));
+});
+
+
+test('textured OBJ ZIP stores color PNG, matching MTL references, and UV transform',async()=>{
+ const image=new THREE.DataTexture(new Uint8Array([
+   255,0,0,255,0,255,0,255,
+   0,0,255,255,255,255,255,255
+ ]),2,2,THREE.RGBAFormat);
+ image.name='Goblin_Albedo';image.needsUpdate=true;image.flipY=false;
+ image.repeat.set(16,16);image.offset.set(0,.125);
+ const mesh=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+   new THREE.MeshStandardMaterial({name:'Goblin_Skin',map:image}));
+ mesh.name='Goblin';
+ const root=new THREE.Group();root.add(mesh);
+ const beforeUV=Array.from(mesh.geometry.getAttribute('uv').array);
+ const file=await exportAdditional('obj',root,[],{name:'goblin'});
+ const parts=unzipSync(file.content);
+ const obj=strFromU8(parts['goblin.obj']);
+ const mtl=strFromU8(parts['goblin.mtl']);
+ assert.equal(file.textures,1);
+ assert.match(mtl,/^map_Kd texture_001_Goblin_Albedo\.png$/m);
+ assert.ok(parts['texture_001_Goblin_Albedo.png']);
+ const png=parts['texture_001_Goblin_Albedo.png'];
+ assert.deepEqual([...png.slice(0,8)],[137,80,78,71,13,10,26,10]);
+ assert.equal(new DataView(png.buffer,png.byteOffset+16).getUint32(0,false),2);
+ assert.match(obj,/^mtllib goblin\.mtl$/m);
+ assert.match(obj,/^usemtl Mat_001_Goblin_Skin$/m);
+ const lines=obj.split('\n').filter(l=>l.startsWith('vt '));
+ assert.ok(lines.length>0);
+ const converted=lines.map(x=>x.split(' ').slice(1).map(Number));
+ assert.ok(Math.max(...converted.map(x=>x[0]))>1,'texture repeat is baked into OBJ UV');
+ assert.deepEqual(Array.from(mesh.geometry.getAttribute('uv').array),beforeUV,
+   'source geometry must not be modified by archive creation');
+ assert.equal(image.repeat.x,16);
+ assert.equal(image.offset.y,.125);
+});
+test('OBJ ZIP preserves both material slots and images for one multi-material mesh',async()=>{
+ const geometry=new THREE.BufferGeometry();
+ geometry.setAttribute('position',new THREE.Float32BufferAttribute([
+   0,0,0,1,0,0,1,1,0,0,1,0
+ ],3));
+ geometry.setAttribute('uv',new THREE.Float32BufferAttribute([
+   0,0,1,0,1,1,0,1
+ ],2));
+ geometry.setIndex([0,1,2,0,2,3]);
+ geometry.addGroup(0,3,0);geometry.addGroup(3,3,1);
+ const colorTex=(name,c)=>{
+   const t=new THREE.DataTexture(new Uint8Array([...c,255]),1,1,THREE.RGBAFormat);
+   t.name=name;t.flipY=false;t.needsUpdate=true;return t;
+ };
+ const material1=new THREE.MeshStandardMaterial({name:'Armor',map:colorTex('armor',[1,2,3])});
+ const material2=new THREE.MeshStandardMaterial({name:'Cape',map:colorTex('cape',[4,5,6])});
+ const mesh=new THREE.Mesh(geometry,[material1,material2]);
+ const src=new THREE.Group();src.add(mesh);
+ const archived=await exportAdditional('obj',src,[],{name:'hero'});
+ const unpacked=unzipSync(archived.content),obj=strFromU8(unpacked['hero.obj']);
+ const mtl=strFromU8(unpacked['hero.mtl']);
+ assert.equal((obj.match(/^usemtl /gm)||[]).length,2);
+ assert.equal((obj.match(/^f /gm)||[]).length,2);
+ assert.equal((mtl.match(/^map_Kd /gm)||[]).length,2);
+ assert.equal(archived.textures,2);
+ assert.ok(unpacked['texture_001_armor.png']);
+ assert.ok(unpacked['texture_002_cape.png']);
+ assert.equal(mesh.material[0],material1);
+ assert.equal(mesh.material[1],material2);
+});
+test('OBJ with texture that cannot be encoded fails instead of dropping PNG',async()=>{
+ const texture=new THREE.Texture(); texture.name='MissingTexture';
+ const scene=new THREE.Group();
+ scene.add(new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
+   new THREE.MeshStandardMaterial({map:texture})));
+ await assert.rejects(exportAdditional('obj',scene,[],{name:'test'}),/нет изображения/);
+});
+test('OBJ no longer incorrectly warns that texture images are dropped',()=>{
+ const warnings=getExportWarnings('obj',{skinned:1,bones:3,animations:1,textures:2});
+ assert.ok(!warnings.some(s=>s.includes('Изображения текстур не будут сохранены')));
+ assert.ok(warnings.some(s=>s.includes('PBR')));
+ assert.equal(outputNameExtForTest('obj'),'.zip');
 });
