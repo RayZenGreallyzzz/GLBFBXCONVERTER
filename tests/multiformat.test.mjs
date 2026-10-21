@@ -197,3 +197,52 @@ test('OBJ no longer incorrectly warns that texture images are dropped',()=>{
  assert.ok(warnings.some(s=>s.includes('PBR')));
  assert.equal(outputNameExtForTest('obj'),'.zip');
 });
+
+
+test('Mixamo ZIP is only OBJ, MTL, Albedo PNG with simple color material',async()=>{
+ const rgba=new THREE.DataTexture(
+   new Uint8Array([220,100,20,255,22,110,40,255,55,60,230,255,80,90,100,255]),
+   2,2,THREE.RGBAFormat);
+ rgba.name='Albedo_Goblin';rgba.flipY=false;rgba.needsUpdate=true;
+ const normals=new THREE.DataTexture(new Uint8Array(16).fill(127),2,2,THREE.RGBAFormat);
+ normals.name='Normal_Goblin';normals.flipY=false;normals.needsUpdate=true;
+ normals.repeat.set(3,3);
+ rgba.repeat.set(16,16);
+ const scene=new THREE.Group();
+ scene.add(new THREE.Mesh(new THREE.BoxGeometry(),
+   new THREE.MeshStandardMaterial({name:'GreenSkin',map:rgba,normalMap:normals})));
+ const archive=await exportAdditional('obj-mixamo',scene,[],{name:'goblin'});
+ const files=unzipSync(archive.content),names=Object.keys(files).sort();
+ assert.deepEqual(names,['goblin.mtl','goblin.obj','texture_001_Albedo_Goblin.png']);
+ assert.equal(archive.profile,'mixamo');
+ const mtl=strFromU8(files['goblin.mtl']),obj=strFromU8(files['goblin.obj']);
+ assert.match(mtl,/^map_Kd texture_001_Albedo_Goblin\.png$/m);
+ assert.match(mtl,/^illum 1$/m);
+ assert.match(mtl,/^Ks 0 0 0$/m);
+ assert.doesNotMatch(mtl,/^(?:norm|map_Pr|map_Pm|map_Bump)\s/m);
+ assert.match(obj,/^mtllib goblin\.mtl$/m);
+ assert.match(obj,/^usemtl Mat_001_GreenSkin$/m);
+ assert.equal(rgba.repeat.x,16,'source UV transformation is unchanged');
+ assert.equal(normals.repeat.x,3,'PBR normal transformation is unchanged');
+});
+test('Mixamo profile rejects gigantic geometry with actionable warning',async()=>{
+ const scene=new THREE.Group(),mesh=new THREE.Mesh(new THREE.BoxGeometry(),
+   new THREE.MeshBasicMaterial());
+ mesh.geometry.setIndex(new Uint32Array(350001*3));
+ scene.add(mesh);
+ await assert.rejects(
+   exportAdditional('obj-mixamo',scene,[],{name:'huge'}),
+   /Экономия/
+ );
+});
+test('Mixamo profile keeps material color for untextured geometry',async()=>{
+ const scene=new THREE.Group();
+ scene.add(new THREE.Mesh(new THREE.PlaneGeometry(),
+   new THREE.MeshStandardMaterial({color:0x558855})));
+ const result=await exportAdditional('obj-mixamo',scene,[],{name:'simple'});
+ const z=unzipSync(result.content);
+ assert.deepEqual(Object.keys(z).sort(),['simple.mtl','simple.obj']);
+ assert.match(strFromU8(z['simple.mtl']),/Kd 0\.\d+ 0\.\d+ 0\.\d+/);
+ assert.ok(getExportWarnings('obj-mixamo',{skinned:1,bones:3,animations:1,textures:2})
+   .some(w=>w.includes('Albedo')));
+});
