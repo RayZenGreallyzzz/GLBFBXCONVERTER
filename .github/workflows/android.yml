@@ -51,9 +51,26 @@ jobs:
           chmod +x android/gradlew
           cd android
           ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Verify icon and splash packed inside Android APK
+        run: |
+          set -e
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -Z1 "$APK" > /tmp/phoenix-apk-filelist.txt
+          grep -q 'ic_launcher_foreground.png' /tmp/phoenix-apk-filelist.txt
+          grep -q 'ic_launcher.png' /tmp/phoenix-apk-filelist.txt
+          grep -q 'splash.png' /tmp/phoenix-apk-filelist.txt
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          icon=Image.open('android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png')
+          splash=Image.open('android/app/src/main/res/drawable/splash.png')
+          assert icon.size==(192,192) and splash.size==(720,1280)
+          assert Path('dist/branding/splash.png').stat().st_size>100000
+          print('Verified new 192px launcher and full-screen 720x1280 splash in APK')
+          PY
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Model-Forge-Mascot-MultiFormat-APK
+          name: Phoenix-Model-Forge-Neon-MultiFormat-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
