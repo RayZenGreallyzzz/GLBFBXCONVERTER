@@ -66,6 +66,66 @@ function reducedAlbedo(texture,maxSize,temps){
   return reduced;
 }
 
+
+/**
+ * Meshy/GLB commonly packs the UV islands in a 1/16 tile and stores a
+ * 16x repeat + offset in KHR_texture_transform (Three.Texture.matrix).
+ * Mixamo may ignore the FBX Texture.Translation/Scaling fields.
+ * Bake that matrix into *temporary* geometry UVs and emit an identity FBX
+ * texture transform. Use a whole-tile shift so an atlas at UV 15..16 is
+ * moved to UV 0..1 without breaking seams across triangles.
+ */
+export function bakeDiffuseUV(object, originalMaps, temps) {
+  const originals = originalMaps.filter(t=>t?.isTexture);
+  if (!originals.length) return {changed:false, restore:()=>{}};
+  const original = originals[0];
+  original.updateMatrix();
+  const transform = original.matrix.clone();
+  const channel = original.channel??0;
+  for (const other of originals.slice(1)) {
+    other.updateMatrix();
+    if ((other.channel??0)!==channel ||
+        !other.matrix.elements.every((v,i)=>Math.abs(v-transform.elements[i])<1e-6))
+      throw Error('У меша разные преобразования Albedo в нескольких материалах. Нужна разбивка материалов — безопасный FBX не создан.');
+  }
+  const attributeName=channel===0?'uv':channel===1?'uv1':channel===2?'uv2':channel===3?'uv3':null;
+  const uv=attributeName&&object.geometry?.getAttribute(attributeName);
+  if(!uv||uv.itemSize!==2)
+    throw Error('Albedo использует UV-канал '+channel+', но этот канал отсутствует в геометрии');
+  // Convert transform into an attribute on a disposable geometry copy.
+  const geo=object.geometry.clone();
+  const baked=uv.clone();
+  const sample=new THREE.Vector2();
+  let minU=Infinity,minV=Infinity,maxU=-Infinity,maxV=-Infinity;
+  for(let i=0;i<baked.count;i++){
+    sample.set(uv.getX(i),uv.getY(i)).applyMatrix3(transform);
+    if(!Number.isFinite(sample.x)||!Number.isFinite(sample.y))
+      throw Error('Неверные UV-координаты после преобразования текстуры');
+    baked.setXY(i,sample.x,sample.y);
+    minU=Math.min(minU,sample.x);maxU=Math.max(maxU,sample.x);
+    minV=Math.min(minV,sample.y);maxV=Math.max(maxV,sample.y);
+  }
+  if(!baked.count){geo.dispose();throw Error('У модели пустая UV-развёртка');}
+  // Remove only global integer tile offsets. Keep the triangle topology
+  // and any true multi-tile repeats intact.
+  const shiftU=Math.floor(minU+0.000001);
+  const shiftV=Math.floor(minV+0.000001);
+  for(let i=0;i<baked.count;i++)baked.setXY(i,baked.getX(i)-shiftU,baked.getY(i)-shiftV);
+  baked.needsUpdate=true;
+  geo.setAttribute('uv',baked);
+  const originalGeometry=object.geometry;
+  object.geometry=geo;
+  temps.push(geo);
+  return {
+    changed:Math.abs(transform.elements[0]-1)>1e-6 ||
+      Math.abs(transform.elements[4]-1)>1e-6 ||
+      transform.elements.some((v,i)=>(i===6||i===7)&&Math.abs(v)>1e-6),
+    sourceSpan:[minU,maxU,minV,maxV],
+    tileShift:[shiftU,shiftV],
+    restore:()=>{object.geometry=originalGeometry}
+  };
+}
+
 function diffuseMaterial(original,uvAvailable,maxSize,temps,textureCache){
   if(!original)return null;
   const sourceMap=original.map?.isTexture?original.map:null;
@@ -73,8 +133,20 @@ function diffuseMaterial(original,uvAvailable,maxSize,temps,textureCache){
     throw Error('У меша есть Albedo-текстура, но отсутствуют UV-координаты');
   let map=null;
   if(sourceMap){
-    if(!textureCache.has(sourceMap))
-      textureCache.set(sourceMap,reducedAlbedo(sourceMap,maxSize,temps));
+    if(!textureCache.has(sourceMap)){
+      const texture=reducedAlbedo(sourceMap,maxSize,temps).clone();
+      // UVs have been baked into a copy of the geometry; FBX must NOT
+      // specify its old 16x repeat / offset a second time.
+      texture.offset.set(0,0);
+      texture.repeat.set(1,1);
+      texture.rotation=0;
+      texture.center.set(0,0);
+      texture.channel=0;
+      texture.updateMatrix();
+      texture.name=(sourceMap.name||'Albedo')+'_Mixamo_UVBaked';
+      temps.push(texture);
+      textureCache.set(sourceMap,texture);
+    }
     map=textureCache.get(sourceMap);
   }
   // MeshPhongMaterial maps to FbxSurfacePhong / DiffuseColor in the exporter.
@@ -102,10 +174,12 @@ export function prepareMixamoDiffuse(root,{maxTextureSize=2048}={}){
   if(![512,1024,2048,4096].includes(maxTextureSize))
     throw Error('Недопустимое разрешение Albedo');
   const modified=[],temporaries=[],textureCache=new Map();
-  let maps=0,meshes=0;
+  let maps=0,meshes=0,uvBaked=0;
   const restore=()=>{
-    for(let i=modified.length-1;i>=0;i--)
+    for(let i=modified.length-1;i>=0;i--){
       modified[i].object.material=modified[i].material;
+      modified[i].object.geometry=modified[i].geometry;
+    }
     modified.length=0;
     for(const temp of temporaries)temp.dispose();
     temporaries.length=0;
@@ -118,14 +192,19 @@ export function prepareMixamoDiffuse(root,{maxTextureSize=2048}={}){
       const uv=!!object.geometry?.getAttribute('uv');
       const materials=Array.isArray(original)?original:[original];
       maps+=materials.filter(m=>m?.map?.isTexture).length;
+      const sourceMaps=materials.map(m=>m?.map||null);
+      // Bake while the original material and original geometry are available.
+      const originalGeometry=object.geometry;
+      modified.push({object,material:original,geometry:originalGeometry});
+      const operation=bakeDiffuseUV(object,sourceMaps,temporaries);
+      if(operation.changed)uvBaked++;
       const replacement=materials.map(m=>diffuseMaterial(
         m,uv,maxTextureSize,temporaries,textureCache
       ));
-      modified.push({object,material:original});
       object.material=Array.isArray(original)?replacement:replacement[0];
     });
     if(meshes<1)throw Error('В модели нет геометрии для FBX');
-    return {restore,meshes,maps,maxTextureSize};
+    return {restore,meshes,maps,uvBaked,maxTextureSize};
   }catch(error){
     restore();
     throw error;
@@ -167,7 +246,7 @@ export async function exportMixamoDiffuse(root,animations,version,FBXExporterCla
     });
     verifyLegacyFbxMetadata(bytes,version);
     if(!manifest)throw Error('Проверка подключения текстур FBX не выполнена');
-    return {bytes,manifest,sourceMaps:session.maps};
+    return {bytes,manifest,sourceMaps:session.maps,uvBaked:session.uvBaked};
   }finally{
     session.restore();
   }
