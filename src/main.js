@@ -6,6 +6,7 @@ import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
+import { inspectVrm } from './vrm-safe.js';
 import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
  SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
@@ -20,14 +21,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,bvhOnly:false,mixer:null};
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
 function buttons(){
  const ready=!!state.root&&!state.busy;
- $('preview-opt').disabled=!ready;
+ const hasMesh=ready&&!state.bvhOnly;
+ $('preview-opt').disabled=!hasMesh;
  $('opt-export').disabled=!ready||!state.preview;
- $('convert-export').disabled=!ready;
+ $('convert-export').disabled=!hasMesh;
  document.querySelectorAll('[data-quality]').forEach(b=>b.disabled=state.busy);
  $('view-original').disabled=!ready||!state.previewRoot;
  $('view-optimized').disabled=!ready||!state.previewRoot;
@@ -97,7 +99,7 @@ function display(){
  $('compat').textContent=state.info+'\n'+
    (m.skinned?'Есть привязка к скелету; проверь анимацию в Godot.':'Скелет отсутствует либо не привязан.')+
    '\nПоддерживаемые входные форматы: '+SUPPORTED_INPUTS.map(x=>x.toUpperCase()).join(', ')+
-   '\nUSD/USDC и VRM-экспорт в текущей версии не поддерживаются.';
+   '\nUSD/USDC и создание нового VRM из GLB пока не поддерживаются. VRM-источник можно сохранить без изменений.';
 }
 async function load(file,attachments=[file]){
  if(!file||state.busy)return;
@@ -114,16 +116,22 @@ async function load(file,attachments=[file]){
    }else if(ext==='fbx'){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
      info=check.label+'. FBX может импортироваться не полностью: проверь материалы и движения.';
-   }else if(['gltf','vrm','obj','ply','stl','dae','usdz'].includes(ext)){
+   }else if(['gltf','vrm','obj','ply','stl','dae','usdz','bvh'].includes(ext)){
      const result=await importAdditional(file,data,attachments);
      root=result.root;clips=result.clips||[];info=result.notice;
    }else throw Error('Неизвестный входной формат: '+ext);
    if(!root)throw Error('Модель не найдена');
    discardPreview();
+   if(state.mixer){state.mixer.stopAllAction();state.mixer.uncacheRoot(state.root);state.mixer=null;}
    if(state.root){scene.remove(state.root);release(state.root)}
    scene.add(root);state.root=root;state.clips=clips;
+   state.bvhOnly=ext==='bvh';
+   if(state.bvhOnly && clips.length){
+     state.mixer=new THREE.AnimationMixer(root);
+     state.mixer.clipAction(clips[0]).play();
+   }
    state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
-   state.bytes=file.size;state.type=ext;state.sourceBuffer=ext==='glb'?data:null;state.info=info;
+   state.bytes=file.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
    updateExportWarnings();
    $('filename').textContent=file.name;$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
@@ -244,6 +252,12 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
+   }else if(target==='vrm-source'){
+     if(state.type!=='vrm'||!state.sourceBuffer)
+       throw Error('Точная VRM-копия доступна только для исходного файла .vrm. GLB требует настройки VRM Humanoid.');
+     const checked=inspectVrm(state.sourceBuffer);
+     status('Сохраняем '+checked.vrmVersion+' без изменения выражений, физики, рига и метаданных…');
+     await save(state.sourceBuffer,state.name+'_original.vrm','model/gltf-binary');
    }else if(['gltf','obj','obj-mixamo','ply','ply-lite','stl','usdz'].includes(target)){
      const messages=getExportWarnings(target,current);
      if(messages.length&&!window.confirm(
@@ -369,7 +383,8 @@ new ResizeObserver(()=>{
  renderer.setSize(area.clientWidth,area.clientHeight,false);
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
-function tick(){requestAnimationFrame(tick);orbit.update();renderer.render(scene,camera)}tick();buttons();
+const playbackClock=new THREE.Clock();
+function tick(){requestAnimationFrame(tick);if(state.mixer)state.mixer.update(Math.min(playbackClock.getDelta(),.1));else playbackClock.getDelta();orbit.update();renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){
