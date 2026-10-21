@@ -176,7 +176,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
       textureStats,removedKeys:0,unchanged:true,
       note:message+' Исходные байты GLB сохранены без повторного кодирования.'};
   };
-  if(!changed) return unchangedResult('Изменений нет: модель уже оптимизирована или выбранные части не требуют обработки.');
+  if(!changed) return unchangedResult(geometryNote+' Изменений нет: модель уже оптимизирована или выбранные части не требуют обработки.');
   onProgress(86, 'Собираем стандартный GLB 2.0 для Godot...');
   const output = await io.writeBinary(document);
   if (output.byteLength >= original.byteLength)
