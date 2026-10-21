@@ -85,12 +85,11 @@ function displayComparison(result){
 }
 function display(){
  const m=modelStats(state.root,state.clips);
- $('opt-geometry').disabled=m.skinned>0;
- if(m.skinned>0)$('opt-geometry').checked=false;
+ $('opt-geometry').disabled=false;
  $('opt-animation').disabled=m.animations===0;
  if(m.animations===0)$('opt-animation').checked=false;
  $('selective-note').textContent=m.skinned>0
-   ?'Персонаж со скелетом: сетка пока защищена от упрощения. Выбирай текстуры и/или анимационные ключи; кости и веса не удаляются.'
+   ?'Скелет найден: доступно осторожное упрощение с защитой UV, суставов и весов. Перед сохранением сравни движения рук и ног. Исходник не перезаписывается.'
    :'Включай только те части, которые хочешь обработать. При отсутствии улучшений исходный GLB остаётся неизменным.';
  const metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
  $('metrics').replaceChildren();
