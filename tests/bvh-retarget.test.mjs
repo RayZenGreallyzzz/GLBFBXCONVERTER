@@ -2,6 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+// Three r170 expects browser FileReader. Only the Node regression test needs a
+// polyfill; production Android WebView already supplies this API.
+if(typeof globalThis.FileReader==='undefined'){
+  globalThis.FileReader=class {
+    readAsArrayBuffer(blob){
+      blob.arrayBuffer().then(ab=>{
+        this.result=ab;
+        this.onloadend?.({target:this});
+      });
+    }
+    readAsDataURL(blob){
+      blob.arrayBuffer().then(ab=>{
+        this.result='data:application/octet-stream;base64,'+
+          Buffer.from(ab).toString('base64');
+        this.onloadend?.({target:this});
+      });
+    }
+  };
+}
 import { inspectGlb } from '../src/format.js';
 import {
   canonicalBone,characterBones,isRiggedCharacter,
