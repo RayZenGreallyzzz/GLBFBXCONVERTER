@@ -181,7 +181,8 @@ export async function exportAdditional(format,root,animations=[],options={}) {
   if(format==='obj'||format==='obj-mixamo')
     return await exportObjZip(root,{
       baseName:options.name||'model',
-      profile:format==='obj-mixamo'?'mixamo':'full'
+      profile:format==='obj-mixamo'?'mixamo':'full',
+      maxTextureSize:options.mixamoTextureSize||2048
     });
   if(format==='ply'||format==='ply-lite'){
     // PLYExporter v0.170 invokes its callback on requestAnimationFrame,
