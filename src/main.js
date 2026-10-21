@@ -230,7 +230,7 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
-   }else if(['gltf','obj','ply','stl','usdz'].includes(target)){
+   }else if(['gltf','obj','ply','ply-lite','stl','usdz'].includes(target)){
      const messages=getExportWarnings(target,current);
      if(messages.length&&!window.confirm(
         target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
@@ -243,9 +243,9 @@ async function exportAs(target){
      await save(content,state.name+'_converted'+outputNameExt(target),file.mime);
    }else{
      const version=Number(target);
-     if(![7200,7300,7400,7500].includes(version))
+     if(![7300,7400,7500].includes(version))
        throw Error('Этот FBX нельзя достоверно экспортировать в текущем движке');
-     const mixamo=version===7200||version===7300;
+     const mixamo=version===7300;
      if(mixamo && current.skinned>0){
        if(!window.confirm('Модель уже содержит скелет. Mixamo может принять его для анимаций, '+
          'но для автоматического создания нового скелета обычно нужна модель без рига. '+
@@ -265,7 +265,7 @@ async function exportAs(target){
        verifyLegacyFbxMetadata(file,version);
      }
      progress(70);
-     await save(file,state.name+(mixamo?'_mixamo_':'_fbx')+version+'.fbx','application/octet-stream');
+     await save(file,state.name+(mixamo?'_mixamo_':'_fbx')+version+'.fbx','application/vnd.autodesk.fbx');
    }
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
@@ -303,7 +303,7 @@ $('opt-export').addEventListener('click',savePreview);
 function updateExportWarnings(){
  const target=$('target').value;
  const version=Number(target);
- $('mixamo-notice').hidden=!(version===7200||version===7300);
+ $('mixamo-notice').hidden=!(version===7300);
  const warnings=state.root?getExportWarnings(target,modelStats(state.root,state.clips)):[];
  $('export-warning').hidden=!warnings.length;
  $('export-warning').textContent=warnings.length?'Важно: '+warnings.join('; ')+'.':'';
