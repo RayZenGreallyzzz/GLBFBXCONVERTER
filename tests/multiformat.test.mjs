@@ -225,16 +225,37 @@ test('Mixamo ZIP is only OBJ, MTL, Albedo PNG with simple color material',async(
  assert.equal(rgba.repeat.x,16,'source UV transformation is unchanged');
  assert.equal(normals.repeat.x,3,'PBR normal transformation is unchanged');
 });
-test('Mixamo profile rejects gigantic geometry with actionable warning',async()=>{
+test('Mixamo profile warns, but does not reject meshes over 350k',async()=>{
+ const {mixamoQualityAdvice,countMixamoTriangles,MIXAMO_RECOMMENDED_FACES} =
+   await import('../src/obj-zip.js');
  const scene=new THREE.Group(),mesh=new THREE.Mesh(new THREE.BoxGeometry(),
    new THREE.MeshBasicMaterial());
  mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(350001*3),1));
  scene.add(mesh);
- await assert.rejects(
-   exportAdditional('obj-mixamo',scene,[],{name:'huge'}),
-   /Экономия/
- );
+ assert.equal(countMixamoTriangles(scene),350001);
+ assert.equal(MIXAMO_RECOMMENDED_FACES,350000);
+ assert.ok(mixamoQualityAdvice(countMixamoTriangles(scene),2048)
+   .some(w=>w.includes('350 001')));
+ assert.deepEqual(mixamoQualityAdvice(313718,1024),[]);
 });
+test('selectable max Albedo: 512 vs 2048 preserves real source resolution',async()=>{
+ const pixels=new Uint8Array(1024*512*4).fill(155);
+ const texture=new THREE.DataTexture(pixels,1024,512,THREE.RGBAFormat);
+ texture.name='Albedo_Quality';texture.needsUpdate=true;texture.flipY=false;
+ const scene=new THREE.Group();
+ scene.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+   new THREE.MeshBasicMaterial({map:texture})));
+ const lo=await exportAdditional('obj-mixamo',scene,[],{name:'low',mixamoTextureSize:512});
+ const hi=await exportAdditional('obj-mixamo',scene,[],{name:'high',mixamoTextureSize:2048});
+ const zLow=unzipSync(lo.content),zHigh=unzipSync(hi.content);
+ const filename='texture_001_Albedo_Quality.png';
+ const width=png=>new DataView(png.buffer,png.byteOffset+16).getUint32(0,false);
+ assert.equal(width(zLow[filename]),512);
+ assert.equal(width(zHigh[filename]),1024);
+ assert.ok(lo.content.byteLength>0&&hi.content.byteLength>0);
+ assert.equal(texture.image.width,1024,'source texture should be unmodified');
+});
+
 test('Mixamo profile keeps material color for untextured geometry',async()=>{
  const scene=new THREE.Group();
  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(),
