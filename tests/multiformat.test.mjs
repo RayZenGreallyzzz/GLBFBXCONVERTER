@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 globalThis.requestAnimationFrame ??= callback => setTimeout(callback,0);
-import { importAdditional, exportAdditional, getExportWarnings,
+import { importAdditional, importObjWithMaterials, exportAdditional, getExportWarnings,
  SUPPORTED_INPUTS, SUPPORTED_OUTPUTS, validateImportFiles } from '../src/model-formats.js';
 
 function tinyMesh() {
@@ -59,4 +59,54 @@ test('warn before animation and texture loss on static formats',()=>{
 test('reject unsupported file or huge assets',()=>{
  assert.throws(()=>validateImportFiles([{name:'model.usd',size:10}]),/формат/);
  assert.throws(()=>validateImportFiles([{name:'big.obj',size:300*1048576}]),/250/);
+});
+
+
+test('OBJ with selected MTL applies named material without remote network',async()=>{
+ const obj='mtllib hero.mtl\n' +
+   'o Hero\n' +
+   'v 0 0 0\nv 1 0 0\nv 0 1 0\n' +
+   'vt 0 0\nvt 1 0\nvt 0 1\n' +
+   'usemtl HeroColor\nf 1/1 2/2 3/3\n';
+ const main={name:'hero.obj',size:obj.length};
+ const mtl={name:'hero.mtl',size:40,async text(){
+   return 'newmtl HeroColor\nKd 0.6 0.4 0.2\n';
+ }};
+ const result=await importObjWithMaterials(main,obj,[main,mtl]);
+ assert.equal(result.root.children[0].material.name,'HeroColor');
+ assert.ok(result.root.children[0].material.color.r>0);
+ assert.ok(result.root.children[0].geometry.getAttribute('uv'));
+ assert.match(result.notice,/OBJ \+ MTL/);
+});
+test('missing named MTL raises an error, never silently loses materials',async()=>{
+ const text='mtllib special.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n';
+ const main={name:'mesh.obj',size:text.length};
+ await assert.rejects(
+   importObjWithMaterials(main,text,[main]),
+   /special.mtl/
+ );
+});
+test('compact PLY keeps geometry, omits UV/normals and is smaller',async()=>{
+ const scene=tinyMesh();
+ const normal=await exportAdditional('ply',scene);
+ const lite=await exportAdditional('ply-lite',scene);
+ assert.ok(lite.content.byteLength<normal.content.byteLength,'compact PLY must be smaller');
+ assert.equal(lite.mime,'application/octet-stream');
+ const lightBuffer=lite.content instanceof ArrayBuffer ?lite.content:
+   lite.content.buffer.slice(lite.content.byteOffset,lite.content.byteOffset+lite.content.byteLength);
+ const header=new TextDecoder().decode(new Uint8Array(lightBuffer).subarray(0,450));
+ assert.match(header,/binary_little_endian/);
+ assert.match(header,/element vertex/);
+ assert.doesNotMatch(header,/property float nx/);
+ assert.doesNotMatch(header,/property float s\b/);
+ const [file,buffer]=input('model.ply',lightBuffer);
+ const parsed=await importAdditional(file,buffer);
+ assert.ok(parsed.root.children.length>0);
+ assert.ok(getExportWarnings('ply-lite',{textures:0,animations:0,skinned:0,bones:0})
+   .some(t=>t.includes('UV')));
+});
+test('the modern Mixamo menu provides 2013 but does not advertise 2012',()=>{
+ assert.ok(SUPPORTED_OUTPUTS.includes('fbx7300'));
+ assert.ok(!SUPPORTED_OUTPUTS.includes('fbx7200'));
+ assert.ok(SUPPORTED_OUTPUTS.includes('ply-lite'));
 });
