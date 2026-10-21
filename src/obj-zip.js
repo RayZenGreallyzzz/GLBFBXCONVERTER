@@ -11,6 +11,8 @@ const clean = (text, fallback='model') => String(text||fallback)
   .replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,64)||fallback;
 const utf = (s)=>strToU8(s);
 const finite = (n)=>Number.isFinite(n)?Number(n.toFixed(6)):0;
+export const MIXAMO_MAX_FACES = 350000;
+const MIXAMO_MAX_ZIP_BYTES = 65 * 1048576;
 const MAPS = [
   ['map','map_Kd'],['normalMap','norm'],['bumpMap','map_Bump'],
   ['specularMap','map_Ks'],['emissiveMap','map_Ke'],['alphaMap','map_d'],
@@ -57,23 +59,35 @@ function rgbaPNG(data,width,height){
  let offset=0;for(const b of chunks){out.set(b,offset);offset+=b.length}
  return out;
 }
-async function texturePNG(texture){
+async function texturePNG(texture,{maxSize=Infinity}={}){
  const image=texture.image;
  if(!image)throw Error('Невозможно сохранить '+(texture.name||'текстуру')+': нет изображения');
  const w=image.width||image.naturalWidth,h=image.height||image.naturalHeight;
  if(!(w>0&&h>0))throw Error('Текстура ещё не загрузилась: '+(texture.name||'без имени'));
+ const ratio=Math.min(1,maxSize/Math.max(w,h));
+ const newW=Math.max(1,Math.round(w*ratio)),newH=Math.max(1,Math.round(h*ratio));
  if(image.data){
    if(!(image.data instanceof Uint8Array))
      throw Error('Для '+(texture.name||'текстуры')+' требуется преобразование HDR/Float в RGBA8');
-   return rgbaPNG(image.data,w,h);
+   if(ratio===1)return rgbaPNG(image.data,w,h);
+   const comps=image.data.length/(w*h);
+   if(comps!==3&&comps!==4)throw Error('Неподдерживаемые каналы DataTexture');
+   const scaled=new Uint8Array(newW*newH*comps);
+   for(let y=0;y<newH;y++)for(let x=0;x<newW;x++){
+     const srcIndex=(Math.min(h-1,Math.floor((y+.5)*h/newH))*w+
+       Math.min(w-1,Math.floor((x+.5)*w/newW)))*comps;
+     const destIndex=(y*newW+x)*comps;
+     for(let i=0;i<comps;i++)scaled[destIndex+i]=image.data[srcIndex+i];
+   }
+   return rgbaPNG(scaled,newW,newH);
  }
  if(typeof document==='undefined'&&typeof OffscreenCanvas==='undefined')
    throw Error('Для текстуры требуется Android Canvas или DataTexture');
- const canvas=typeof OffscreenCanvas!=='undefined'?new OffscreenCanvas(w,h):
-   Object.assign(document.createElement('canvas'),{width:w,height:h});
+ const canvas=typeof OffscreenCanvas!=='undefined'?new OffscreenCanvas(newW,newH):
+   Object.assign(document.createElement('canvas'),{width:newW,height:newH});
  const ctx=canvas.getContext('2d');
  if(!ctx)throw Error('Android не поддерживает преобразование текстуры в PNG');
- ctx.drawImage(image,0,0,w,h);
+ ctx.drawImage(image,0,0,newW,newH);
  const blob=canvas.convertToBlob?await canvas.convertToBlob({type:'image/png'}):
    await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('PNG encoding failed')),'image/png'));
  return new Uint8Array(await blob.arrayBuffer());
@@ -121,7 +135,7 @@ function bakeUV(geometry,texture){
  geometry.setAttribute('uv',new THREE.Float32BufferAttribute(result,2));
 }
 /** Render only geometry as temporary detached meshes. Does not change source. */
-function makeObjScene(root){
+function makeObjScene(root,{mixamo=false}={}){
  const output=new THREE.Group(),materials=new Map(),garbage=[];
  root.updateMatrixWorld(true);
  let faceCount=0;
@@ -144,7 +158,11 @@ function makeObjScene(root){
      const source=available[g.materialIndex||0];
      if(!source)throw Error('В геометрии отсутствует материал группы '+(g.materialIndex||0));
      if(!materials.has(source))materials.set(source,'Mat_'+String(materials.size+1).padStart(3,'0')+'_'+clean(source.name,'Material'));
-     const matName=materials.get(source),texture=validateMaps(source);
+     // Mixamo accepts a minimal Diffuse material. It does not need the
+     // other GLB PBR texture transforms, which may differ and cause Picasso.
+     const tex=source.map?.isTexture?source.map:null;
+     if(tex)tex.updateMatrix();
+     const matName=materials.get(source),texture=mixamo?tex:validateMaps(source);
      const segment=geometryPart(geo,g.start,count);
      garbage.push(segment);
      bakeUV(segment,texture);
@@ -168,8 +186,20 @@ function makeObjScene(root){
  output.updateMatrixWorld(true);
  return {output,materials,faceCount,dispose:()=>garbage.forEach(x=>x.dispose())};
 }
-function materialDefinition(m,name,texNames){
+function materialDefinition(m,name,texNames,{mixamo=false}={}){
  const color=(m.color||new THREE.Color(1,1,1)).clone().convertLinearToSRGB();
+ if(mixamo){
+   const lines=['newmtl '+name,'Ka 0 0 0',
+     'Kd '+[color.r,color.g,color.b].map(finite).join(' '),
+     'Ks 0 0 0','Ns 0','illum 1',
+     'd '+finite(m.opacity??1)];
+   if(m.map?.isTexture){
+     const file=texNames.get(m.map);
+     if(!file)throw Error('Для Mixamo отсутствует изображение Albedo');
+     lines.push('map_Kd '+file);
+   }
+   return lines.join('\n')+'\n';
+ }
  const lines=['newmtl '+name,'Ka 0 0 0',
    'Kd '+[color.r,color.g,color.b].map(finite).join(' '),
    'Ks 0.04 0.04 0.04',
@@ -191,15 +221,28 @@ function materialDefinition(m,name,texNames){
  * PBR maps are included as supplemental (map_Pr/map_Pm/etc.) extensions:
  * old OBJ viewers may display only map_Kd.
  */
-export async function exportObjZip(root,{baseName='model'}={}){
- const name=clean(baseName),scene=makeObjScene(root);
+export async function exportObjZip(root,{baseName='model',profile='full'}={}){
+ const mixamo=profile==='mixamo';
+ const name=clean(baseName);
+ if(mixamo){
+   let count=0;
+   root.traverse(n=>{if(n.isMesh){
+     const geo=n.geometry,p=geo?.getAttribute('position'),ind=geo?.index;
+     count+=Math.floor((ind?.count||p?.count||0)/3);
+   }});
+   if(count>MIXAMO_MAX_FACES)throw Error(
+     'Для Mixamo модель слишком тяжёлая: '+count.toLocaleString('ru-RU')+
+     ' треугольников. Максимум профиля '+MIXAMO_MAX_FACES.toLocaleString('ru-RU')+
+     '. Сначала создай предпросмотр «Экономия» и повтори экспорт OBJ для Mixamo.');
+ }
+ const scene=makeObjScene(root,{mixamo});
  const files={};
  try{
    const rawOBJ=new OBJExporter().parse(scene.output);
    const texNames=new Map();
    const textures=[];
    for(const material of scene.materials.keys()){
-     for(const [slot] of MAPS){
+     for(const [slot] of (mixamo?[MAPS[0]]:MAPS)){
        const t=material[slot];
        if(t?.isTexture&&!texNames.has(t)){
          const file='texture_'+String(texNames.size+1).padStart(3,'0')+'_'+clean(t.name||slot)+'.png';
@@ -210,26 +253,29 @@ export async function exportObjZip(root,{baseName='model'}={}){
    }
    for(const [filename,texture] of textures){
      // No fallback to an untextured archive if PNG conversion fails.
-     files[filename]=[await texturePNG(texture),{level:0}];
+     files[filename]=[await texturePNG(texture,{maxSize:mixamo?1024:Infinity}),{level:0}];
    }
-   let mtl='# Phoenix Model Forge OBJ+MTL offline archive\n';
+   let mtl='# Phoenix Model Forge '+(mixamo?'Mixamo Diffuse':'OBJ+MTL')+' offline archive\n';
    for(const [material,materialName] of scene.materials)
-     mtl+='\n'+materialDefinition(material,materialName,texNames);
+     mtl+='\n'+materialDefinition(material,materialName,texNames,{mixamo});
    const obj='mtllib '+name+'.mtl\n'+rawOBJ;
    if(!/^usemtl\s+\S+/m.test(obj))throw Error('OBJ не содержит ссылок на материалы');
    files[name+'.obj']=[utf(obj),{level:1}];
    files[name+'.mtl']=[utf(mtl),{level:1}];
-   files['README.txt']=[utf(
+   if(!mixamo)files['README.txt']=[utf(
      'Phoenix Model Forge - offline OBJ archive\n'+
      'Load '+name+'.obj and keep '+name+'.mtl and all PNG files in the same folder.\n'+
      'OBJ stores static meshes and UVs only. Bones and animations are not supported.\n'+
      'Diffuse (map_Kd) and normal maps are linked in MTL. Some viewers ignore extra PBR maps.\n'
    ),{level:1}];
    const content=zipSync(files,{level:1});
+   if(mixamo && content.byteLength>MIXAMO_MAX_ZIP_BYTES)
+     throw Error('Архив OBJ для Mixamo слишком большой ('+
+       (content.byteLength/1048576).toFixed(1)+' МБ). Выбери более сильное упрощение модели.');
    if(content.byteLength>500*1024*1024)
      throw Error('Архив OBJ больше 500 МБ. Уменьши модель во вкладке Оптимизация.');
    return {content,mime:'application/zip',meshes:scene.output.children.length,
-     textures:textures.length,faces:scene.faceCount};
+     textures:textures.length,faces:scene.faceCount,profile};
  }finally{
    scene.dispose();
  }
