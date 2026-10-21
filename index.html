@@ -49,15 +49,16 @@
     <button class="primary save-btn" id="opt-export" disabled>▣ СОХРАНИТЬ ЭТОТ ВАРИАНТ GLB</button>
   </section>
   <section id="tab-convert" class="tab-panel hidden">
-    <h2>Конвертация 3D-моделей</h2><p class="tip">Выбери выходной формат. Для glTF с внешними текстурами загружай .gltf, .bin и изображения вместе. Работает офлайн.</p>
-    <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7200">FBX 7.2 (2012) · Mixamo, экспериментальный</option><option value="7300">FBX 7.3 (2013) · Mixamo, экспериментальный</option><option value="7700" disabled>FBX 7.7+ — в разработке</option>
+    <h2>Конвертация 3D-моделей</h2><p class="tip">Выбери выходной формат. Для glTF выбирай .gltf + .bin + изображения; для OBJ — .obj + .mtl + изображения. Выбрать несколько файлов можно за один раз. Все операции работают офлайн.</p>
+    <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7300">FBX 7.3 (2013) · Mixamo</option><option value="7700" disabled>FBX 7.7+ — в разработке</option>
 <option value="gltf">glTF 2.0 (один JSON со встроенными ресурсами)</option>
 <option value="obj">OBJ · статическая геометрия</option>
-<option value="ply">PLY · сетка/вершины</option>
+<option value="ply">PLY полный · нормали, UV, цвета</option>
+<option value="ply-lite">PLY компактный · геометрия без доп. атрибутов</option>
 <option value="stl">STL · 3D-печать</option>
 <option value="usdz">USDZ · статичная сцена (эксперимент)</option>
 </select></label>
-    <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. FBX 2012/2013 доступны в экспериментальном режиме: создаются настоящие двоичные файлы FBX 7.2/7.3. Сначала проверь их загрузкой в Mixamo. Для автоматического риггинга лучше использовать персонажа в T/A-позе без готового скелета.</p>
+    <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. Для Mixamo оставлен FBX 2013 (7.3), однако правильность материалов и анимаций нужно проверить в Mixamo. Компактный PLY убирает нормали, UV и цвета вершин, но не уменьшает число полигонов. Для автоматического риггинга лучше использовать персонажа в T/A-позе без готового скелета.</p>
     <div id="export-warning" class="compare-report" hidden role="note"></div>
     <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
