@@ -16,9 +16,9 @@ import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 
 export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz']);
-export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','fbx7300','fbx7400','fbx7500','obj','ply','ply-lite','stl','usdz']);
-export const LOSSY_EXPORTS = new Set(['obj','ply','ply-lite','stl','usdz']);
-export const STATIC_EXPORTS = new Set(['obj','ply','ply-lite','stl','usdz']);
+export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz']);
+export const LOSSY_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
+export const STATIC_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
 const MAX_ASSET_BYTES = 250*1024*1024;
 const decoder = new TextDecoder();
 function arrayBuffer(bytes) {
@@ -156,6 +156,8 @@ export function getExportWarnings(format, stats) {
       warnings.push('Изображения текстур не будут сохранены в файл');
     if(format==='obj'&&stats.textures)
       warnings.push('OBJ ZIP: текстуры включены, но не все просмотрщики понимают PBR-карты из MTL');
+    if(format==='obj-mixamo'&&stats.textures)
+      warnings.push('Mixamo: сохраняется Albedo/Diffuse; Normal, Metallic и Roughness исключаются');
     if(format==='usdz'&&(stats.skinned||stats.animations))
       warnings.push('USDZ экспортируется только как статичная сцена; для персонажей лучше GLB');
     if(format==='ply-lite')warnings.push('Компактный PLY: нормали, UV и цвета вершин не сохраняются');
@@ -165,7 +167,7 @@ export function getExportWarnings(format, stats) {
 export function outputNameExt(format){
   if(format.startsWith('fbx'))return '.fbx';
   if(format==='ply-lite')return '.ply';
-  if(format==='obj')return '.zip';
+  if(format==='obj'||format==='obj-mixamo')return '.zip';
   return '.'+format;
 }
 export async function exportAdditional(format,root,animations=[],options={}) {
@@ -176,7 +178,11 @@ export async function exportAdditional(format,root,animations=[],options={}) {
     });
     return {content:JSON.stringify(gltf),mime:'model/gltf+json'};
   }
-  if(format==='obj')return await exportObjZip(root,{baseName:options.name||'model'});
+  if(format==='obj'||format==='obj-mixamo')
+    return await exportObjZip(root,{
+      baseName:options.name||'model',
+      profile:format==='obj-mixamo'?'mixamo':'full'
+    });
   if(format==='ply'||format==='ply-lite'){
     // PLYExporter v0.170 invokes its callback on requestAnimationFrame,
     // so the result must be awaited before Android starts saving it.
