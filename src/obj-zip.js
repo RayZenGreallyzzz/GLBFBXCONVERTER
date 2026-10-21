@@ -131,7 +131,10 @@ function makeObjScene(root){
    if(!base)throw Error('У меша '+(mesh.name||'')+' нет вершин');
    const available=Array.isArray(mesh.material)?mesh.material:[mesh.material];
    const index=geo.getIndex(),length=index?index.count:base.count;
-   const groups=geo.groups.length?geo.groups:[{start:0,count:length,materialIndex:0}];
+   // A single material covers all geometry groups (e.g. BoxGeometry has six
+   // preset groups even though only one material was provided).
+   const groups=available.length===1?[{start:0,count:length,materialIndex:0}]:
+     (geo.groups.length?geo.groups:[{start:0,count:length,materialIndex:0}]);
    if(available.length>1&&!geo.groups.length)
      throw Error('У многоматериального меша отсутствуют границы групп');
    for(const [groupIndex,g] of groups.entries()){
