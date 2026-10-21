@@ -59,7 +59,21 @@
 </select></label>
     <p class="tip">GLB → GLB: точная копия без пересжатия, изменения текстур и материалов. Для изменения качества пользуйся вкладкой «Оптимизация». FBX → GLB: выполняется настоящая конвертация. FBX 2012/2013 доступны в экспериментальном режиме: создаются настоящие двоичные файлы FBX 7.2/7.3. Сначала проверь их загрузкой в Mixamo. Для автоматического риггинга лучше использовать персонажа в T/A-позе без готового скелета.</p>
     <div id="export-warning" class="compare-report" hidden role="note"></div>
-    <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
+    <div id="mixamo-notice" class="compare-report" hidden role="note">
+      <strong>Специальный режим Mixamo</strong>
+      <label class="mixamo-check"><input type="checkbox" id="mixamo-diffuse" checked>
+        Только Albedo / Diffuse + встроенный PNG (без Normal, Metallic, Roughness)
+      </label>
+      <label>Разрешение цветной текстуры
+        <select id="mixamo-texture">
+          <option value="512">512 × 512 — минимум</option>
+          <option value="1024">1024 × 1024 — баланс</option>
+          <option value="2048" selected>2048 × 2048 — как в нашем успешном экспорте</option>
+          <option value="4096">4096 × 4096 — качество</option>
+        </select>
+      </label>
+      <p>Оригинальная геометрия, UV, существующий скелет и анимации не изменяются. Если у модели нет Albedo, будет сохранён цвет материала. После сохранения проверь файл непосредственно в Mixamo.</p>
+    </div>
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-check" class="tab-panel hidden">
