@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { PLYExporter } from 'three/addons/exporters/PLYExporter.js';
@@ -14,9 +15,9 @@ import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 
 export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz']);
-export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','fbx7200','fbx7300','fbx7400','fbx7500','obj','ply','stl','usdz']);
-export const LOSSY_EXPORTS = new Set(['obj','ply','stl','usdz']);
-export const STATIC_EXPORTS = new Set(['obj','ply','stl','usdz']);
+export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','fbx7300','fbx7400','fbx7500','obj','ply','ply-lite','stl','usdz']);
+export const LOSSY_EXPORTS = new Set(['obj','ply','ply-lite','stl','usdz']);
+export const STATIC_EXPORTS = new Set(['obj','ply','ply-lite','stl','usdz']);
 const MAX_ASSET_BYTES = 250*1024*1024;
 const decoder = new TextDecoder();
 function arrayBuffer(bytes) {
@@ -45,6 +46,65 @@ function fileMap(files, main) {
   if(duplicates.size)throw Error('Дубли имен дополнительных файлов: '+[...duplicates].join(', '));
   return map;
 }
+
+// OBJ normally references MTL + image files. Resolve *only* explicitly selected
+// local files; do not silently fetch missing dependencies from the Internet.
+// All file URLs are released once textures have finished decoding.
+export async function importObjWithMaterials(file,text,files=[file]){
+  const assets=fileMap(files,file);
+  const basic=new OBJLoader();
+  const refs=[...text.matchAll(/^mtllib\s+(.+?)\s*$/gmi)].map(m=>m[1].trim());
+  const providedMTL=Array.from(assets.values()).filter(a=>a.name.toLowerCase().endsWith('.mtl'));
+  if(!refs.length&&!providedMTL.length){
+    return {root:basic.parse(text),clips:[],
+      notice:'OBJ: геометрия без файла MTL. Для текстур выбери OBJ, MTL и изображения вместе.'};
+  }
+  if(refs.length>1)throw Error('OBJ с несколькими MTL пока не поддерживается. Объедини материалы в один MTL.');
+  let materialFile;
+  if(refs.length){
+    const expected=basename(refs[0]);
+    materialFile=assets.get(expected);
+    if(!materialFile)throw Error('OBJ ссылается на '+refs[0]+'. Выбери этот MTL вместе с OBJ.');
+  }else{
+    if(providedMTL.length!==1)throw Error('Выбери один файл MTL для OBJ');
+    materialFile=providedMTL[0];
+  }
+  if(!materialFile.name.toLowerCase().endsWith('.mtl'))
+    throw Error('Для OBJ вместо материала выбран не MTL-файл');
+  const materialText=await materialFile.text();
+  // OBJLoader.parse does no network fetch. Materials are bound by usemtl name.
+  const manager=new THREE.LoadingManager();
+  const urls=[];
+  let rejectAssets,resolveAssets,finished=false;
+  const loaded=new Promise((resolve,reject)=>{resolveAssets=resolve;rejectAssets=reject});
+  manager.onLoad=()=>{finished=true;resolveAssets()};
+  manager.onError=url=>rejectAssets(new Error('Не удалось загрузить изображение MTL: '+url));
+  manager.setURLModifier(url=>{
+    if(/^(https?:|file:|\/\/)/i.test(url))throw Error('Запрещена внешняя ссылка в MTL: '+url);
+    if(/^(blob:|data:)/i.test(url))return url;
+    const asset=assets.get(basename(url));
+    if(!asset)throw Error('Для OBJ не хватает текстуры '+url+'. Выбери изображение вместе с OBJ и MTL.');
+    if(!/\.(png|jpe?g|webp|bmp|gif)$/i.test(asset.name))
+      throw Error('Неподдерживаемый файл текстуры MTL: '+asset.name);
+    const local=URL.createObjectURL(asset);
+    urls.push(local);
+    return local;
+  });
+  try{
+    const materialCreator=new MTLLoader(manager).setResourcePath('').parse(materialText,'');
+    // Preload starts asynchronous texture reads. Wait for completion so
+    // consumers can't export an OBJ->GLB before images finish decoding.
+    const hasTextures=/^\s*(?:map_kd|map_ks|map_ke|map_d|map_bump|bump|norm)\s+/mi.test(materialText);
+    materialCreator.preload();
+    basic.setMaterials(materialCreator);
+    const root=basic.parse(text);
+    if(hasTextures&&!finished)await loaded;
+    return {root,clips:[],notice:'OBJ + MTL: материалы и локальные изображения загружены. Экспорт в GLB встраивает текстуры.'};
+  }finally{
+    for(const u of urls)URL.revokeObjectURL(u);
+  }
+}
+
 export async function importAdditional(file,data,files=[file]) {
   const ext=file.name.split('.').pop().toLowerCase(), bytes=new Uint8Array(data);
   const name=file.name.replace(/\\.[^.]+$/,'');
@@ -64,8 +124,7 @@ export async function importAdditional(file,data,files=[file]) {
         notice:ext==='vrm'?'VRM: загружены обычные glTF-узлы, геометрия и риг. Специальные VRM-выражения, метаданные и физика при экспорте в GLB могут быть потеряны.':'glTF 2.0: загружена сцена с поддерживаемыми ресурсами.'};
     }finally {urls.forEach(u=>URL.revokeObjectURL(u))}
   }
-  if(ext==='obj')return {root:new OBJLoader().parse(decoder.decode(bytes)),clips:[],
-    notice:'OBJ: геометрия и базовые материалы. Для .mtl/.png пока требуется отдельный импорт материалов.'};
+  if(ext==='obj')return await importObjWithMaterials(file,decoder.decode(bytes),files);
   if(ext==='ply'){
     const geometry=new PLYLoader().parse(data);
     const pointCloud=!geometry.getIndex()&&!geometry.getAttribute('normal');
@@ -92,15 +151,17 @@ export function getExportWarnings(format, stats) {
   if(LOSSY_EXPORTS.has(format)){
     if(stats.skinned||stats.bones)warnings.push('Скелет и веса костей не сохранятся');
     if(stats.animations)warnings.push('Анимации не сохранятся');
-    if(['obj','ply','stl'].includes(format)&&stats.textures)
+    if(['obj','ply','ply-lite','stl'].includes(format)&&stats.textures)
       warnings.push('Изображения текстур не будут сохранены в файл');
     if(format==='usdz'&&(stats.skinned||stats.animations))
       warnings.push('USDZ экспортируется только как статичная сцена; для персонажей лучше GLB');
+    if(format==='ply-lite')warnings.push('Компактный PLY: нормали, UV и цвета вершин не сохраняются');
   }
   return warnings;
 }
 export function outputNameExt(format){
   if(format.startsWith('fbx'))return '.fbx';
+  if(format==='ply-lite')return '.ply';
   return '.'+format;
 }
 export async function exportAdditional(format,root,animations=[]) {
@@ -112,11 +173,14 @@ export async function exportAdditional(format,root,animations=[]) {
     return {content:JSON.stringify(gltf),mime:'model/gltf+json'};
   }
   if(format==='obj')return {content:new OBJExporter().parse(root),mime:'text/plain'};
-  if(format==='ply'){
+  if(format==='ply'||format==='ply-lite'){
     // PLYExporter v0.170 invokes its callback on requestAnimationFrame,
     // so the result must be awaited before Android starts saving it.
     const output=await new Promise((resolve,reject)=>{
-      try{new PLYExporter().parse(root,result=>resolve(result),{binary:true,littleEndian:true})}
+      try{new PLYExporter().parse(root,result=>resolve(result),{
+        binary:true,littleEndian:true,
+        excludeAttributes:format==='ply-lite'?['normal','uv','color']:[]
+      })}
       catch(error){reject(error)}
     });
     return {content:output,mime:'application/octet-stream'};
