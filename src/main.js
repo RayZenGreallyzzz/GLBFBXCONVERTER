@@ -236,7 +236,7 @@ async function exportAs(target){
         target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
         '\n\nПродолжить экспорт статичной модели?'))return;
      status('Готовим '+target.toUpperCase()+'…');
-     const file=await exportAdditional(target,state.root,state.clips);
+     const file=await exportAdditional(target,state.root,state.clips,{name:state.name});
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
      progress(70);
