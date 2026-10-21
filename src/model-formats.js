@@ -6,6 +6,7 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
+import { exportObjZip } from './obj-zip.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { PLYExporter } from 'three/addons/exporters/PLYExporter.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
@@ -151,8 +152,10 @@ export function getExportWarnings(format, stats) {
   if(LOSSY_EXPORTS.has(format)){
     if(stats.skinned||stats.bones)warnings.push('Скелет и веса костей не сохранятся');
     if(stats.animations)warnings.push('Анимации не сохранятся');
-    if(['obj','ply','ply-lite','stl'].includes(format)&&stats.textures)
+    if(['ply','ply-lite','stl'].includes(format)&&stats.textures)
       warnings.push('Изображения текстур не будут сохранены в файл');
+    if(format==='obj'&&stats.textures)
+      warnings.push('OBJ ZIP: текстуры включены, но не все просмотрщики понимают PBR-карты из MTL');
     if(format==='usdz'&&(stats.skinned||stats.animations))
       warnings.push('USDZ экспортируется только как статичная сцена; для персонажей лучше GLB');
     if(format==='ply-lite')warnings.push('Компактный PLY: нормали, UV и цвета вершин не сохраняются');
@@ -162,9 +165,10 @@ export function getExportWarnings(format, stats) {
 export function outputNameExt(format){
   if(format.startsWith('fbx'))return '.fbx';
   if(format==='ply-lite')return '.ply';
+  if(format==='obj')return '.zip';
   return '.'+format;
 }
-export async function exportAdditional(format,root,animations=[]) {
+export async function exportAdditional(format,root,animations=[],options={}) {
   if(format==='gltf'){
     const gltf=await new GLTFExporter().parseAsync(root,{
       binary:false,trs:true,onlyVisible:false,animations,embedImages:true,
@@ -172,7 +176,7 @@ export async function exportAdditional(format,root,animations=[]) {
     });
     return {content:JSON.stringify(gltf),mime:'model/gltf+json'};
   }
-  if(format==='obj')return {content:new OBJExporter().parse(root),mime:'text/plain'};
+  if(format==='obj')return await exportObjZip(root,{baseName:options.name||'model'});
   if(format==='ply'||format==='ply-lite'){
     // PLYExporter v0.170 invokes its callback on requestAnimationFrame,
     // so the result must be awaited before Android starts saving it.
