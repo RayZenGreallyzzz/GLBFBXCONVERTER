@@ -14,9 +14,10 @@ import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
+import { importBvhMotion } from './bvh-motion.js';
 
-export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz']);
-export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz']);
+export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz','bvh']);
+export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','vrm-source','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz']);
 export const LOSSY_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
 export const STATIC_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
 const MAX_ASSET_BYTES = 250*1024*1024;
@@ -109,6 +110,7 @@ export async function importObjWithMaterials(file,text,files=[file]){
 export async function importAdditional(file,data,files=[file]) {
   const ext=file.name.split('.').pop().toLowerCase(), bytes=new Uint8Array(data);
   const name=file.name.replace(/\\.[^.]+$/,'');
+  if(ext==='bvh')return importBvhMotion(decoder.decode(bytes),{name:file.name.replace(/\.bvh$/i,'')});
   if(['gltf','vrm'].includes(ext)){
     const mapping=fileMap(files,file),urls=[];
     const manager=new THREE.LoadingManager();
@@ -166,6 +168,7 @@ export function getExportWarnings(format, stats) {
 }
 export function outputNameExt(format){
   if(format.startsWith('fbx'))return '.fbx';
+  if(format==='vrm-source')return '.vrm';
   if(format==='ply-lite')return '.ply';
   if(format==='obj'||format==='obj-mixamo')return '.zip';
   return '.'+format;
