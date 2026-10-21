@@ -11,8 +11,26 @@ const clean = (text, fallback='model') => String(text||fallback)
   .replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,64)||fallback;
 const utf = (s)=>strToU8(s);
 const finite = (n)=>Number.isFinite(n)?Number(n.toFixed(6)):0;
-export const MIXAMO_MAX_FACES = 350000;
-const MIXAMO_MAX_ZIP_BYTES = 65 * 1048576;
+export const MIXAMO_RECOMMENDED_FACES = 350000; // advisory, not an Adobe limit
+export const MIXAMO_RECOMMENDED_ZIP_BYTES = 65 * 1048576; // advisory, not an Adobe limit
+export const ANDROID_SAFETY_BYTES = 500 * 1048576; // native saver limit
+export function countMixamoTriangles(root) {
+  let triangles=0;
+  root?.traverse?.(n=>{if(n.isMesh){
+    const geo=n.geometry,p=geo?.getAttribute('position'),ind=geo?.index;
+    triangles+=Math.floor((ind?.count||p?.count||0)/3);
+  }});
+  return triangles;
+}
+export function mixamoQualityAdvice(triangles,textureMaxSize=2048){
+  const warnings=[];
+  if(triangles>MIXAMO_RECOMMENDED_FACES)
+    warnings.push('Сетка содержит '+triangles.toLocaleString('ru-RU')+
+      ' треугольников: загрузка/риггинг в Mixamo могут быть медленными.');
+  if(textureMaxSize>1024)
+    warnings.push('Высокое качество Albedo увеличит ZIP. Mixamo может не принять слишком большой файл.');
+  return warnings;
+}
 const MAPS = [
   ['map','map_Kd'],['normalMap','norm'],['bumpMap','map_Bump'],
   ['specularMap','map_Ks'],['emissiveMap','map_Ke'],['alphaMap','map_d'],
@@ -221,20 +239,14 @@ function materialDefinition(m,name,texNames,{mixamo=false}={}){
  * PBR maps are included as supplemental (map_Pr/map_Pm/etc.) extensions:
  * old OBJ viewers may display only map_Kd.
  */
-export async function exportObjZip(root,{baseName='model',profile='full'}={}){
+export async function exportObjZip(root,{baseName='model',profile='full',maxTextureSize=2048}={}){
  const mixamo=profile==='mixamo';
+ if(mixamo&&![512,1024,2048,4096].includes(maxTextureSize))
+   throw Error('Размер Albedo для Mixamo должен быть 512, 1024, 2048 или 4096 px');
  const name=clean(baseName);
- if(mixamo){
-   let count=0;
-   root.traverse(n=>{if(n.isMesh){
-     const geo=n.geometry,p=geo?.getAttribute('position'),ind=geo?.index;
-     count+=Math.floor((ind?.count||p?.count||0)/3);
-   }});
-   if(count>MIXAMO_MAX_FACES)throw Error(
-     'Для Mixamo модель слишком тяжёлая: '+count.toLocaleString('ru-RU')+
-     ' треугольников. Максимум профиля '+MIXAMO_MAX_FACES.toLocaleString('ru-RU')+
-     '. Сначала создай предпросмотр «Экономия» и повтори экспорт OBJ для Mixamo.');
- }
+ const triangles=countMixamoTriangles(root);
+ // There is no documented, reliable single Mixamo mesh-size limit.
+ // Previous 350k-triangle check was unnecessarily rejecting useful models.
  const scene=makeObjScene(root,{mixamo});
  const files={};
  try{
@@ -253,7 +265,7 @@ export async function exportObjZip(root,{baseName='model',profile='full'}={}){
    }
    for(const [filename,texture] of textures){
      // No fallback to an untextured archive if PNG conversion fails.
-     files[filename]=[await texturePNG(texture,{maxSize:mixamo?1024:Infinity}),{level:0}];
+     files[filename]=[await texturePNG(texture,{maxSize:mixamo?maxTextureSize:Infinity}),{level:0}];
    }
    let mtl='# Phoenix Model Forge '+(mixamo?'Mixamo Diffuse':'OBJ+MTL')+' offline archive\n';
    for(const [material,materialName] of scene.materials)
@@ -269,13 +281,15 @@ export async function exportObjZip(root,{baseName='model',profile='full'}={}){
      'Diffuse (map_Kd) and normal maps are linked in MTL. Some viewers ignore extra PBR maps.\n'
    ),{level:1}];
    const content=zipSync(files,{level:1});
-   if(mixamo && content.byteLength>MIXAMO_MAX_ZIP_BYTES)
-     throw Error('Архив OBJ для Mixamo слишком большой ('+
-       (content.byteLength/1048576).toFixed(1)+' МБ). Выбери более сильное упрощение модели.');
-   if(content.byteLength>500*1024*1024)
-     throw Error('Архив OBJ больше 500 МБ. Уменьши модель во вкладке Оптимизация.');
+   // Do not invent a hard size limit for the Mixamo website. Keep a
+   // 500 MB cap for the native Android saver, and warn in the UI instead.
+   if(content.byteLength>ANDROID_SAFETY_BYTES)
+     throw Error('Архив OBJ больше 500 МБ: лимит сохранения Android. Уменьши модель.');
+
    return {content,mime:'application/zip',meshes:scene.output.children.length,
-     textures:textures.length,faces:scene.faceCount,profile};
+     textures:textures.length,faces:scene.faceCount,profile,
+     mixamoAdvice:mixamo?mixamoQualityAdvice(triangles,maxTextureSize):[],
+     largeForMixamo:mixamo&&content.byteLength>MIXAMO_RECOMMENDED_ZIP_BYTES};
  }finally{
    scene.dispose();
  }
