@@ -253,10 +253,21 @@ async function exportAs(target){
      }
      status((mixamo?'Готовим старый FBX для Mixamo ':'Создаём FBX ')+version+'…');
      const {FBXExporter}=await import('@comfyorg/fbx-exporter-three');
-     const file=await new FBXExporter().parseAsync(state.root,{
-       version,preset:mixamo?'threejs':'blender',fps:30,
-       animations:state.clips,embedTextures:true,onlyVisible:false
-     });
+     let file,details='';
+     if(mixamo){
+       const {exportMixamoDiffuse}=await import('./mixamo-diffuse.js');
+       const output=await exportMixamoDiffuse(state.root,state.clips,version,FBXExporter,
+         {maxTextureSize:2048});
+       file=output.bytes;
+       details=output.flatMeshHierarchy
+         ?' Без пустых узлов скелета. Встроено цветных PNG: '+output.manifest.embeddedPNG+'.'
+         :' Сохранена существующая иерархия скелета.';
+     }else{
+       file=await new FBXExporter().parseAsync(state.root,{
+         version,preset:'blender',fps:30,
+         animations:state.clips,embedTextures:true,onlyVisible:false
+       });
+     }
      const checked=inspectFbx(file);
      if(checked.version!==version||!checked.binary)
        throw Error('Экспортёр выдал неверный формат FBX: '+checked.label);
@@ -265,7 +276,10 @@ async function exportAs(target){
        verifyLegacyFbxMetadata(file,version);
      }
      progress(70);
-     await save(file,state.name+(mixamo?'_mixamo_':'_fbx')+version+'.fbx','application/vnd.autodesk.fbx');
+     await save(file,state.name+(mixamo?'_mixamo_clean_':'_fbx')+version+'.fbx',
+       'application/vnd.autodesk.fbx');
+     if(details)status('✓ FBX '+version+' сохранён.'+details+
+       ' Android может показывать тип «BIN» — содержимое остаётся FBX.');
    }
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
