@@ -235,7 +235,7 @@ test('Mixamo profile warns, but does not reject meshes over 350k',async()=>{
  assert.equal(countMixamoTriangles(scene),350001);
  assert.equal(MIXAMO_RECOMMENDED_FACES,350000);
  assert.ok(mixamoQualityAdvice(countMixamoTriangles(scene),2048)
-   .some(w=>w.includes('350 001')));
+   .some(w=>w.includes('треугольников')));
  assert.deepEqual(mixamoQualityAdvice(313718,1024),[]);
 });
 test('selectable max Albedo: 512 vs 2048 preserves real source resolution',async()=>{
