@@ -23,7 +23,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Выбери качество модели</h2>
     <p class="tip">Сначала смотри, как выглядит упрощённая модель. Сохраняй только после сравнения.</p>
@@ -94,7 +94,41 @@
     <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
-  <section id="tab-check" class="tab-panel hidden">
+  <section id="tab-anim" class="tab-panel hidden">
+  <h2>Анимации — BVH → персонаж</h2>
+  <p class="tip">1. Загрузи GLB / FBX / VRM со скелетом через «Загрузить модель». 2. Выбери BVH. 3. Проверь совпадение костей. 4. Посмотри движение и добавь его в GLB. Исходный файл не меняется.</p>
+  <label class="load">＋ Выбрать BVH-анимацию
+    <input hidden id="anim-bvh-file" type="file" accept=".bvh">
+  </label>
+  <p id="anim-status" class="tip" aria-live="polite">Для переноса анимации загрузи персонажа со скелетом.</p>
+  <div class="compare-report">
+    <label>Название движения
+      <input id="anim-clip-name" value="BVH Motion" maxlength="60" autocomplete="off">
+    </label>
+    <label><input type="checkbox" id="anim-root-motion"> Переносить движение Hips (по умолчанию — бег/ходьба на месте)</label>
+    <label>Масштаб перемещения Hips
+      <select id="anim-root-scale">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+      </select>
+    </label>
+    <details>
+      <summary>Сопоставление костей (можно исправить вручную)</summary>
+      <div id="anim-map" class="bone-mapping">Загрузи BVH для списка костей.</div>
+    </details>
+  </div>
+  <div class="row-buttons">
+    <button type="button" id="anim-preview" disabled>▶ Предпросмотр</button>
+    <button type="button" id="anim-stop" disabled>■ Остановить</button>
+  </div>
+  <button class="primary" type="button" id="anim-add" disabled>＋ ДОБАВИТЬ АНИМАЦИЮ В НАБОР</button>
+  <p class="tip" id="anim-library">Дополнительных анимаций пока нет.</p>
+  <button class="primary save-btn" type="button" id="anim-export" disabled>▣ СОХРАНИТЬ ПЕРСОНАЖА С АНИМАЦИЯМИ (GLB)</button>
+  <p class="tip">Внимание: автоматическое совпадение имён костей не гарантирует правильные повороты. BVH и персонаж могут иметь разные оси суставов и исходную позу. Проверяй руки, колени и одежду перед сохранением. Этот первый режим не выполняет автоматическую коррекцию A/T-поз.</p>
+</section>
+<section id="tab-check" class="tab-panel hidden">
     <h2>Анализ совместимости</h2><div id="compat">Загрузи модель для анализа.</div>
     <p class="tip">VRM сохраняет специальные метаданные лишь в исходном VRM. OBJ, PLY и STL предназначены прежде всего для статической геометрии. Поддержка USD/USDC и полноценного USDZ с анимациями требует дополнительного движка. Структурная проверка не заменяет тест в Godot и Mixamo.</p>
   </section>
