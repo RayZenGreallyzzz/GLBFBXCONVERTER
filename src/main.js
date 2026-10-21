@@ -6,13 +6,15 @@ import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
+import { createInspectionLighting, setInspectionRotation } from './viewer-lighting.js';
 import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
  SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
 const $=id=>document.getElementById(id),saver=registerPlugin('ModelSaver');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#0a1423');
-scene.add(new THREE.HemisphereLight(0xe6f0ff,0x314256,2.6));
+const hemisphere=new THREE.HemisphereLight(0xe6f0ff,0x314256,2.6);scene.add(hemisphere);
 const sunlight=new THREE.DirectionalLight(0xffffff,2.4);sunlight.position.set(5,9,7);scene.add(sunlight);
+const inspectionLight=createInspectionLighting(scene,hemisphere,sunlight);
 scene.add(new THREE.GridHelper(12,24,0x367da6,0x20394a));
 const camera=new THREE.PerspectiveCamera(45,1,.001,2000);camera.position.set(3,2,5);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
@@ -20,6 +22,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
+$('view-even-light').addEventListener('change',e=>inspectionLight.setEvenLighting(e.target.checked));
+$('view-auto-rotate').addEventListener('change',e=>setInspectionRotation(orbit,e.target.checked));
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null};
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
