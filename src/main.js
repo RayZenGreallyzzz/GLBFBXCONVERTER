@@ -84,7 +84,15 @@ function displayComparison(result){
  report.append(p);
 }
 function display(){
- const m=modelStats(state.root,state.clips),metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
+ const m=modelStats(state.root,state.clips);
+ $('opt-geometry').disabled=m.skinned>0;
+ if(m.skinned>0)$('opt-geometry').checked=false;
+ $('opt-animation').disabled=m.animations===0;
+ if(m.animations===0)$('opt-animation').checked=false;
+ $('selective-note').textContent=m.skinned>0
+   ?'Персонаж со скелетом: сетка пока защищена от упрощения. Выбирай текстуры и/или анимационные ключи; кости и веса не удаляются.'
+   :'Включай только те части, которые хочешь обработать. При отсутствии улучшений исходный GLB остаётся неизменным.';
+ const metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
  $('metrics').replaceChildren();
  for(const [label,value] of metrics){const row=document.createElement('div');row.className='metric';const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row)}
  $('compat').textContent=state.info+'\n'+
@@ -158,9 +166,14 @@ async function preparePreview(){
    const preset=MOBILE_PRESETS[$('preset').value]||MOBILE_PRESETS.balanced;
    const value=$('geometry').value;
    const ratio=value==='none'?1:Number(value)||preset.ratio;
+   const useGeometry=$('opt-geometry').checked&&!$('opt-geometry').disabled;
+   const useTextures=$('opt-textures').checked;
+   const useAnimation=$('opt-animation').checked&&!$('opt-animation').disabled;
+   if(!useGeometry&&!useTextures&&!useAnimation)
+     throw Error('Выбери, что оптимизировать: сетку, текстуры или анимационные ключи.');
    const optimized=await optimizeGlb(source,{
      texture:Number($('texture').value),ratio,error:preset.error,
-     geometry:ratio<1,
+     geometry:useGeometry, textures:useTextures,animationKeys:useAnimation,
      onProgress:(percent,message)=>{progress(percent);status(message)}
    });
    const parsed=inspectGlb(optimized.bytes);
@@ -178,7 +191,9 @@ async function preparePreview(){
    displayComparison(optimized);
    showComparison(true);
    progress(100);
-   status('✓ Предпросмотр готов. Сравни результат и сохрани нужное качество.');
+   status(optimized.unchanged
+     ?'Новых улучшений не найдено — исходный GLB оставлен без изменений.'
+     :'✓ Предпросмотр готов. Сравни результат и сохрани нужное качество.');
  }catch(error){
    if(loaded){scene.remove(loaded);release(loaded)}
    console.error('Preview',error);
@@ -326,7 +341,8 @@ function changeQuality(id){
 }
 document.querySelectorAll('[data-quality]').forEach(b=>
  b.addEventListener('click',()=>changeQuality(b.dataset.quality)));
-for(const id of ['texture','geometry'])$(id).addEventListener('change',()=>{
+for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation'])
+ $(id).addEventListener('change',()=>{
  if(state.busy)return;
  discardPreview();status('Настройки изменены. Создай предпросмотр заново.');
 });
