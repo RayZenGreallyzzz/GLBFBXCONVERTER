@@ -32,3 +32,14 @@
 .brand-splash{position:fixed;inset:0;z-index:9999;background:#090d1f;display:flex;align-items:center;justify-content:center;transition:opacity .4s ease;opacity:1;pointer-events:all}
 .brand-splash img{height:100%;width:100%;object-fit:cover;object-position:center}
 .brand-splash.brand-splash--hide{opacity:0;pointer-events:none}
+
+
+/* BVH animation workshop: small controls, scrollable manual mapping. */
+.bone-mapping{max-height:270px;overflow:auto;overscroll-behavior:contain;padding:4px}
+.bone-mapping-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(125px,1.25fr);gap:8px;align-items:center;margin:5px 0}
+.bone-mapping-row span{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d8e9f2}
+.bone-mapping-row select{width:100%;min-width:0;font-size:12px;padding:7px}
+.row-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+#tab-anim input:not([type="checkbox"]){width:100%;max-width:100%}
+#tab-anim .compare-report label{display:block;margin:6px 0}
+#tab-anim .bone-mapping-row{display:grid}
