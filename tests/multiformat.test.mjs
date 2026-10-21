@@ -228,7 +228,7 @@ test('Mixamo ZIP is only OBJ, MTL, Albedo PNG with simple color material',async(
 test('Mixamo profile rejects gigantic geometry with actionable warning',async()=>{
  const scene=new THREE.Group(),mesh=new THREE.Mesh(new THREE.BoxGeometry(),
    new THREE.MeshBasicMaterial());
- mesh.geometry.setIndex(new Uint32Array(350001*3));
+ mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(350001*3),1));
  scene.add(mesh);
  await assert.rejects(
    exportAdditional('obj-mixamo',scene,[],{name:'huge'}),
