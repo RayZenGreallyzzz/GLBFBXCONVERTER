@@ -79,3 +79,48 @@ test('conversion refuses to leave an untextured FBX when source had Albedo',asyn
  );
  assert.equal(mesh.material,material,'restore must run even on failure');
 });
+
+test('bakes 16x atlas transform into mesh UVs and emits identity texture transform',async()=>{
+ const {root,mesh,material,albedo}=fixture();
+ const originalUV=mesh.geometry.getAttribute('uv');
+ const before=Array.from(originalUV.array);
+ // Simulates exact issue from uploaded FBX: U=0..1/16, V=15/16..1
+ // while FBX Texture.Scaling is (16,16), ignored by Mixamo.
+ for(let i=0;i<originalUV.count;i++){
+   originalUV.setXY(i,originalUV.getX(i)/16,(15+originalUV.getY(i))/16);
+ }
+ albedo.repeat.set(16.0028954,15.9872437);
+ albedo.offset.set(.000034,.00101);
+ albedo.updateMatrix();
+ const source=mesh.geometry;
+ const session=prepareMixamoDiffuse(root,{maxTextureSize:2048});
+ try {
+   assert.notEqual(mesh.geometry,source,'temporary geometry clone must be used');
+   assert.notEqual(mesh.material,material,'temporary material must be used');
+   assert.equal(mesh.material.map.repeat.x,1,'FBX texture must have identity scale');
+   assert.equal(mesh.material.map.repeat.y,1);
+   assert.equal(mesh.material.map.offset.y,0,'no offset is left on exported texture');
+   const uv=mesh.geometry.getAttribute('uv');
+   const xs=[],ys=[];
+   for(let i=0;i<uv.count;i++){xs.push(uv.getX(i));ys.push(uv.getY(i))}
+   assert.ok(Math.max(...xs)-Math.min(...xs)>.9,'U range fills whole atlas, not tiny tile');
+   assert.ok(Math.max(...ys)-Math.min(...ys)>.9,'V range fills whole atlas');
+   assert.ok(Math.max(...ys)<1.02 && Math.min(...ys)>-.02,'integer tile offset removed');
+   assert.equal(session.uvBaked,1);
+ } finally { session.restore(); }
+ assert.equal(mesh.geometry,source,'restore exact original geometry');
+ assert.equal(mesh.material,material,'restore exact original material');
+ assert.equal(albedo.repeat.x,16.0028954,'original texture remains unchanged');
+ // Restore the fixture attribute for consistency, not needed elsewhere.
+ originalUV.array.set(before);
+});
+test('incompatible UV transforms on a multi-material mesh fail safely',()=>{
+ const {root,mesh,material,albedo}=fixture();
+ const second=material.clone();
+ second.map=albedo.clone();second.map.offset.x=.25;
+ mesh.material=[material,second];
+ const originalGeometry=mesh.geometry,originalMaterials=mesh.material;
+ assert.throws(()=>prepareMixamoDiffuse(root),/разные преобразования Albedo/);
+ assert.equal(mesh.geometry,originalGeometry);
+ assert.equal(mesh.material,originalMaterials);
+});
