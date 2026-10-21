@@ -256,6 +256,11 @@ export function createMixamoAutorigInput(root, animations=[]) {
   if(bones.length||animations.length)
     return {input:root,flat:false,meshes:meshes.length};
   if(!meshes.length)throw Error('Для Mixamo в модели нет геометрии');
+  // The installed FBX exporter version still serializes its Group root as
+  // a "Null" Model even when objectFilter excludes it. Send the Mesh
+  // directly. For multiple meshes keep the original hierarchy rather than
+  // silently losing garments/parts; a later merge workflow can address it.
+  if(meshes.length!==1)return {input:root,flat:false,meshes:meshes.length};
   root.updateMatrixWorld(true);
   const flatRoot=new THREE.Group();
   flatRoot.name='MixamoExportOnly';
@@ -271,7 +276,7 @@ export function createMixamoAutorigInput(root, animations=[]) {
     clone.position.copy(position);clone.quaternion.copy(rotation);clone.scale.copy(scale);
     flatRoot.add(clone);
   }
-  return {input:flatRoot,flat:true,meshes:meshes.length};
+  return {input:flatRoot.children[0],flat:true,meshes:1};
 }
 
 /** Compatibility exporter called only for the old 2012/2013 Mixamo presets. */
