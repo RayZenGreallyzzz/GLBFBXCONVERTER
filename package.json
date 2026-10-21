@@ -16,7 +16,8 @@
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
-    "meshoptimizer": "^0.25.0"
+    "meshoptimizer": "^0.25.0",
+    "fflate": "^0.8.2"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
