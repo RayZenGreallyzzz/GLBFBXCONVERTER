@@ -57,8 +57,8 @@ test('temporary Diffuse material contains map only, no PBR maps, and can be rest
  const {root,mesh,material}=fixture();
  const session=prepareMixamoDiffuse(root,{maxTextureSize:512});
  assert.ok(mesh.material.isMeshPhongMaterial);
- assert.equal(mesh.material.normalMap,undefined);
- assert.equal(mesh.material.metalnessMap,undefined);
+ assert.ok(mesh.material.normalMap == null);
+ assert.ok(mesh.material.metalnessMap == null);
  assert.equal(mesh.material.map,material.map);
  assert.equal(session.maps,1);
  session.restore();
