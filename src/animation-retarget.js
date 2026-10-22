@@ -77,14 +77,21 @@ export function suggestBoneMappings(sourceSkeleton,targetRoot){
     const name=tidy(bone.name),group=exact.get(name)||[];
     group.push(bone);exact.set(name,group);
   }
-  const assigned=new Set(),mappings=[];
-  for(const source of sourceSkeleton.bones.filter(b=>b.isBone && b.name!=='ENDSITE')){
-    const choices=exact.get(tidy(source.name))||[];
-    const similar=canonicalGroups.get(canonicalBone(source.name))||[];
-    const candidate=[...choices,...similar].find(t=>!assigned.has(t.name))||null;
-    if(candidate)assigned.add(candidate.name);
-    mappings.push({source:source.name,target:candidate?.name||''});
+  // Reserve exact-name matches globally before using aliases. This prevents
+  // CMU helper joints (such as LowerBack) from stealing Mixamo Spine from
+  // the real BVH Spine node, leaving the main torso unmapped.
+  const assigned=new Set(),sources=sourceSkeleton.bones.filter(b=>b.isBone && b.name!=='ENDSITE');
+  const destinations=new Map();
+  for(const source of sources){
+    const candidate=(exact.get(tidy(source.name))||[]).find(t=>!assigned.has(t.name));
+    if(candidate){assigned.add(candidate.name);destinations.set(source.name,candidate.name)}
   }
+  for(const source of sources){
+    if(destinations.has(source.name))continue;
+    const candidate=(canonicalGroups.get(canonicalBone(source.name))||[]).find(t=>!assigned.has(t.name));
+    if(candidate){assigned.add(candidate.name);destinations.set(source.name,candidate.name)}
+  }
+  const mappings=sources.map(source=>({source:source.name,target:destinations.get(source.name)||''}));
   return {targets:targets.map(b=>b.name),mappings,
     matched:mappings.filter(x=>x.target).length,
     total:mappings.length};
