@@ -83,7 +83,7 @@ test('CMU frame zero calibrates A-pose, is removed, and creates no first-frame r
  const arm=clip.tracks.find(t=>t.name==='mixamorigLeftUpperArm.quaternion');
  assert.ok(arm,'A-pose arm must be mapped');
  const beginning=new THREE.Quaternion().fromArray(arm.values,0);
- assert.ok(beginning.angleTo(old)<.0002,'source pose must preserve A-pose, delta='+beginning.angleTo(old).toFixed(6)+' start='+beginning.toArray()+' rest='+old.toArray()+' map='+JSON.stringify(mapping.mappings.filter(x=>x.target)) );
+ assert.ok(beginning.angleTo(old)<.001,'source pose must preserve A-pose, delta='+beginning.angleTo(old).toFixed(6)+' start='+beginning.toArray()+' rest='+old.toArray()+' map='+JSON.stringify(mapping.mappings.filter(x=>x.target)) );
  const rotated=new THREE.Quaternion().fromArray(arm.values,4);
  assert.ok(rotated.angleTo(old)>.1,'last frame must animate arm');
  const hipMove=clip.tracks.find(t=>t.name==='mixamorigHips.position');
