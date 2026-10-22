@@ -7,8 +7,9 @@ import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
 import { inspectVrm } from './vrm-safe.js';
-import {parseBvhForRetarget,suggestBoneMappings,retargetBvhClip,isRiggedCharacter,characterBones}
+import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
+import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
 import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
  SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
@@ -423,9 +424,13 @@ $('anim-bvh-file').addEventListener('change',async e=>{
    stopMotionPlayback();
    motion.source=source;motion.preview=null;
    $('anim-clip-name').value=source.clip.name;
+   $('anim-trim-calibration').checked=detectCmuCalibration(source.skeleton,source.clip);
    renderMotionMapping(mapping);
+   const sizing=estimateRigScale(source.skeleton,state.root);
    motionStatus('BVH загружен: '+source.skeleton.bones.length+' костей, '+
-     source.clip.duration.toFixed(2)+' сек. Проверяй соответствие костей перед воспроизведением.');
+     source.clip.duration.toFixed(2)+' сек. Найдено '+mapping.matched+' из '+mapping.total+
+     ' соответствий. '+(sizing.measured?'Масштаб перемещения ≈ '+sizing.ratio.toFixed(4)+'×. ':'')+
+     ($('anim-trim-calibration').checked?'CMU T-поза распознана; первый кадр будет исключён.':'Проверь, есть ли в первом кадре отдельная T-поза.'));
  }catch(err){motionStatus('Ошибка BVH: '+(err.message||err))}
  finally{state.busy=false;buttons()}
 });
@@ -434,12 +439,15 @@ function previewMotion(){
  try{
    stopMotionPlayback();
    const mapping=readMotionMapping();
-   const newClip=retargetBvhClip({
+   const newClip=autoAdaptBvhClip({
      targetRoot:state.root,
      sourceSkeleton:motion.source.skeleton,sourceClip:motion.source.clip,
      mappings:mapping,name:$('anim-clip-name').value,
      rootMotion:$('anim-root-motion').checked,
-     scale:Number($('anim-root-scale').value)
+     scale:Number($('anim-root-scale').value),
+     autoScale:$('anim-auto-scale').checked,
+     alignAxes:$('anim-align-axes').checked,
+     trimCalibration:$('anim-trim-calibration').checked
    });
    const mapped=mapping.filter(row=>row.target).length;
    if(mapped<Math.min(5,mapping.length)&&
@@ -451,9 +459,17 @@ function previewMotion(){
    state.mixer.clipAction(newClip).play();
    motion.preview=newClip;
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
-     ' дорожек. Сравни с исходной позой, особенно руки и колени.');
+     ' дорожек. '+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
+     (newClip.userData.autoScaleMeasured?'Масштаб Hips '+newClip.userData.autoScaleRatio.toFixed(4)+'×. ':'')+
+     'Проверь плечи, колени, одежду и направление движения.');
  }catch(e){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка переноса: '+(e.message||e))}
  buttons();
+}
+for(const id of ['anim-clip-name','anim-root-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
+ $(id).addEventListener('change',()=>{
+   stopMotionPlayback();motion.preview=null;buttons();
+   motionStatus('Настройки изменены. Нажми «Адаптировать и посмотреть» для пересчёта.');
+ });
 }
 $('anim-preview').addEventListener('click',previewMotion);
 $('anim-stop').addEventListener('click',()=>{
