@@ -12,6 +12,18 @@ import * as THREE from 'three';
 import { canonicalBone,characterBones,isRiggedCharacter } from './animation-retarget.js';
 
 const EPS=1e-7;
+
+/** Detect Bruce Hahne's CMU MotionBuilder-friendly conversion, not arbitrary BVH.
+ * That conversion uses a synthetic T pose at frame zero and 120 fps.
+ */
+export function detectCmuCalibration(skeleton,clip){
+ const names=new Set((skeleton?.bones||[]).map(b=>b.name.toLowerCase()));
+ const hasMarker=names.has('lhipjoint')&&names.has('rhipjoint')&&names.has('lowerback');
+ const track=clip?.tracks?.find(t=>t.times?.length>2);
+ if(!hasMarker||!track)return false;
+ const dt=track.times[1]-track.times[0];
+ return Number.isFinite(dt)&&Math.abs(dt-1/120)<0.00012;
+}
 const Q=()=>new THREE.Quaternion();
 function byCanonical(skeleton){
  const m=new Map();
