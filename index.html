@@ -95,8 +95,8 @@
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-anim" class="tab-panel hidden">
-  <h2>Анимации — BVH → персонаж</h2>
-  <p class="tip">1. Загрузи GLB / FBX / VRM со скелетом через «Загрузить модель». 2. Выбери BVH. 3. Проверь совпадение костей. 4. Посмотри движение и добавь его в GLB. Исходный файл не меняется.</p>
+  <h2>Автоадаптация BVH → персонаж</h2>
+  <p class="tip">1. Загрузи GLB / FBX / VRM со скелетом. 2. Выбери BVH. 3. Нажми «Адаптировать и посмотреть». Программа сопоставит кости, учтёт исходную позу и пропорции. При необходимости уточни кости вручную. Исходник не изменяется.</p>
   <label class="load">＋ Выбрать BVH-анимацию
     <input hidden id="anim-bvh-file" type="file" accept=".bvh">
   </label>
@@ -105,7 +105,10 @@
     <label>Название движения
       <input id="anim-clip-name" value="BVH Motion" maxlength="60" autocomplete="off">
     </label>
-    <label><input type="checkbox" id="anim-root-motion"> Переносить движение Hips (по умолчанию — бег/ходьба на месте)</label>
+    <label><input type="checkbox" id="anim-trim-calibration"> Убрать первый T-кадр (для CMU распознаётся автоматически)</label>
+    <label><input type="checkbox" id="anim-align-axes" checked> Автокоррекция направлений костей и A/T-поз</label>
+    <label><input type="checkbox" id="anim-auto-scale" checked> Автомасштаб по длине ног</label>
+    <label><input type="checkbox" id="anim-root-motion"> Переносить движение Hips (по умолчанию — ходьба/бег на месте)</label>
     <label>Масштаб перемещения Hips
       <select id="anim-root-scale">
         <option value="0.25">0.25×</option>
@@ -120,13 +123,13 @@
     </details>
   </div>
   <div class="row-buttons">
-    <button type="button" id="anim-preview" disabled>▶ Предпросмотр</button>
+    <button type="button" id="anim-preview" disabled>▶ Адаптировать и посмотреть</button>
     <button type="button" id="anim-stop" disabled>■ Остановить</button>
   </div>
   <button class="primary" type="button" id="anim-add" disabled>＋ ДОБАВИТЬ АНИМАЦИЮ В НАБОР</button>
   <p class="tip" id="anim-library">Дополнительных анимаций пока нет.</p>
   <button class="primary save-btn" type="button" id="anim-export" disabled>▣ СОХРАНИТЬ ПЕРСОНАЖА С АНИМАЦИЯМИ (GLB)</button>
-  <p class="tip">Внимание: автоматическое совпадение имён костей не гарантирует правильные повороты. BVH и персонаж могут иметь разные оси суставов и исходную позу. Проверяй руки, колени и одежду перед сохранением. Этот первый режим не выполняет автоматическую коррекцию A/T-поз.</p>
+  <p class="tip">Экспериментальная автоадаптация: ориентации корректируются по направлению сегментов, но необычные оси рига, отдельные пальцы, хвосты и плохие веса кожи могут требовать ручной правки. Для обычных BVH без специального первого T-кадра отключи его удаление. Экспортируй только после предпросмотра.</p>
 </section>
 <section id="tab-check" class="tab-panel hidden">
     <h2>Анализ совместимости</h2><div id="compat">Загрузи модель для анализа.</div>
