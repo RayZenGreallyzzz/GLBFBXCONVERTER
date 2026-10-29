@@ -10,6 +10,7 @@ import { inspectVrm } from './vrm-safe.js';
 import {makeVrm1} from './vrm-export.js';
 import {inspectVRChatAvatar,assertVRChatReady} from './vrchat-preflight.js';
 import {extractModelZip} from './model-archive.js';
+import {importStreaming3mf} from './three-mf-import.js';
 import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
 import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
@@ -133,6 +134,13 @@ async function load(file,attachments=[file]){
      const check=inspectGlb(data),loaded=await new GLTFLoader().parseAsync(data,'');
      root=loaded.scene;clips=loaded.animations||[];
      info='GLB 2.0. Мешей: '+check.meshes+'. Анимаций: '+check.animations+'. Доп. расширения: '+(check.required.join(', ')||'нет')+'.';
+   }else if(ext==='3mf'){
+     status('3MF: читаем архив порциями, не распаковывая огромный XML целиком…');
+     const result=await importStreaming3mf(data,{onProgress:percent=>{
+       progress(35+Math.round(percent*.55));
+       status('3MF: импорт '+percent+'% · сохраняем геометрию и текстуры');
+     }});
+     root=result.root;clips=result.clips||[];info=result.notice;
    }else if(ext==='fbx'){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
      info=check.label+'. FBX может импортироваться не полностью: проверь материалы и движения.';
@@ -153,7 +161,7 @@ async function load(file,attachments=[file]){
      state.mixer.clipAction(clips[0]).play();
    }
    state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
-   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
+   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm','3mf'].includes(ext)?data:null;state.info=info;
    updateExportWarnings();
    $('filename').textContent=file.name+(source!==file?' → '+source.name:'');$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
@@ -274,6 +282,9 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
+   }else if(target==='3mf'&&state.type==='3mf'&&state.sourceBuffer){
+     status('3MF уже готов: создаём точную копию без повторной упаковки.');
+     await save(state.sourceBuffer,state.name+'_copy.3mf','model/3mf');
    }else if(target==='vrchat-fbx'){
      const report=inspectVRChatAvatar(state.root,current);
      assertVRChatReady(report);
