@@ -108,7 +108,7 @@ export async function importObjWithMaterials(file,text,files=[file]){
   }
 }
 
-export async function importAdditional(file,data,files=[file]) {
+export async function importAdditional(file,data,files=[file],options={}) {
   const ext=file.name.split('.').pop().toLowerCase(), bytes=new Uint8Array(data);
   const name=file.name.replace(/\\.[^.]+$/,'');
   if(ext==='bvh')return importBvhMotion(decoder.decode(bytes),{name:file.name.replace(/\.bvh$/i,'')});
@@ -143,9 +143,11 @@ export async function importAdditional(file,data,files=[file]) {
       notice:'COLLADA: поддерживается часть возможностей DAE; внешние изображения могут потребовать дополнительной обработки.'};
   }
   if(ext==='3mf'){
-    const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
-    const root=new ThreeMFLoader().parse(data);
-    return {root,clips:[],notice:'3MF: геометрия для печати. Цвета и текстуры зависят от поддержки расширения Materials & Properties в программе просмотра. Скелеты и анимации отсутствуют.'};
+    // ThreeMFLoader builds a giant XML DOM and can freeze/crash Android on
+    // actual multi-million triangle files (FoxGi: 275 MB expanded XML).
+    // Use the chunked deflate/XML importer; geometry remains unmodified.
+    const {importLarge3mf}=await import('./three-mf-stream-import.js');
+    return await importLarge3mf(data,{onProgress:options?.onProgress});
   }
   if(ext==='usdz'){
     // Three.js r170 supports USDA-based USDZ archives. Not all USDZ flavors load.
