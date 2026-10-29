@@ -106,7 +106,7 @@ export async function exportTextured3mf(root,{name='Model',maxTextureSize=2048,
  try{
   write('<?xml version="1.0" encoding="UTF-8"?>');
   write('<model unit="millimeter" xml:lang="ru-RU" xmlns="'+core+
-   '" xmlns:m="'+mats+'" requiredextensions="m"><metadata name="Title">'+
+   '" xmlns:m="'+mats+'"><metadata name="Title">'+
    xmlEscape(name)+'</metadata><resources>');
   // Print material resources must precede <object> elements.
   for(const rec of records){
