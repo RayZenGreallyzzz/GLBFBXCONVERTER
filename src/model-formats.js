@@ -16,6 +16,7 @@ import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 import { importBvhMotion } from './bvh-motion.js';
 import { exportTextured3mf } from './three-mf.js';
+import { importLarge3mf } from './3mf-stream-import.js';
 
 export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz','3mf','bvh']);
 export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','vrm','vrm-source','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf']);
@@ -143,9 +144,20 @@ export async function importAdditional(file,data,files=[file]) {
       notice:'COLLADA: поддерживается часть возможностей DAE; внешние изображения могут потребовать дополнительной обработки.'};
   }
   if(ext==='3mf'){
+    // ThreeMFLoader uses unzipSync + DOMParser for every XML node. A
+    // 52MB FoxGi.3mf decompresses into 262MB XML with ~3m elements:
+    // that can freeze or kill Android's WebView before rendering.
+    if(bytes.byteLength>=10*1048576)
+      return await importLarge3mf(data,{onProgress:()=>{}});
     const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
-    const root=new ThreeMFLoader().parse(data);
-    return {root,clips:[],notice:'3MF: геометрия для печати. Цвета и текстуры зависят от поддержки расширения Materials & Properties в программе просмотра. Скелеты и анимации отсутствуют.'};
+    try{
+      const root=new ThreeMFLoader().parse(data);
+      return {root,clips:[],notice:'3MF: модель загружена. Поддержка печатных материалов зависит от 3MF-расширений.'};
+    }catch(error){
+      // Our own Model Forge 3MF files should still reopen on devices where
+      // the generic 3MF parser cannot interpret the Materials extension.
+      return await importLarge3mf(data);
+    }
   }
   if(ext==='usdz'){
     // Three.js r170 supports USDA-based USDZ archives. Not all USDZ flavors load.
