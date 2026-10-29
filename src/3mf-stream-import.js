@@ -144,7 +144,8 @@ export async function importLarge3mf(buffer,{onProgress=null}={}){
     }catch(e){failure=e}
    };
    file.start();
-  }else if(/^3D\/Textures?\/.test(name)&&/\.(png|jpg|jpeg)$/i.test(name)){
+  }else if((name.startsWith('3D/Textures/')||name.startsWith('3D/Texture/')) &&
+    ['.png','.jpg','.jpeg'].some(ext=>name.toLowerCase().endsWith(ext))){
    const chunks=[];
    file.ondata=(err,chunk,final)=>{
     if(err){failure=err;return}
