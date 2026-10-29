@@ -20,6 +20,17 @@
     <div id="view-label" class="view-label" hidden>Исходная модель</div>
   </div>
   <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ply,.stl,.dae,.usdz,.3mf,.zip,.bvh"></label><span id="filename">Файл не выбран</span></div>
+  <div id="view-quality-picker" class="view-quality-picker" hidden>
+    <label>3MF — качество только просмотра
+      <select id="view-quality" aria-label="Качество 3MF просмотра">
+        <option value="10">10% — минимум памяти</option>
+        <option value="25" selected>25% — лёгкий просмотр</option>
+        <option value="50">50% — детали</option>
+        <option value="100">100% — полная модель</option>
+      </select>
+    </label>
+    <small id="view-quality-note">Экспорт всегда использует исходную геометрию.</small>
+  </div>
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
