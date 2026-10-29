@@ -46,6 +46,12 @@ jobs:
           test -s dist/branding/splash.png
       - name: Sync Android
         run: npx cap sync android
+      - name: Isolate 3MF test APK from the installed stable app
+        run: |
+          set -e
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.lowmemtest"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.lowmemtest"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Phoenix Forge 3MF TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
