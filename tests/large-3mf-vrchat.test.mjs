@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {unzipSync,strFromU8} from 'fflate';
 import {exportTextured3mf} from '../src/three-mf.js';
+import {importLarge3mf} from '../src/three-mf-stream-import.js';
 import {inspectVRChatAvatar,assertVRChatReady} from '../src/vrchat-preflight.js';
 import {modelStats} from '../src/format.js';
 
@@ -31,6 +32,13 @@ test('3MF exports 1,936,208 triangles without reducing or refusing geometry',asy
  assert.match(xml,/unit="millimeter"/);
  assert.match(xml,/v1="0" v2="1" v3="3"/);
  assert.ok(result.content.length>1000);
+ // Actual regression: FoxGi 3MF export previously succeeded but re-import
+ // froze the Android WebView while DOMParser allocated a 275 MB XML tree.
+ const reloaded=await importLarge3mf(result.content,{loadTextures:false});
+ const mesh=reloaded.root.children[0];
+ assert.equal(mesh.geometry.index.count/3,triangles,'all triangles survive 3MF re-import');
+ assert.equal(mesh.geometry.getAttribute('position').count,4);
+ assert.match(reloaded.notice,/потоковый импорт/);
 });
 test('3MF keeps embedded albedo texture and UV with new streaming writer',async()=>{
  const tex=new THREE.DataTexture(new Uint8Array([255,0,0,255,0,0,255,255,0,255,0,255,255,255,0,255]),2,2,THREE.RGBAFormat);
@@ -42,6 +50,9 @@ test('3MF keeps embedded albedo texture and UV with new streaming writer',async(
  const model=strFromU8(archive['3D/3dmodel.model']);
  assert.ok(archive['3D/Textures/texture_001.png']);
  assert.match(model,/<m:tex2coord /);
+ const opened=await importLarge3mf(out.content,{loadTextures:false});
+ assert.ok(opened.root.children[0].geometry.getAttribute('uv'));
+ assert.equal(opened.root.children[0].geometry.getAttribute('uv').count,24);
  assert.match(model,/<m:texture2dgroup /);
  assert.match(model,/<triangle [^>]+ p1="\d+" p2="\d+" p3="\d+"/);
  assert.match(strFromU8(archive['[Content_Types].xml']),/3dmanufacturing-3dmodeltexture/);
