@@ -85,6 +85,7 @@ test('3MF package embeds PNG, UV texture group, triangle indices and image relat
  assert.deepEqual([...files['3D/Textures/texture_001.png'].slice(0,8)],
   [137,80,78,71,13,10,26,10]);
  assert.match(xml,/unit="millimeter"/);
+ assert.doesNotMatch(xml,/requiredextensions=/,'texture extension is optional for non-texture-aware viewers');
  assert.match(xml,/<m:texture2d /);
  assert.match(xml,/<m:texture2dgroup /);
  assert.match(xml,/<m:tex2coord /);
@@ -103,6 +104,7 @@ test('3MF scale 1m->1000mm and 1mm->1mm are different',async()=>{
  assert.match(a,/x="-500"/);
  assert.match(b,/x="-0.5"/);
  assert.match(a,/<basematerials /);
+ assert.doesNotMatch(a,/requiredextensions=/,'untextured 3MF must not demand materials support');
  assert.doesNotMatch(a,/<m:texture2d /);
 });
 test('catalog/UI advertise VRM and 3MF and warn about unavoidable loss of animation',async()=>{
