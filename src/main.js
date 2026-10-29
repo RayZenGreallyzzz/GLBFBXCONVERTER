@@ -11,6 +11,7 @@ import {makeVrm1} from './vrm-export.js';
 import {inspectVRChatAvatar,assertVRChatReady} from './vrchat-preflight.js';
 import {extractModelZip} from './model-archive.js';
 import {make3mfLightPreview,dispose3mfLightPreview} from './3mf-preview.js';
+import {simplify3mfScene,release3mfSimplifiedGeometry} from './3mf-optimize.js';
 import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
 import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
@@ -224,12 +225,6 @@ async function preparePreview(){
  state.busy=true;buttons();progress(5);
  let loaded=null;
  try{
-   // On Android, avoid re-exporting texture payloads when source is already GLB.
-   const source=state.sourceBuffer||
-     await new GLTFExporter().parseAsync(state.root,{
-       binary:true,trs:true,onlyVisible:false,animations:state.clips,
-       includeCustomExtensions:false
-     });
    const preset=MOBILE_PRESETS[$('preset').value]||MOBILE_PRESETS.balanced;
    const value=$('geometry').value;
    const ratio=value==='none'?1:Number(value)||preset.ratio;
@@ -238,11 +233,51 @@ async function preparePreview(){
    const useAnimation=$('opt-animation').checked&&!$('opt-animation').disabled;
    if(!useGeometry&&!useTextures&&!useAnimation)
      throw Error('Выбери, что оптимизировать: сетку, текстуры или анимационные ключи.');
-   const optimized=await optimizeGlb(source,{
-     texture:Number($('texture').value),ratio,error:preset.error,
-     geometry:useGeometry, textures:useTextures,animationKeys:useAnimation,
-     onProgress:(percent,message)=>{progress(percent);status(message)}
-   });
+   let optimized;
+   if(state.type==='3mf'){
+     // A 1.94M-face 3MF must not be exported to a full-size GLB, loaded
+     // again by glTF-Transform, and then optimized: Android runs out of RAM.
+     const stats=modelStats(state.root,state.clips);
+     if(!useGeometry&&stats.triangles>600000)
+       throw Error('Для тяжёлого 3MF включи оптимизацию сетки. Прямой экспорт полной модели без упрощения доступен во вкладке «Конвертация».');
+     const prepared=await simplify3mfScene(state.root,{
+       ratio:useGeometry?ratio:1,error:preset.error,
+       onProgress:(percent,message)=>{progress(percent);status(message)}
+     });
+     let bytes;
+     try{
+       progress(72);status('Собираем компактный GLB из упрощённого 3MF…');
+       bytes=await new GLTFExporter().parseAsync(prepared.root,{
+         binary:true,trs:true,onlyVisible:false,animations:[],
+         maxTextureSize:useTextures?Number($('texture').value):4096,
+         includeCustomExtensions:false
+       });
+     }finally{
+       // The compact preview shares the original materials, not geometry.
+       release3mfSimplifiedGeometry(prepared.root);
+     }
+     optimized={
+       bytes,beforeBytes:state.bytes,afterBytes:bytes.byteLength,
+       sourceTriangles:prepared.sourceTriangles,
+       optimizedTriangles:prepared.optimizedTriangles,
+       unchanged:false,
+       note:prepared.optimizedTriangles<prepared.sourceTriangles
+         ?'Сетка реально упрощена через Meshoptimizer с сохранением UV; оригинал не менялся.'
+         :'Упрощение без потери формы не уменьшило число треугольников; сохранён GLB с исходной сеткой.'
+     };
+   }else{
+     // Ordinary GLBs keep the original fast path and byte-for-byte fallback.
+     const source=state.sourceBuffer||
+       await new GLTFExporter().parseAsync(state.root,{
+         binary:true,trs:true,onlyVisible:false,animations:state.clips,
+         includeCustomExtensions:false
+       });
+     optimized=await optimizeGlb(source,{
+       texture:Number($('texture').value),ratio,error:preset.error,
+       geometry:useGeometry, textures:useTextures,animationKeys:useAnimation,
+       onProgress:(percent,message)=>{progress(percent);status(message)}
+     });
+   }
    const parsed=inspectGlb(optimized.bytes);
    assertGlbPreserved(modelStats(state.root,state.clips),parsed,state.clips);
    status('Подготавливаем 3D-предпросмотр…');
