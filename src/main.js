@@ -137,7 +137,12 @@ async function load(file,attachments=[file]){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
      info=check.label+'. FBX может импортироваться не полностью: проверь материалы и движения.';
    }else if(['gltf','vrm','obj','ply','stl','dae','usdz','3mf','bvh'].includes(ext)){
-     const result=await importAdditional(source,data,attached);
+     const result=await importAdditional(source,data,attached,{
+       onProgress:percent=>{
+         progress(Math.min(95,35+Math.round(percent*.6)));
+         status('3MF: открываем геометрию и текстуры '+percent+'%…');
+       }
+     });
      root=result.root;clips=result.clips||[];info=result.notice;
    }else throw Error('Неизвестный входной формат: '+ext);
    if(!root)throw Error('Модель не найдена');
