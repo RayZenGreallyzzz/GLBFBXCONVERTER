@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {unzipSync,strFromU8} from 'fflate';
 import {exportTextured3mf} from '../src/three-mf.js';
+import {importStreaming3mf} from '../src/three-mf-import.js';
 import {inspectVRChatAvatar,assertVRChatReady} from '../src/vrchat-preflight.js';
 import {modelStats} from '../src/format.js';
 
@@ -24,6 +25,11 @@ test('3MF exports 1,936,208 triangles without reducing or refusing geometry',asy
  const seen=[];
  const result=await exportTextured3mf(root,{unitScale:1000,onProgress:p=>seen.push(p)});
  assert.equal(result.triangles,triangles);
+ // The export alone passing was insufficient on Android. Re-open the exact
+ // multi-million-triangle 3MF and check that all faces survived the import.
+ const reopened=await importStreaming3mf(result.content,{loadTextures:false});
+ assert.equal(reopened.triangles,triangles,'full 3MF roundtrip must preserve polygon count');
+ assert.equal(modelStats(reopened.root,[]).triangles,triangles);
  const parts=unzipSync(result.content);
  const xml=strFromU8(parts['3D/3dmodel.model']);
  assert.equal((xml.match(/<triangle /g)||[]).length,triangles,'every triangle is actually exported');
