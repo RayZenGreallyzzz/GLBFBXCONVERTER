@@ -131,8 +131,12 @@ export async function importLarge3mf(data,{onProgress=()=>{},loadTextures=true}=
     try{
      countXML+=bytes.byteLength;
      if(countXML>EXT_MAX)throw Error('3MF: XML слишком большой для Android');
-     parse(bytes,final);
-     if(final)modelFinished=true;
+     // A very compressible 3MF may inflate a 256 KB ZIP chunk into tens
+     // of MB in one callback. Slice expanded bytes BEFORE decoding them to
+     // keep XML token buffers bounded even for repetitive huge meshes.
+     for(let i=0;i<bytes.length;i+=128*1024)
+      parse(bytes.subarray(i,Math.min(bytes.length,i+128*1024)),false);
+     if(final){parse(new Uint8Array(0),true);modelFinished=true;}
     }catch(e){unzipError=e}
    };
    file.start();
