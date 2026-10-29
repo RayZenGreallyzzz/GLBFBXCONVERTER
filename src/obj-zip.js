@@ -77,7 +77,7 @@ function rgbaPNG(data,width,height){
  let offset=0;for(const b of chunks){out.set(b,offset);offset+=b.length}
  return out;
 }
-async function texturePNG(texture,{maxSize=Infinity}={}){
+export async function texturePNG(texture,{maxSize=Infinity}={}){
  const image=texture.image;
  if(!image)throw Error('Невозможно сохранить '+(texture.name||'текстуру')+': нет изображения');
  const w=image.width||image.naturalWidth,h=image.height||image.naturalHeight;
