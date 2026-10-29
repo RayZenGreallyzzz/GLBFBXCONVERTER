@@ -43,3 +43,11 @@
 #tab-anim input:not([type="checkbox"]){width:100%;max-width:100%}
 #tab-anim .compare-report label{display:block;margin:6px 0}
 #tab-anim .bone-mapping-row{display:grid}
+
+
+/* Only the 3MF viewport uses sampled indices; conversion always uses full source. */
+#view-quality-picker[hidden]{display:none}
+.view-quality-picker{padding:10px 12px;border-top:1px solid #23435c;background:#10243b}
+.view-quality-picker label{margin:0 0 5px;font-size:13px}
+.view-quality-picker select{padding:9px}
+.view-quality-picker small{display:block;color:#9fcbdc;line-height:1.4}
