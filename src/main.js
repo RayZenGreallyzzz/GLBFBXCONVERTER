@@ -7,6 +7,8 @@ import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
 import { inspectVrm } from './vrm-safe.js';
+import {makeVrm1} from './vrm-export.js';
+import {extractModelZip} from './model-archive.js';
 import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
 import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
@@ -117,7 +119,14 @@ async function load(file,attachments=[file]){
  state.busy=true;buttons();progress(10);status('Читаем и проверяем модель…');
  let root=null;
  try{
-   const ext=file.name.split('.').at(-1).toLowerCase(),data=await file.arrayBuffer();progress(35);
+   let source=file,attached=attachments;
+   let ext=file.name.split('.').at(-1).toLowerCase(),data=await file.arrayBuffer();progress(35);
+   if(ext==='zip'){
+     const archive=extractModelZip(data);
+     source=archive.file;attached=archive.files;
+     ext=archive.format;data=await source.arrayBuffer();
+     status('ZIP распакован: '+archive.entryCount+' ресурсов. Основной файл: '+source.name);
+   }
    let clips=[],info='';
    if(ext==='glb'){
      const check=inspectGlb(data),loaded=await new GLTFLoader().parseAsync(data,'');
@@ -126,8 +135,8 @@ async function load(file,attachments=[file]){
    }else if(ext==='fbx'){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
      info=check.label+'. FBX может импортироваться не полностью: проверь материалы и движения.';
-   }else if(['gltf','vrm','obj','ply','stl','dae','usdz','bvh'].includes(ext)){
-     const result=await importAdditional(file,data,attachments);
+   }else if(['gltf','vrm','obj','ply','stl','dae','usdz','3mf','bvh'].includes(ext)){
+     const result=await importAdditional(source,data,attached);
      root=result.root;clips=result.clips||[];info=result.notice;
    }else throw Error('Неизвестный входной формат: '+ext);
    if(!root)throw Error('Модель не найдена');
@@ -142,10 +151,10 @@ async function load(file,attachments=[file]){
      state.mixer=new THREE.AnimationMixer(root);
      state.mixer.clipAction(clips[0]).play();
    }
-   state.name=file.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
-   state.bytes=file.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
+   state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
+   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
    updateExportWarnings();
-   $('filename').textContent=file.name;$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
+   $('filename').textContent=file.name+(source!==file?' → '+source.name:'');$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),900)}
 }
@@ -264,13 +273,23 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
+   }else if(target==='vrm'){
+     if(!window.confirm('Создать VRM 1.0 из гуманоидной модели? Для VRM требуются обязательные кости; анимации сохраняй отдельно в GLB.'))return;
+     status('Проверяем гуманоидные кости и создаём VRM 1.0…');
+     const glb=await new GLTFExporter().parseAsync(state.root,{
+       binary:true,trs:true,onlyVisible:false,animations:[],maxTextureSize:4096,
+       includeCustomExtensions:false
+     });
+     const avatar=makeVrm1(glb,{name:state.name,author:$('vrm-author').value});
+     progress(70);
+     await save(avatar,state.name+'_avatar_vrm1.vrm','model/gltf-binary');
    }else if(target==='vrm-source'){
      if(state.type!=='vrm'||!state.sourceBuffer)
        throw Error('Точная VRM-копия доступна только для исходного файла .vrm. GLB требует настройки VRM Humanoid.');
      const checked=inspectVrm(state.sourceBuffer);
      status('Сохраняем '+checked.vrmVersion+' без изменения выражений, физики, рига и метаданных…');
      await save(state.sourceBuffer,state.name+'_original.vrm','model/gltf-binary');
-   }else if(['gltf','obj','obj-mixamo','ply','ply-lite','stl','usdz'].includes(target)){
+   }else if(['gltf','obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf'].includes(target)){
      const messages=getExportWarnings(target,current);
      if(messages.length&&!window.confirm(
         target.toUpperCase()+' может потерять данные:\n• '+messages.join('\n• ')+
@@ -290,7 +309,9 @@ async function exportAs(target){
        'Готовим '+target.toUpperCase()+'…');
      const file=await exportAdditional(target,exportRoot,state.clips,{
        name:state.name,
-       mixamoTextureSize:mixamoObj?Number($('mixamo-obj-texture').value):undefined
+       mixamoTextureSize:mixamoObj?Number($('mixamo-obj-texture').value):undefined,
+       printTextureSize:target==='3mf'?Number($('print-texture').value):undefined,
+       printUnitScale:target==='3mf'?Number($('print-scale').value):undefined
      });
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
@@ -542,6 +563,8 @@ function updateExportWarnings(){
  const version=Number(target);
  $('mixamo-notice').hidden=!(version===7300);
  $('mixamo-obj-quality').hidden=target!=='obj-mixamo';
+ $('vrm-settings').hidden=target!=='vrm';
+ $('print-settings').hidden=target!=='3mf';
  const warnings=state.root?getExportWarnings(target,modelStats(state.root,state.clips)):[];
  $('export-warning').hidden=!warnings.length;
  $('export-warning').textContent=warnings.length?'Важно: '+warnings.join('; ')+'.':'';
