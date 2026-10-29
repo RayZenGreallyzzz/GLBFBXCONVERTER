@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {exportTextured3mf} from '../src/three-mf.js';
-import {importLarge3mf} from '../src/3mf-stream-import.js';
+import {importLarge3mf,configure3mfTexture} from '../src/3mf-stream-import.js';
 import {importAdditional} from '../src/model-formats.js';
 
 test('streamed 3MF re-opens its actual exported mesh with exact triangle count, no DOM',async()=>{
@@ -54,4 +54,15 @@ test('format loader routes 3MF to its importer and main UI surfaces progress',as
  assert.match(formats,/importLarge3mf\(data\?\?file,\{onProgress:options\.onProgress\}\)/);
  assert.match(main,/ext==='3mf'\?null:await file\.arrayBuffer\(\)/);
  assert.match(main,/3MF: открываем геометрию и текстуры/);
+});
+
+test('3MF texture coordinates map top row of PNG to UV v=0, matching FoxGi source',()=>{
+ const tex=new THREE.Texture();
+ assert.equal(tex.flipY,true,'Three.js TextureLoader default needs overriding');
+ configure3mfTexture(tex);
+ assert.equal(tex.flipY,false,'must match glTF/3MF origin: no atlas mirror');
+ assert.equal(tex.colorSpace,THREE.SRGBColorSpace);
+ assert.equal(tex.wrapS,THREE.RepeatWrapping);
+ assert.equal(tex.wrapT,THREE.RepeatWrapping);
+ assert.ok(tex.version>0,'texture GPU upload must be reconfigured');
 });
