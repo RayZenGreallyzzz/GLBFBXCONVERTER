@@ -110,7 +110,22 @@ export async function importObjWithMaterials(file,text,files=[file]){
 }
 
 export async function importAdditional(file,data,files=[file],options={}) {
-  const ext=file.name.split('.').pop().toLowerCase(), bytes=new Uint8Array(data);
+  const ext=file.name.split('.').pop().toLowerCase();
+  if(ext==='3mf'){
+    // Large 3MF: stream File slices. Do not keep a duplicate 50MB ZIP ArrayBuffer.
+    const size=data?.byteLength??file.size;
+    if(size>=10*1048576)
+      return await importLarge3mf(data??file,{onProgress:options.onProgress});
+    const packed=data??await file.arrayBuffer();
+    const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
+    try{
+      const root=new ThreeMFLoader().parse(packed);
+      return {root,clips:[],notice:'3MF: модель загружена. Поддержка печатных материалов зависит от 3MF-расширений.'};
+    }catch(error){
+      return await importLarge3mf(packed,{onProgress:options.onProgress});
+    }
+  }
+  const bytes=new Uint8Array(data);
   const name=file.name.replace(/\\.[^.]+$/,'');
   if(ext==='bvh')return importBvhMotion(decoder.decode(bytes),{name:file.name.replace(/\.bvh$/i,'')});
   if(['gltf','vrm'].includes(ext)){
@@ -142,22 +157,6 @@ export async function importAdditional(file,data,files=[file],options={}) {
     const result=new ColladaLoader().parse(decoder.decode(bytes),'');
     return {root:result.scene,clips:result.animations||[],
       notice:'COLLADA: поддерживается часть возможностей DAE; внешние изображения могут потребовать дополнительной обработки.'};
-  }
-  if(ext==='3mf'){
-    // ThreeMFLoader uses unzipSync + DOMParser for every XML node. A
-    // 52MB FoxGi.3mf decompresses into 262MB XML with ~3m elements:
-    // that can freeze or kill Android's WebView before rendering.
-    if(bytes.byteLength>=10*1048576)
-      return await importLarge3mf(data,{onProgress:options.onProgress});
-    const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
-    try{
-      const root=new ThreeMFLoader().parse(data);
-      return {root,clips:[],notice:'3MF: модель загружена. Поддержка печатных материалов зависит от 3MF-расширений.'};
-    }catch(error){
-      // Our own Model Forge 3MF files should still reopen on devices where
-      // the generic 3MF parser cannot interpret the Materials extension.
-      return await importLarge3mf(data);
-    }
   }
   if(ext==='usdz'){
     // Three.js r170 supports USDA-based USDZ archives. Not all USDZ flavors load.
