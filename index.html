@@ -62,7 +62,8 @@
     <h2>Конвертация 3D-моделей</h2><p class="tip">Выбери выходной формат. Для glTF выбирай .gltf + .bin + изображения; для OBJ — .obj + .mtl + изображения. Выбрать несколько файлов можно за один раз. Все операции работают офлайн.</p>
     <label>Формат назначения<select id="target"><option value="glb">GLB 2.0 (Godot)</option><option value="7400">FBX 7.4 (2014–2015)</option><option value="7500">FBX 7.5 (2016–2018)</option><option value="7300">FBX 7.3 (2013) · Mixamo</option><option value="7700" disabled>FBX 7.7+ — в разработке</option>
 <option value="gltf">glTF 2.0 (один JSON со встроенными ресурсами)</option>
-<option value="vrm">VRM 1.0 — новый VR-аватар из гуманоидного GLB/FBX</option>
+<option value="vrm">VRM 1.0 — VTuber, VR-аватар</option>
+<option value="vrchat-fbx">VRChat — FBX для Unity (PC / Android)</option>
 <option value="vrm-source">VRM (.vrm) — точная копия VRM-источника</option>
 <option value="obj-mixamo">OBJ для Mixamo — Diffuse + MTL + PNG (ZIP)</option>
 <option value="obj">OBJ + MTL + все PBR-текстуры (ZIP)</option>
@@ -77,13 +78,18 @@
 <label>Автор модели<input id="vrm-author" type="text" maxlength="100" value="Автор модели"></label>
 <p class="tip">VRM требует готовый гуманоидный скелет и веса. Имена Mixamo распознаются автоматически. Новые MToon-материалы, мимика и физика волос пока не создаются. Анимации сохраняй отдельно в GLB.</p>
 </div>
+<div id="vrchat-settings" class="compare-report" hidden>
+<strong>VRChat — подготовка для Unity</strong>
+<p class="tip">Экспортируем гуманоидный FBX 7.5 со скелетом, весами и текстурами. Это НЕ VRChat-пакет и не автоматическая загрузка! Для публикации нужны Unity + VRChat SDK. PC и Android/Quest используют разные уровни оптимизации; оригинальная сетка не уменьшается без твоего выбора.</p>
+<div id="vrchat-readiness" class="tip">Загрузи модель, чтобы проверить готовность к Unity.</div>
+</div>
 <div id="print-settings" class="compare-report" hidden>
 <strong>3MF — настройки печати</strong>
 <label>Единицы исходной модели
 <select id="print-scale"><option value="1000" selected>1 единица = 1 метр → миллиметры</option><option value="1">1 единица = 1 миллиметр</option></select></label>
 <label>Цветная PNG-текстура
 <select id="print-texture"><option value="1024">1024 px</option><option value="2048" selected>2048 px</option><option value="4096">4096 px</option></select></label>
-<p class="tip">3MF сохранит геометрию, базовые цвета и Albedo PNG с UV. Скелет, анимации и normal/metallic/roughness не поддерживаются печатью. Проверь размер в слайсере и поддержку цветной печати.</p>
+<p class="tip">3MF: **без ограничения 650 000 треугольников**. Модели на миллионы треугольников записываются частями и без автоматического уменьшения сетки. Нужна свободная оперативная память; если планшету тяжело, попробуй профиль оптимизации. Сохраняются геометрия, цвета и Albedo PNG с UV; проверяй размер и цвет в слайсере. Анимации и normal/metallic/roughness не печатаются.</p>
 </div>
 <div id="mixamo-obj-quality" class="compare-report" hidden>
       <strong>Качество OBJ ZIP для Mixamo</strong>
