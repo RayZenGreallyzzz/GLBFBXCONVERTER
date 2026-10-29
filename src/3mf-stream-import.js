@@ -34,6 +34,19 @@ function copyBytes(parts){
 }
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 
+// 3MF Materials texture2d UVs use the same top-left PNG coordinates as glTF.
+// TextureLoader defaults to flipY=true for ordinary Three.js maps, which
+// mirrors the atlas vertically: skin samples hair/tail regions and vice versa.
+// GLTFLoader uses flipY=false for these coordinates; match that behavior.
+export function configure3mfTexture(texture){
+ texture.flipY=false;
+ texture.colorSpace=THREE.SRGBColorSpace;
+ texture.wrapS=THREE.RepeatWrapping;
+ texture.wrapT=THREE.RepeatWrapping;
+ texture.needsUpdate=true;
+ return texture;
+}
+
 export async function importLarge3mf(buffer,{onProgress=null}={}){
  // Blob/File input lets Android read only the next compressed ZIP chunk.
  // Never allocate file.arrayBuffer() for a 50-250MB 3MF before inflating.
@@ -222,9 +235,7 @@ export async function importLarge3mf(buffer,{onProgress=null}={}){
      const url=URL.createObjectURL(new Blob([image],{type}));
      try{
       const tex=await new THREE.TextureLoader().loadAsync(url);
-      tex.colorSpace=THREE.SRGBColorSpace;
-      tex.wrapS=THREE.RepeatWrapping;tex.wrapT=THREE.RepeatWrapping;
-      texCache.set(path,tex);
+      texCache.set(path,configure3mfTexture(tex));
      }finally{URL.revokeObjectURL(url)}
     }
     material.map=texCache.get(path);
