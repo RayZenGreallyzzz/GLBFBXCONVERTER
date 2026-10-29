@@ -15,11 +15,12 @@ import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 import { importBvhMotion } from './bvh-motion.js';
+import { exportTextured3mf } from './three-mf.js';
 
-export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz','bvh']);
-export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','vrm-source','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz']);
-export const LOSSY_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
-export const STATIC_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz']);
+export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz','3mf','bvh']);
+export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','vrm','vrm-source','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf']);
+export const LOSSY_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf']);
+export const STATIC_EXPORTS = new Set(['obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf']);
 const MAX_ASSET_BYTES = 250*1024*1024;
 const decoder = new TextDecoder();
 function arrayBuffer(bytes) {
@@ -141,6 +142,11 @@ export async function importAdditional(file,data,files=[file]) {
     return {root:result.scene,clips:result.animations||[],
       notice:'COLLADA: поддерживается часть возможностей DAE; внешние изображения могут потребовать дополнительной обработки.'};
   }
+  if(ext==='3mf'){
+    const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
+    const root=new ThreeMFLoader().parse(data);
+    return {root,clips:[],notice:'3MF: геометрия для печати. Цвета и текстуры зависят от поддержки расширения Materials & Properties в программе просмотра. Скелеты и анимации отсутствуют.'};
+  }
   if(ext==='usdz'){
     // Three.js r170 supports USDA-based USDZ archives. Not all USDZ flavors load.
     const model=new USDZLoader().parse(data);
@@ -160,6 +166,8 @@ export function getExportWarnings(format, stats) {
       warnings.push('OBJ ZIP: текстуры включены, но не все просмотрщики понимают PBR-карты из MTL');
     if(format==='obj-mixamo'&&stats.textures)
       warnings.push('Mixamo: сохраняется Albedo/Diffuse; Normal, Metallic и Roughness исключаются');
+    if(format==='3mf'&&stats.textures)
+      warnings.push('3MF переносит Albedo через UV и PNG; Normal, Roughness и Metallic не включаются в печатную текстуру');
     if(format==='usdz'&&(stats.skinned||stats.animations))
       warnings.push('USDZ экспортируется только как статичная сцена; для персонажей лучше GLB');
     if(format==='ply-lite')warnings.push('Компактный PLY: нормали, UV и цвета вершин не сохраняются');
@@ -205,6 +213,8 @@ export async function exportAdditional(format,root,animations=[],options={}) {
     const content=ArrayBuffer.isView(result)?arrayBuffer(result):result;
     return {content,mime:'model/stl'};
   }
+  if(format==='3mf')return await exportTextured3mf(root,{name:options.name||'Model',
+    maxTextureSize:options.printTextureSize||2048,unitScale:options.printUnitScale||1000});
   if(format==='usdz')return {content:await new USDZExporter().parseAsync(root,{
     maxTextureSize:1024,onlyVisible:false,includeAnchoringProperties:false
   }),mime:'model/vnd.usdz+zip'};
@@ -212,7 +222,7 @@ export async function exportAdditional(format,root,animations=[],options={}) {
 }
 export function validateImportFiles(files) {
   if(!files?.length)throw Error('Не выбран файл');
-  const main=files.find(f=>SUPPORTED_INPUTS.includes(f.name.split('.').pop().toLowerCase()));
+  const main=files.find(f=>SUPPORTED_INPUTS.includes(f.name.split('.').pop().toLowerCase()) || f.name.toLowerCase().endsWith('.zip'));
   if(!main)throw Error('Выбери один из поддерживаемых форматов: '+SUPPORTED_INPUTS.join(', '));
   if(main.size>MAX_ASSET_BYTES)throw Error('Файл больше 250 МБ: превышен лимит безопасности Android');
   return main;
