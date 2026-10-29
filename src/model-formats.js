@@ -109,7 +109,7 @@ export async function importObjWithMaterials(file,text,files=[file]){
   }
 }
 
-export async function importAdditional(file,data,files=[file]) {
+export async function importAdditional(file,data,files=[file],options={}) {
   const ext=file.name.split('.').pop().toLowerCase(), bytes=new Uint8Array(data);
   const name=file.name.replace(/\\.[^.]+$/,'');
   if(ext==='bvh')return importBvhMotion(decoder.decode(bytes),{name:file.name.replace(/\.bvh$/i,'')});
@@ -148,7 +148,7 @@ export async function importAdditional(file,data,files=[file]) {
     // 52MB FoxGi.3mf decompresses into 262MB XML with ~3m elements:
     // that can freeze or kill Android's WebView before rendering.
     if(bytes.byteLength>=10*1048576)
-      return await importLarge3mf(data,{onProgress:()=>{}});
+      return await importLarge3mf(data,{onProgress:options.onProgress});
     const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
     try{
       const root=new ThreeMFLoader().parse(data);
