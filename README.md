@@ -52,3 +52,38 @@ Source-to-target matrix:
 **Safety:** Do not claim a green CI build guarantees correct conversion
 in an external slicer or VRM viewer; test with real files and the Android
 device before replacing the stable app.
+
+## 29.10.2026 — Large textured 3MF and two avatar workflows
+
+### 3MF prints without a hard polygon cap
+- Removes the artificial refusal for 650,000+ triangles. A model with
+  **1,936,208 triangles** must be exportable without automatic decimation.
+- Writes 3MF XML incrementally into streaming DEFLATE ZIP. This avoids holding
+  one huge XML string and millions of triangle strings simultaneously.
+  Periodically yields to the Android UI and reports progress.
+- Geometric fidelity is maintained. Print Albedo PNG/UV, base colors, materials,
+  Y-up → Z-up and metres → millimetres are preserved as in the previous
+  printing exporter. Never silently simplify the user's original.
+- An extremely large model can still exhaust the available RAM, storage,
+  file saver budget or slicer capacity. Streaming reduces peak memory but
+  is not unlimited memory. No polygon count is a 3MF-format restriction.
+- For real 3D printing check watertightness, wall thickness, orientation,
+  and supported texture extensions in the target slicer.
+
+### Separate VRChat and VRM paths
+1. **VRM 1.0 — VTuber / compatible avatar viewers.** Retains the basic
+   humanoid-only VRM generator. Requires a properly rigged model and a
+   compliant VRM skeleton. Current generator is minimal; extra MToon,
+   expressions, physics and broader VRM-viewer compatibility are not guaranteed.
+2. **VRChat — FBX for Unity.** New dedicated FBX 7.5 export mode
+   validates humanoid bone names and that a skinned mesh exists. It keeps
+   textures and original geometry. The resulting file is input for Unity,
+   not a directly uploadable VRChat avatar or a Unity package.
+   Finish in VRChat Creator Companion / Unity / VRChat Avatar SDK:
+   select Humanoid rig, map bones, set Avatar Descriptor, viewpoint, visemes,
+   materials, expressions/PhysBones, and PC or Android build target.
+   The Android performance ranking recommends low triangle counts (Poor
+   threshold 20k, PC Poor threshold 70k). Higher counts generate a warning,
+   not silent geometry deletion; use the separate Optimizer to prepare an
+   alternative mobile version.
+- 3MF and VRChat/VRM are different outputs and do not replace each other.
