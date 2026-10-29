@@ -16,6 +16,7 @@ import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 import { USDZExporter } from 'three/addons/exporters/USDZExporter.js';
 import { importBvhMotion } from './bvh-motion.js';
 import { exportTextured3mf } from './three-mf.js';
+import { importStreaming3mf } from './three-mf-import.js';
 
 export const SUPPORTED_INPUTS = Object.freeze(['glb','gltf','vrm','fbx','obj','ply','stl','dae','usdz','3mf','bvh']);
 export const SUPPORTED_OUTPUTS = Object.freeze(['glb','gltf','vrm','vrm-source','fbx7300','fbx7400','fbx7500','obj','obj-mixamo','ply','ply-lite','stl','usdz','3mf']);
@@ -142,11 +143,7 @@ export async function importAdditional(file,data,files=[file]) {
     return {root:result.scene,clips:result.animations||[],
       notice:'COLLADA: поддерживается часть возможностей DAE; внешние изображения могут потребовать дополнительной обработки.'};
   }
-  if(ext==='3mf'){
-    const {ThreeMFLoader}=await import('three/addons/loaders/3MFLoader.js');
-    const root=new ThreeMFLoader().parse(data);
-    return {root,clips:[],notice:'3MF: геометрия для печати. Цвета и текстуры зависят от поддержки расширения Materials & Properties в программе просмотра. Скелеты и анимации отсутствуют.'};
-  }
+  if(ext==='3mf')return await importStreaming3mf(data);
   if(ext==='usdz'){
     // Three.js r170 supports USDA-based USDZ archives. Not all USDZ flavors load.
     const model=new USDZLoader().parse(data);
