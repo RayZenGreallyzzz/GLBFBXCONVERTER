@@ -8,6 +8,7 @@ import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
 import { inspectVrm } from './vrm-safe.js';
 import {makeVrm1} from './vrm-export.js';
+import {inspectVRChatAvatar,assertVRChatReady} from './vrchat-preflight.js';
 import {extractModelZip} from './model-archive.js';
 import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
@@ -273,6 +274,24 @@ async function exportAs(target){
        progress(70);
        await save(file,state.name+'_converted.glb','model/gltf-binary');
      }
+   }else if(target==='vrchat-fbx'){
+     const report=inspectVRChatAvatar(state.root,current);
+     assertVRChatReady(report);
+     if(report.pcHeavy&&!window.confirm(
+       'VRChat PC: '+current.triangles.toLocaleString('ru-RU')+
+       ' треугольников — рейтинг Very Poor. Android/Quest требует гораздо более лёгкую версию. '+
+       'Экспортировать исходную высокополигональную модель без изменения качества?'))return;
+     status('Готовим FBX для импорта в Unity / VRChat…');
+     const {FBXExporter}=await import('@comfyorg/fbx-exporter-three');
+     const file=await new FBXExporter().parseAsync(state.root,{
+       version:7500,preset:'blender',fps:30,animations:state.clips,
+       embedTextures:true,onlyVisible:false
+     });
+     const info=inspectFbx(file);
+     if(!info.binary||info.version!==7500)
+       throw Error('VRChat: FBX-экспортёр создал неверный формат');
+     progress(70);
+     await save(file,state.name+'_VRChat_Unity.fbx','application/vnd.autodesk.fbx');
    }else if(target==='vrm'){
      if(!window.confirm('Создать VRM 1.0 из гуманоидной модели? Для VRM требуются обязательные кости; анимации сохраняй отдельно в GLB.'))return;
      status('Проверяем гуманоидные кости и создаём VRM 1.0…');
@@ -307,11 +326,19 @@ async function exportAs(target){
      status(mixamoObj?'Готовим OBJ ZIP для Mixamo'+
        (useOptimized?' из предпросмотра':' из исходной модели')+'…':
        'Готовим '+target.toUpperCase()+'…');
+     if(target==='3mf'&&current.triangles>650000)status(
+       '3MF: высокая детализация ('+current.triangles.toLocaleString('ru-RU')+
+       ' треугольников). Пишем ZIP частями, без уменьшения сетки…');
      const file=await exportAdditional(target,exportRoot,state.clips,{
        name:state.name,
        mixamoTextureSize:mixamoObj?Number($('mixamo-obj-texture').value):undefined,
        printTextureSize:target==='3mf'?Number($('print-texture').value):undefined,
-       printUnitScale:target==='3mf'?Number($('print-scale').value):undefined
+       printUnitScale:target==='3mf'?Number($('print-scale').value):undefined,
+       printProgress:target==='3mf'?(percent)=>{
+         progress(Math.min(65,Math.round(percent*.65)));
+         status('3MF: подготовка ZIP '+percent+'% · треугольников: '+
+           current.triangles.toLocaleString('ru-RU'));
+       }:undefined
      });
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
@@ -564,6 +591,13 @@ function updateExportWarnings(){
  $('mixamo-notice').hidden=!(version===7300);
  $('mixamo-obj-quality').hidden=target!=='obj-mixamo';
  $('vrm-settings').hidden=target!=='vrm';
+ $('vrchat-settings').hidden=target!=='vrchat-fbx';
+ if(target==='vrchat-fbx'&&state.root){
+   const r=inspectVRChatAvatar(state.root,modelStats(state.root,state.clips));
+   $('vrchat-readiness').textContent=(r.rigged?'✓ Скелет для Unity найден. ':'Нужен гуманоидный скин. ')+
+     (r.issues.join(' ')||'Число треугольников в рекомендованном диапазоне.')+
+     ' Далее: FBX → Unity Humanoid → VRChat SDK Avatar Descriptor → проверка PC/Android.';
+ }
  $('print-settings').hidden=target!=='3mf';
  const warnings=state.root?getExportWarnings(target,modelStats(state.root,state.clips)):[];
  $('export-warning').hidden=!warnings.length;
