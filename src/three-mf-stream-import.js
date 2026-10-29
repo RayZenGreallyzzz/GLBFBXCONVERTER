@@ -42,6 +42,13 @@ export async function importLarge3mf(data,{onProgress=()=>{},loadTextures=true}=
  const objects=[];
  let changedUV=false,triangleCount=0,lastPercent=-1;
  function handle(tag){
+  if(tag.startsWith('/object')){
+   if(activeObject){
+    objects.push(activeObject);
+    activeObject=null;
+   }
+   return;
+  }
   if(tag[0]==='/'||tag[0]==='?'||tag[0]==='!')return;
   if(tag.startsWith('model ')){
    const u=getAttr(tag,'unit');
@@ -192,10 +199,12 @@ export async function importLarge3mf(data,{onProgress=()=>{},loadTextures=true}=
   geometry.setAttribute('uv',new THREE.BufferAttribute(texcoord,2));
  if(material.vertexColors)geometry.setAttribute('color',new THREE.BufferAttribute(colors.finish(),3));
  geometry.computeVertexNormals();
- for(const obj of objects.length?objects:[{name:'3MF'}]){
-  const mesh=new THREE.Mesh(geometry,material);mesh.name=obj.name;mesh.frustumCulled=false;
-  root.add(mesh);
- }
+ // Build one unified geometry for all object sections; duplicating the entire
+ // 1.9M-triangle buffer per source object would explode mobile GPU memory.
+ const mesh=new THREE.Mesh(geometry,material);
+ mesh.name=objects.length===1?objects[0].name:'3MF_Combined';
+ mesh.frustumCulled=false;
+ root.add(mesh);
  onProgress(100);
  return {root,clips:[],notice:'3MF: потоковый импорт без DOM; '+triangleCount.toLocaleString('ru-RU')+
    ' треугольников, '+(vertices.length/3).toLocaleString('ru-RU')+
