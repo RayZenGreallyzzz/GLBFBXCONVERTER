@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import {exportTextured3mf} from '../src/three-mf.js';
 import {importLarge3mf} from '../src/3mf-stream-import.js';
 import {make3mfLightPreview,dispose3mfLightPreview} from '../src/3mf-preview.js';
+import {simplify3mfScene,release3mfSimplifiedGeometry} from '../src/3mf-optimize.js';
 
 function fixture(){
   const root=new THREE.Group();
@@ -65,3 +66,27 @@ function requireFile(){
   return {html:readFileSync('index.html','utf8'),js:readFileSync('src/main.js','utf8')};
 }
 import {readFileSync} from 'node:fs';
+
+test('3MF optimization is real UV-preserving mesh simplification, not deleting faces',async()=>{
+ const root=new THREE.Group();
+ const original=new THREE.SphereGeometry(1,48,30);
+ const faceCount=original.index.count/3,vertexCount=original.getAttribute('position').count;
+ root.add(new THREE.Mesh(original,new THREE.MeshBasicMaterial({color:0xccbbee})));
+ const out=await simplify3mfScene(root,{ratio:.5,error:.2});
+ const geo=out.root.children[0].geometry;
+ assert.equal(out.sourceTriangles,faceCount);
+ assert.ok(out.optimizedTriangles>0);
+ assert.ok(out.optimizedTriangles<faceCount,'meshoptimizer must reduce triangle count');
+ assert.equal(geo.getAttribute('uv').count,geo.getAttribute('position').count);
+ assert.ok(geo.getAttribute('position').count<=vertexCount);
+ for(const i of geo.index.array)assert.ok(i<geo.getAttribute('position').count);
+ assert.equal(original.index.count/3,faceCount,'source is not edited');
+ release3mfSimplifiedGeometry(out.root);
+});
+
+test('main 3MF optimization avoids full-size GLB intermediate',()=>{
+ const js=readFileSync('src/main.js','utf8');
+ assert.match(js,/if\(state.type==='3mf'\)/);
+ assert.match(js,/simplify3mfScene\(state.root/);
+ assert.match(js,/release3mfSimplifiedGeometry\(prepared.root\)/);
+});
