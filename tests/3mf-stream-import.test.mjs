@@ -50,7 +50,8 @@ test('format loader routes 3MF to its importer and main UI surfaces progress',as
  const {readFileSync}=await import('node:fs');
  const formats=readFileSync('src/model-formats.js','utf8');
  const main=readFileSync('src/main.js','utf8');
- assert.match(formats,/bytes\.byteLength>=10\*1048576/);
- assert.match(formats,/importLarge3mf\(data,\{onProgress:options\.onProgress\}\)/);
+ assert.match(formats,/size>=10\*1048576/);
+ assert.match(formats,/importLarge3mf\(data\?\?file,\{onProgress:options\.onProgress\}\)/);
+ assert.match(main,/ext==='3mf'\?null:await file\.arrayBuffer\(\)/);
  assert.match(main,/3MF: открываем геометрию и текстуры/);
 });
