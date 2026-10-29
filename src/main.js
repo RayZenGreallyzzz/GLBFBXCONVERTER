@@ -10,6 +10,7 @@ import { inspectVrm } from './vrm-safe.js';
 import {makeVrm1} from './vrm-export.js';
 import {inspectVRChatAvatar,assertVRChatReady} from './vrchat-preflight.js';
 import {extractModelZip} from './model-archive.js';
+import {make3mfLightPreview,dispose3mfLightPreview} from './3mf-preview.js';
 import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
 import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
@@ -27,7 +28,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,bvhOnly:false,mixer:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -57,13 +58,37 @@ function fit(){
 function release(root){root?.traverse(obj=>{if(!obj.isMesh)return;obj.geometry?.dispose();for(const m of Array.isArray(obj.material)?obj.material:[obj.material])if(m){for(const v of Object.values(m))if(v?.isTexture)v.dispose();m.dispose()}})}
 function showComparison(optimized=false){
  const isPreview=optimized&&!!state.previewRoot;
- if(state.root)state.root.visible=!isPreview;
+ if(state.root)state.root.visible=!isPreview&&!state.viewProxyRoot;
+ if(state.viewProxyRoot)state.viewProxyRoot.visible=!isPreview;
  if(state.previewRoot)state.previewRoot.visible=isPreview;
  $('view-original').classList.toggle('active',!isPreview);
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
  $('view-label').textContent=isPreview?'После оптимизации':'Исходная модель';
+}
+function clear3mfViewport(){
+ if(state.viewProxyRoot){
+   scene.remove(state.viewProxyRoot);
+   dispose3mfLightPreview(state.viewProxyRoot);
+   state.viewProxyRoot=null;
+ }
+}
+function set3mfViewQuality(percent){
+ clear3mfViewport();
+ const p=Number(percent);
+ if(state.type==='3mf'&&state.root&&p<100)
+   state.viewProxyRoot=make3mfLightPreview(state.root,p);
+ if(state.viewProxyRoot)scene.add(state.viewProxyRoot);
+ $('view-quality-picker').hidden=state.type!=='3mf';
+ $('view-quality').value=String(p);
+ const count=state.viewProxyRoot?.userData;
+ $('view-quality-note').textContent=count
+   ?'Лёгкий просмотр: '+count.displayFaces.toLocaleString('ru-RU')+
+     ' из '+count.sourceFaces.toLocaleString('ru-RU')+
+     ' треугольников. Экспорт всегда использует исходную модель.'
+   :'Полное качество просмотра. Экспорт не изменяется.';
+ showComparison(false);
 }
 function discardPreview(){
  if(state.previewRoot){
@@ -121,7 +146,9 @@ async function load(file,attachments=[file]){
  let root=null;
  try{
    let source=file,attached=attachments;
-   let ext=file.name.split('.').at(-1).toLowerCase(),data=await file.arrayBuffer();progress(35);
+   let ext=file.name.split('.').at(-1).toLowerCase();
+   // Large 3MF: stream File slices instead of retaining the whole ZIP in RAM.
+   let data=ext==='3mf'?null:await file.arrayBuffer();progress(35);
    if(ext==='zip'){
      const archive=extractModelZip(data);
      source=archive.file;attached=archive.files;
@@ -149,6 +176,7 @@ async function load(file,attachments=[file]){
    stopMotionPlayback();
    resetMotionStudio();
    discardPreview();
+   clear3mfViewport();
    if(state.mixer){state.mixer.stopAllAction();state.mixer.uncacheRoot(state.root);state.mixer=null;}
    if(state.root){scene.remove(state.root);release(state.root)}
    scene.add(root);state.root=root;state.clips=clips;
@@ -160,7 +188,12 @@ async function load(file,attachments=[file]){
    state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
    state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
    updateExportWarnings();
-   $('filename').textContent=file.name+(source!==file?' → '+source.name:'');$('empty').style.display='none';fit();display();progress(100);status('✓ Загружено, можно экспортировать');
+   const faces=modelStats(state.root).triangles;
+   set3mfViewQuality(ext==='3mf'&&faces>350000?25:100);
+   $('filename').textContent=file.name+(source!==file?' → '+source.name:'');$('empty').style.display='none';fit();display();progress(100);
+   status(ext==='3mf'&&faces>350000
+     ?'✓ 3MF загружен. Включён экономный просмотр 25%; экспорт использует все полигоны.'
+     :'✓ Загружено, можно экспортировать');
  }catch(error){console.error(error);status('Ошибка загрузки: '+(error.message||error));if(root&&root!==state.root)release(root)}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),900)}
 }
@@ -397,6 +430,15 @@ async function exportAs(target){
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
 }
+$('view-quality').addEventListener('change',e=>{
+ if(!state.root||state.type!=='3mf'||state.busy)return;
+ try{
+   set3mfViewQuality(Number(e.target.value));
+   status(e.target.value==='100'
+     ?'Полное качество просмотра: может потребоваться больше видеопамяти.'
+     :'Облегчённый просмотр. Исходная геометрия сохранена для экспорта.');
+ }catch(error){status('Ошибка настройки просмотра: '+error.message)}
+});
 $('model-file').addEventListener('change',e=>{
  const files=Array.from(e.target.files||[]);
  e.target.value='';
