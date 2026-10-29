@@ -214,7 +214,8 @@ export async function exportAdditional(format,root,animations=[],options={}) {
     return {content,mime:'model/stl'};
   }
   if(format==='3mf')return await exportTextured3mf(root,{name:options.name||'Model',
-    maxTextureSize:options.printTextureSize||2048,unitScale:options.printUnitScale||1000});
+    maxTextureSize:options.printTextureSize||2048,unitScale:options.printUnitScale||1000,
+    onProgress:options.printProgress});
   if(format==='usdz')return {content:await new USDZExporter().parseAsync(root,{
     maxTextureSize:1024,onlyVisible:false,includeAnchoringProperties:false
   }),mime:'model/vnd.usdz+zip'};
