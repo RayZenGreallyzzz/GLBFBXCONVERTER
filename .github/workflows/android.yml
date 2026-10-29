@@ -1,6 +1,8 @@
 name: Build GLB FBX Converter APK
 on:
   push:
+    branches: [main, fix/real-geometry-optimizer]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 permissions:
@@ -26,11 +28,22 @@ jobs:
         run: npm run build
       - name: Create Android project
         run: npx cap add android
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install branding image tools
+        run: python -m pip install --disable-pip-version-check pillow
       - name: Register native file saver
         run: |
           mkdir -p android/app/src/main/java/com/phoenix/glbfbxconverter
           cp android-native/MainActivity.java android/app/src/main/java/com/phoenix/glbfbxconverter/MainActivity.java
           cp android-native/ModelSaverPlugin.java android/app/src/main/java/com/phoenix/glbfbxconverter/ModelSaverPlugin.java
+      - name: Apply mascot Android branding and splash
+        run: |
+          python scripts/apply_android_branding.py
+          test -s android/app/src/main/res/drawable/ic_launcher_foreground.png
+          test -s android/app/src/main/res/drawable/splash.png
+          test -s dist/branding/splash.png
       - name: Sync Android
         run: npx cap sync android
       - name: Assemble Android APK
@@ -38,9 +51,30 @@ jobs:
           chmod +x android/gradlew
           cd android
           ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Verify icon and splash packed inside Android APK
+        run: |
+          set -e
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -Z1 "$APK" > /tmp/phoenix-apk-filelist.txt
+          grep -q '^res/drawable/ic_launcher_foreground.png$' /tmp/phoenix-apk-filelist.txt
+          grep -q '^res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png$' /tmp/phoenix-apk-filelist.txt
+          if grep -Eq '(^|/)ic_launcher_foreground.xml$' /tmp/phoenix-apk-filelist.txt; then
+            echo 'ERROR: Android default adaptive icon resource found'; exit 1
+          fi
+          grep -q 'ic_launcher.png' /tmp/phoenix-apk-filelist.txt
+          grep -q 'splash.png' /tmp/phoenix-apk-filelist.txt
+          python - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          icon=Image.open('android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png')
+          splash=Image.open('android/app/src/main/res/drawable/splash.png')
+          assert icon.size==(192,192) and splash.size==(720,1280)
+          assert Path('dist/branding/splash.png').stat().st_size>100000
+          print('Verified new 192px launcher and full-screen 720x1280 splash in APK')
+          PY
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: GLB-FBX-Converter-debug-APK
+          name: Phoenix-Model-Forge-Neon-MultiFormat-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
