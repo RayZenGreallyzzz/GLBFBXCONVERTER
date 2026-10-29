@@ -35,10 +35,14 @@ function copyBytes(parts){
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 
 export async function importLarge3mf(buffer,{onProgress=null}={}){
- const source=buffer instanceof Uint8Array?buffer:new Uint8Array(buffer);
- if(source.byteLength<22||source[0]!==80||source[1]!==75)
-  throw Error('Некорректный ZIP-контейнер 3MF');
- const vertices=new Grow(Float32Array,100000),uv=new Grow(Float32Array,75000),
+ // Blob/File input lets Android read only the next compressed ZIP chunk.
+ // Never allocate file.arrayBuffer() for a 50-250MB 3MF before inflating.
+ const isBlob=buffer&&typeof buffer.size==='number'&&
+   typeof buffer.slice==='function'&&typeof buffer.arrayBuffer==='function';
+ const source=isBlob?null:(buffer instanceof Uint8Array?buffer:new Uint8Array(buffer));
+ const sourceLength=isBlob?buffer.size:source.byteLength;
+ if(sourceLength<22)throw Error('Некорректный ZIP-контейнер 3MF');
+ const vertices=new Grow(Float32Array,100000),
   faces=new Grow(Uint32Array,130000);
  const texturePaths=new Map(),textureGroups=new Map(),images=new Map(),items=[];
  let activeGroup=null,currentObject=null,activeMesh=false,insideVertices=false,insideTriangles=false;
@@ -156,14 +160,20 @@ export async function importLarge3mf(buffer,{onProgress=null}={}){
   }
  };
  // Only consume short compressed blocks per turn; not one huge inflate/DOM.
- for(let pos=0;pos<source.length;pos+=196608){
-  unzip.push(source.subarray(pos,Math.min(pos+196608,source.length)),
-    pos+196608>=source.length);
+ const blockSize=196608;
+ for(let pos=0;pos<sourceLength;pos+=blockSize){
+  const end=Math.min(pos+blockSize,sourceLength);
+  const chunk=isBlob
+    ?new Uint8Array(await buffer.slice(pos,end).arrayBuffer())
+    :source.subarray(pos,end);
+  if(pos===0&&(chunk[0]!==80||chunk[1]!==75))
+   throw Error('Некорректный ZIP-контейнер 3MF');
+  unzip.push(chunk,end===sourceLength);
   if(failure)throw failure;
-  if(onProgress&&pos-reported>source.length/55){
-   reported=pos;onProgress(Math.round(90*pos/source.length));
+  if(onProgress&&end-reported>sourceLength/55){
+   reported=end;onProgress(Math.round(90*end/sourceLength));
   }
-  if(pos%(196608*8)===0)await tick();
+  if(pos%(blockSize*8)===0)await tick();
  }
  if(failure)throw failure;
  if(!complete||!hasModel)throw Error('3MF: отсутствует или не завершён XML модели');
@@ -177,15 +187,23 @@ export async function importLarge3mf(buffer,{onProgress=null}={}){
   if(icount===0)continue;
   const coords=vertices.view().subarray(obj.vstart*3,obj.vend*3);
   const local=faces.view().subarray(offset,obj.iend);
-  // Retain source typed buffers only until slicing each object; avoid copying
-  // the huge original XML, its node tree or the ZIP's uncompressed bytes.
+  // For a single-mesh FoxGi, the grow arrays already hold exact local indices:
+  // share their views instead of creating second 12MB/23MB copies.
+  const single=objects.length===1&&obj.vstart===0&&obj.vend===vertices.count/3;
   const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.BufferAttribute(coords.slice(),3));
-  const localIdx=new Uint32Array(icount);
-  for(let i=0;i<icount;i++){
-   const v=local[i]-obj.vstart;
-   if(v<0||v>=count)throw Error('3MF: треугольник ссылается на отсутствующую вершину');
-   localIdx[i]=v;
+  geo.setAttribute('position',new THREE.BufferAttribute(single?coords:coords.slice(),3));
+  let localIdx;
+  if(single){
+   localIdx=local;
+   for(let i=0;i<icount;i++)
+    if(localIdx[i]>=count)throw Error('3MF: индекс вершины вне диапазона');
+  }else{
+   localIdx=new Uint32Array(icount);
+   for(let i=0;i<icount;i++){
+    const v=local[i]-obj.vstart;
+    if(v<0||v>=count)throw Error('3MF: треугольник ссылается на отсутствующую вершину');
+    localIdx[i]=v;
+   }
   }
   geo.setIndex(new THREE.BufferAttribute(localIdx,1));
   let material=new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide});
@@ -193,7 +211,7 @@ export async function importLarge3mf(buffer,{onProgress=null}={}){
   if(group){
    if(group.coords.count!==count*2)
     throw Error('3MF: число UV не совпадает с числом вершин; требуется расширенный импортёр');
-   geo.setAttribute('uv',new THREE.BufferAttribute(group.coords.view().slice(),2));
+   geo.setAttribute('uv',new THREE.BufferAttribute(group.coords.view(),2));
    const path=texturePaths.get(group.texid);
    const image=path&&images.get(path);
    if(image){
