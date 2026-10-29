@@ -79,6 +79,7 @@ test('3MF package embeds PNG, UV texture group, triangle indices and image relat
  const xml=strFromU8(files['3D/3dmodel.model']);
  const rels=strFromU8(files['3D/_rels/3dmodel.model.rels']);
  assert.ok(files['[Content_Types].xml']);
+ assert.match(strFromU8(files['[Content_Types].xml']),/3dmanufacturing-3dmodeltexture/);
  assert.ok(files['_rels/.rels']);
  assert.ok(files['3D/Textures/texture_001.png']);
  assert.deepEqual([...files['3D/Textures/texture_001.png'].slice(0,8)],
