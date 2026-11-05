@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -21,11 +21,15 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: Test
         run: npm test
       - name: Build web frontend
         run: npm run build
+      - name: Install browser for codec integration checks
+        run: npx playwright install --with-deps chromium
+      - name: Check production codecs with external requests blocked
+        run: npm run test:browser
       - name: Create Android project
         run: npx cap add android
       - uses: actions/setup-python@v5
@@ -46,12 +50,12 @@ jobs:
           test -s dist/branding/splash.png
       - name: Sync Android
         run: npx cap sync android
-      - name: Isolate 3MF test APK from the installed stable app
+      - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.lowmemtest"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.lowmemtest"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Phoenix Forge 3MF TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.codecstest"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.codecstest"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Phoenix Forge Codecs TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -69,6 +73,9 @@ jobs:
           fi
           grep -q 'ic_launcher.png' /tmp/phoenix-apk-filelist.txt
           grep -q 'splash.png' /tmp/phoenix-apk-filelist.txt
+          for ASSET in draco/draco_wasm_wrapper.js draco/draco_decoder.wasm draco/decoder.js draco/draco_decoder_gltf.wasm draco/encoder.js draco/draco_encoder.wasm basis/basis_transcoder.js basis/basis_transcoder.wasm basis/transcoder.js ktx2/basis_encoder.wasm; do
+            grep -Fqx "assets/public/codecs/$ASSET" /tmp/phoenix-apk-filelist.txt
+          done
           python - <<'PY'
           from PIL import Image
           from pathlib import Path
@@ -81,6 +88,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Model-Forge-Neon-MultiFormat-APK
+          name: Phoenix-Model-Forge-Codecs-Test-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

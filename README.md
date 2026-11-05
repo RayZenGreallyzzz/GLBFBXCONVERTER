@@ -2,7 +2,45 @@
 
 Standalone Android-first 3D converter and optimizer for GLB/FBX and Godot.
 
-First version targets offline GLB optimization (textures to 512/1024/2048 px, preserved skeletons and animation clips) and FBX 7.4/7.5 export. FBX 2012/2013, polygon decimation and compressed extensions are planned but **not yet implemented**.
+The stable main branch is the initial converter. This working branch builds on
+`fix/3mf-optional-materials-foxgi` and retains its OBJ/MTL textures, Mixamo,
+FBX, animation and large-3MF paths.
+
+## Offline GLB codecs
+
+- GLB/glTF imports can use Meshopt, Draco and KTX2/Basis Universal textures.
+  The Draco decoder and KTX2 transcoder are packaged locally, with one decode
+  worker each. Meshopt decoding is bundled in JavaScript/WASM.
+- Optional compression is under **Optimization → GLB compression**. Geometry:
+  Meshopt without an extra quantization pass, Draco high precision, or explicit
+  decompression. These are extensions inside GLB/glTF, not new model suffixes.
+- Textures: KTX2 ETC1S or UASTC. Normal/ORM data maps always use UASTC; color
+  maps are encoded as sRGB, data maps as linear. Alpha and mipmaps are retained.
+  Existing 512/1024/2048/4096 texture presets remain; the KTX2 encoder is capped
+  at 2048 px and source images at 4096×4096 for Android memory safety.
+- Encoding runs in a disposable module worker, sequentially per image. No
+  runtime CDN, SharedArrayBuffer or cross-origin isolation is required. Codec
+  failures cancel the preview; source file bytes are never written or detached.
+- The output is reopened and checked for primitive/index counts, attributes,
+  morph target structure, skin joint names and inverse bind matrices, exact
+  animation channel/sample values, and material/texture counts.
+- Default ordinary GLB processing and the unchanged-byte fallback remain.
+  Explicitly selected codecs can produce a larger file: the UI reports this
+  rather than silently returning a file with a different codec.
+- KTX2 uses lossy texture encoding; Draco uses position/normal/UV quantization.
+  Compare visual quality in the preview and in the destination application.
+  Existing OBJ and FBX exports and Mixamo version choices are retained.
+- Fixed the 3MF preview's ArrayBuffer/Uint8Array normalization. Original 3MF
+  conversion still uses the complete source mesh.
+
+Validation: `npm ci`, `npm test`, `npm run build`, `npx playwright install chromium`,
+`npm run test:browser`. Browser checks exercise production workers, PNG→KTX2,
+Meshopt and Draco export/download/reimport, byte-identical default output, and
+streamed 3MF optimization with external network requests blocked. Android CI
+also verifies that all offline codec assets are actually inside the APK.
+The test APK uses `com.phoenix.glbfbxconverter.codecstest`, so it can coexist
+with the owner's installed stable app. Browser/CI success does not replace
+visual and memory testing on the actual Android tablet.
 
 Android CI: `.github/workflows/android.yml`; download APK from GitHub Actions artifacts after a successful build. Original models are never overwritten.
 

@@ -1,8 +1,7 @@
 // Offline import/export formats supported by bundled Three.js addons.
 // Explicit restrictions prevent silently losing bones, animation or texture data.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import {createModelLoader,createModelExporter} from './gltf-codecs.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
@@ -132,17 +131,18 @@ export async function importAdditional(file,data,files=[file],options={}) {
     const mapping=fileMap(files,file),urls=[];
     const manager=new THREE.LoadingManager();
     manager.setURLModifier(url=>{
-      if(url.startsWith('data:')||url.startsWith('blob:'))return url;
+      if(url.startsWith('data:')||url.startsWith('blob:')||url.startsWith('/codecs/'))return url;
       const asset=mapping.get(basename(url));
       if(!asset) throw Error('Для glTF выбери вместе с .gltf связанные .bin и текстуры: '+url);
       const u=URL.createObjectURL(asset);urls.push(u);return u;
     });
+    const loader=createModelLoader(manager);
     try{
-      const gltf=await new GLTFLoader(manager).parseAsync(ext==='gltf'?decoder.decode(bytes):data,'');
+      const gltf=await loader.parseAsync(ext==='gltf'?decoder.decode(bytes):data,'');
       if(!gltf.scene)throw Error('glTF не содержит 3D-сцены');
       return {root:gltf.scene,clips:gltf.animations||[],
         notice:ext==='vrm'?'VRM: загружены обычные glTF-узлы, геометрия и риг. Специальные VRM-выражения, метаданные и физика при экспорте в GLB могут быть потеряны.':'glTF 2.0: загружена сцена с поддерживаемыми ресурсами.'};
-    }finally {urls.forEach(u=>URL.revokeObjectURL(u))}
+    }finally {loader.disposeCodecs?.();urls.forEach(u=>URL.revokeObjectURL(u))}
   }
   if(ext==='obj')return await importObjWithMaterials(file,decoder.decode(bytes),files);
   if(ext==='ply'){
@@ -194,7 +194,7 @@ export function outputNameExt(format){
 }
 export async function exportAdditional(format,root,animations=[],options={}) {
   if(format==='gltf'){
-    const gltf=await new GLTFExporter().parseAsync(root,{
+    const gltf=await createModelExporter().parseAsync(root,{
       binary:false,trs:true,onlyVisible:false,animations,embedImages:true,
       maxTextureSize:4096,includeCustomExtensions:false
     });

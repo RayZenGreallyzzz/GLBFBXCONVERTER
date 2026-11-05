@@ -4,7 +4,7 @@
 import { unzipSync } from 'fflate';
 
 export const MODEL_ZIP_INPUTS=Object.freeze(['glb','gltf','vrm','fbx','obj','dae','stl','ply','usdz','bvh']);
-const ASSETS=new Set([...MODEL_ZIP_INPUTS,'mtl','bin','png','jpg','jpeg','webp','bmp','gif']);
+const ASSETS=new Set([...MODEL_ZIP_INPUTS,'mtl','bin','png','jpg','jpeg','webp','bmp','gif','ktx2']);
 const SIZE_LIMIT=250*1048576, TOTAL_UNPACKED_LIMIT=350*1048576;
 const MAX_ENTRIES=180;
 const EXT_PRIORITY=['glb','vrm','gltf','fbx','obj','dae','ply','stl','usdz','bvh'];

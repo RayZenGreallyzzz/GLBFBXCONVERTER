@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
-import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
+import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-codecs.js';
+import {asArrayBuffer} from './binary.js';
+import {compressGlbOffThread} from './compression-client.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
@@ -27,6 +28,7 @@ const camera=new THREE.PerspectiveCamera(45,1,.001,2000);camera.position.set(3,2
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.7));
 renderer.outputColorSpace=THREE.SRGBColorSpace;
+configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
@@ -158,7 +160,7 @@ async function load(file,attachments=[file]){
    }
    let clips=[],info='';
    if(ext==='glb'){
-     const check=inspectGlb(data),loaded=await new GLTFLoader().parseAsync(data,'');
+     const check=inspectGlb(data),loaded=await createModelLoader().parseAsync(data,'');
      root=loaded.scene;clips=loaded.animations||[];
      info='GLB 2.0. Мешей: '+check.meshes+'. Анимаций: '+check.animations+'. Доп. расширения: '+(check.required.join(', ')||'нет')+'.';
    }else if(ext==='fbx'){
@@ -231,7 +233,9 @@ async function preparePreview(){
    const useGeometry=$('opt-geometry').checked&&!$('opt-geometry').disabled;
    const useTextures=$('opt-textures').checked;
    const useAnimation=$('opt-animation').checked&&!$('opt-animation').disabled;
-   if(!useGeometry&&!useTextures&&!useAnimation)
+   const geometryCodec=$('geometry-codec').value;
+   const textureCodec=useTextures?$('texture-codec').value:'keep';
+   if(!useGeometry&&!useTextures&&!useAnimation&&geometryCodec==='keep')
      throw Error('Выбери, что оптимизировать: сетку, текстуры или анимационные ключи.');
    let optimized;
    if(state.type==='3mf'){
@@ -247,7 +251,7 @@ async function preparePreview(){
      let bytes;
      try{
        progress(72);status('Собираем компактный GLB из упрощённого 3MF…');
-       bytes=await new GLTFExporter().parseAsync(prepared.root,{
+       bytes=await createModelExporter().parseAsync(prepared.root,{
          binary:true,trs:true,onlyVisible:false,animations:[],
          maxTextureSize:useTextures?Number($('texture').value):4096,
          includeCustomExtensions:false
@@ -268,24 +272,31 @@ async function preparePreview(){
    }else{
      // Ordinary GLBs keep the original fast path and byte-for-byte fallback.
      const source=state.sourceBuffer||
-       await new GLTFExporter().parseAsync(state.root,{
+       await createModelExporter().parseAsync(state.root,{
          binary:true,trs:true,onlyVisible:false,animations:state.clips,
          includeCustomExtensions:false
        });
      optimized=await optimizeGlb(source,{
        texture:Number($('texture').value),ratio,error:preset.error,
-       geometry:useGeometry, textures:useTextures,animationKeys:useAnimation,
+       geometry:useGeometry, textures:useTextures&&textureCodec==='keep',animationKeys:useAnimation,
        onProgress:(percent,message)=>{progress(percent);status(message)}
      });
+   }
+   if(geometryCodec!=='keep'||textureCodec!=='keep'){
+     const packed=await compressGlbOffThread(optimized.bytes,{geometryCodec,textureCodec,
+       maxTextureSize:Number($('texture').value)},(percent,message)=>{
+         progress(percent);status(message);
+       });
+     optimized={...optimized,bytes:packed.bytes,afterBytes:packed.bytes.byteLength,
+       unchanged:false,codecSuffix:'_'+[geometryCodec,textureCodec].filter(x=>x!=='keep').join('_'),
+       note:(optimized.note||'')+' '+packed.codecNote};
    }
    const parsed=inspectGlb(optimized.bytes);
    assertGlbPreserved(modelStats(state.root,state.clips),parsed,state.clips);
    status('Подготавливаем 3D-предпросмотр…');
    progress(93);
-   const b=optimized.bytes;
-   const ab=b.byteOffset===0&&b.byteLength===b.buffer.byteLength
-      ?b.buffer:b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);
-   loaded=(await new GLTFLoader().parseAsync(ab,'')).scene;
+   const ab=asArrayBuffer(optimized.bytes);
+   loaded=(await createModelLoader().parseAsync(ab,'')).scene;
    loaded.visible=false;scene.add(loaded);
    state.previewRoot=loaded;state.preview=optimized;
    loaded=null;
@@ -311,7 +322,8 @@ async function savePreview(){
  if(!state.preview||state.busy)return;
  state.busy=true;buttons();
  try{
-   const name=state.name+'_android_'+$('texture').value+'px.glb';
+   const name=state.name+'_android_'+$('texture').value+'px'+
+      (state.preview.codecSuffix||'')+'.glb';
    await save(state.preview.bytes,name,'model/gltf-binary');
  }catch(error){
    console.error('Save preview',error);
@@ -338,7 +350,7 @@ async function exportAs(target){
        await save(original,state.name+'_copy.glb','model/gltf-binary');
      }else{
        status('Конвертируем FBX → GLB 2.0...');
-       const file=await new GLTFExporter().parseAsync(state.root,{
+       const file=await createModelExporter().parseAsync(state.root,{
          binary:true,trs:true,onlyVisible:false,animations:state.clips,
          maxTextureSize:4096,includeCustomExtensions:false
        });
@@ -368,7 +380,7 @@ async function exportAs(target){
    }else if(target==='vrm'){
      if(!window.confirm('Создать VRM 1.0 из гуманоидной модели? Для VRM требуются обязательные кости; анимации сохраняй отдельно в GLB.'))return;
      status('Проверяем гуманоидные кости и создаём VRM 1.0…');
-     const glb=await new GLTFExporter().parseAsync(state.root,{
+     const glb=await createModelExporter().parseAsync(state.root,{
        binary:true,trs:true,onlyVisible:false,animations:[],maxTextureSize:4096,
        includeCustomExtensions:false
      });
@@ -627,7 +639,7 @@ $('anim-export').addEventListener('click',async()=>{
  try{
    const clips=[...state.clips,...motion.extras];
    motionStatus('Сохраняем персонажа с '+clips.length+' анимациями…');
-   const content=await new GLTFExporter().parseAsync(state.root,{
+   const content=await createModelExporter().parseAsync(state.root,{
      binary:true,trs:true,onlyVisible:false,animations:clips,
      maxTextureSize:4096,includeCustomExtensions:false
    });
@@ -658,7 +670,11 @@ function changeQuality(id){
 }
 document.querySelectorAll('[data-quality]').forEach(b=>
  b.addEventListener('click',()=>changeQuality(b.dataset.quality)));
-for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation'])
+$('opt-textures').addEventListener('change',()=>{
+  $('texture-codec').disabled=!$('opt-textures').checked;
+  if(!$('opt-textures').checked)$('texture-codec').value='keep';
+});
+for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation','geometry-codec','texture-codec'])
  $(id).addEventListener('change',()=>{
  if(state.busy)return;
  discardPreview();status('Настройки изменены. Создай предпросмотр заново.');

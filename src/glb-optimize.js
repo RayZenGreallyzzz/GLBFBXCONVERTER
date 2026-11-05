@@ -1,7 +1,6 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
-import { WebIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import { weld, simplify, resample } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import { simplifySkinnedMeshes } from './skin-simplify.js';
@@ -64,6 +63,22 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
     throw Error('Обработка текстур требует Android/WebView с Canvas');
   for (const texture of document.getRoot().listTextures()) {
     const bytes = texture.getImage(), type = texture.getMimeType();
+    if(type==='image/ktx2'){
+      const size=texture.getSize();
+      if(size&&Math.max(...size)<=maxSize){stats.unchanged++;continue;}
+      const {decodeKtx2}=await import('./texture-codecs.js');
+      const image=await decodeKtx2(bytes);
+      const scale=Math.min(1,maxSize/Math.max(image.width,image.height));
+      const original=window.document.createElement('canvas');
+      original.width=image.width;original.height=image.height;
+      original.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(image.data),image.width,image.height),0,0);
+      const canvas=window.document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(image.width*scale));
+      canvas.height=Math.max(1,Math.round(image.height*scale));
+      canvas.getContext('2d').drawImage(original,0,0,canvas.width,canvas.height);
+      texture.setImage(await encodeCanvas(canvas,'image/png',1)).setMimeType('image/png');
+      stats.resized++;continue;
+    }
     if (!bytes || !['image/jpeg', 'image/png', 'image/webp'].includes(type)) {
       throw Error('Неизвестный формат текстуры: ' + (type || 'нет MIME'));
     }
@@ -116,6 +131,9 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
       if (extension.extensionName === 'EXT_texture_webp') extension.dispose();
     }
   }
+  if(!document.getRoot().listTextures().some(t=>t.getMimeType()==='image/ktx2'))
+    for(const extension of document.getRoot().listExtensionsUsed())
+      if(extension.extensionName==='KHR_texture_basisu')extension.dispose();
   return stats;
 }
 
@@ -125,9 +143,10 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   if (!originalBuffer) throw Error('Отсутствует исходный GLB');
   const original = originalBuffer instanceof Uint8Array
     ? originalBuffer : new Uint8Array(originalBuffer);
-  const io = new WebIO().registerExtensions(ALL_EXTENSIONS);
+  const io = await createCodecIO(original);
   onProgress(12, 'Читаем оригинальный GLB без повторного кодирования...');
   const document = await io.readBinary(original);
+  removeGeometryCompression(document);
   const sourceTriangles = countTriangles(document);
   const skins = document.getRoot().listSkins().length;
   const animations = document.getRoot().listAnimations().length;
@@ -188,10 +207,9 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   const output = await io.writeBinary(document);
   if (output.byteLength >= original.byteLength)
     return unchangedResult('Выбранные изменения не уменьшили файл. Оставлен оригинал.');
-  // No Draco, meshopt buffer compression, or BasisU requirement is added.
-  // Existing EXT_texture_webp is supported and preserved when necessary.
-  const forbidden = ['KHR_draco_mesh_compression', 'EXT_meshopt_compression',
-    'KHR_texture_basisu'];
+  // New storage codecs are an explicit, separate step. Existing KTX2 textures
+  // can remain compressed when no texture resizing is requested.
+  const forbidden = ['KHR_draco_mesh_compression', 'EXT_meshopt_compression'];
   const optimizedIO = await io.readBinary(output);
   const required = optimizedIO.getRoot().listExtensionsRequired().map(e => e.extensionName);
   if (required.some(e => forbidden.includes(e)))
