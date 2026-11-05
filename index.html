@@ -19,7 +19,7 @@
     </div>
     <div id="view-label" class="view-label" hidden>Исходная модель</div>
   </div>
-  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ply,.stl,.dae,.usdz,.3mf,.zip,.bvh"></label><span id="filename">Файл не выбран</span></div>
+  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.ply,.stl,.dae,.usdz,.3mf,.zip,.bvh"></label><span id="filename">Файл не выбран</span></div>
   <div id="view-quality-picker" class="view-quality-picker" hidden>
     <label>3MF — качество только просмотра
       <select id="view-quality" aria-label="Качество 3MF просмотра">
@@ -62,6 +62,21 @@
       <label><input type="checkbox" id="opt-animation"> Анимации — убрать дублирующиеся ключи без изменения движений</label>
       <p class="tip" id="selective-note">Отключи уже оптимизированные части. Скелет, веса костей и названия анимаций сохраняются.</p>
     </div>
+    <details class="advanced">
+      <summary>Сжатие GLB — Meshopt / Draco / KTX2</summary>
+      <label>Сжатие геометрии<select id="geometry-codec">
+        <option value="keep" selected>Без дополнительного сжатия</option>
+        <option value="meshopt">Meshopt · без квантования</option>
+        <option value="draco">Draco · высокая точность</option>
+        <option value="none">Распаковать сжатие геометрии</option>
+      </select></label>
+      <label>Текстуры<select id="texture-codec">
+        <option value="keep" selected>Обычная обработка / сохранить формат</option>
+        <option value="etc1s">KTX2 ETC1S · меньше размер</option>
+        <option value="uastc">KTX2 UASTC · выше качество</option>
+      </select></label>
+      <p class="tip">Результат — GLB с выбранными расширениями. Кодеки встроены и работают офлайн. KTX2: максимум 2048 px для экономии памяти; normal/ORM сохраняются в UASTC. Нужна поддержка кодеков в целевой программе. Сжатие может увеличить уже компактный файл — смотри размер и предпросмотр.</p>
+    </details>
     <button class="primary" id="preview-opt" disabled>◉ СОЗДАТЬ ПРЕДПРОСМОТР</button>
     <div class="compare-report" id="compare-report" aria-live="polite">
       <p>Загрузи модель, выбери качество и нажми «Создать предпросмотр».</p>

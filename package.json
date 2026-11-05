@@ -7,21 +7,28 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "predev": "node scripts/prepare-codecs.mjs",
+    "prebuild": "node scripts/prepare-codecs.mjs",
+    "pretest": "node scripts/prepare-codecs.mjs",
+    "test:browser": "node scripts/check-codecs-browser.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",
     "@comfyorg/fbx-exporter-three": "^1.0.2",
-    "three": "0.170.0",
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
+    "draco3dgltf": "1.5.7",
+    "fflate": "^0.8.2",
+    "ktx2-encoder": "0.6.0",
     "meshoptimizer": "^0.25.0",
-    "fflate": "^0.8.2"
+    "three": "0.170.0"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
     "@capacitor/cli": "^7.0.0",
+    "playwright": "1.64.1",
     "vite": "^6.0.0"
   }
 }

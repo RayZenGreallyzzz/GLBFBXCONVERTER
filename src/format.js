@@ -18,7 +18,12 @@ export function inspectGlb(value){
   const n=v.getUint32(12,true);if(n%4||n+20>b.length||v.getUint32(16,true)!==0x4e4f534a)throw Error('Некорректный JSON блок GLB');
   let json;try{json=JSON.parse(new TextDecoder().decode(b.subarray(20,20+n)).trim())}catch{throw Error('Некорректный JSON GLB')}
   if(json.asset?.version!=='2.0')throw Error('Требуется glTF 2.0');
-  if(json.buffers?.length>1)throw Error('Ссылки на внешние буферы не поддерживаются');
+  // Required Meshopt may declare an unbacked fallback buffer in a valid GLB.
+  // It contains no external resource; the decoder reconstructs it from BIN.
+  if(json.buffers?.some((b,i)=>b.uri||i>0&&!(
+    json.extensionsRequired?.includes('EXT_meshopt_compression')&&
+    b.extensions?.EXT_meshopt_compression?.fallback===true)))
+    throw Error('Ссылки на внешние буферы не поддерживаются');
   return {type:'glb',meshes:json.meshes?.length||0,skins:json.skins?.length||0,animations:json.animations?.length||0,images:json.images?.length||0,json,required:json.extensionsRequired||[]};
 }
 export function modelStats(root,clips=[]){
