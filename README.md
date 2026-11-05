@@ -125,3 +125,34 @@ device before replacing the stable app.
    not silent geometry deletion; use the separate Optimizer to prepare an
    alternative mobile version.
 - 3MF and VRChat/VRM are different outputs and do not replace each other.
+
+
+## Geometry targets and repeated-pass protection
+
+This quality-test branch adds an absolute triangle target (50,000 by default,
+25,000/100,000 or a custom number) independently of texture resolution. Each
+preview starts from the currently loaded original. Shape preservation has its
+own setting and does not depend on the texture preset. A target is a goal,
+not a forced count: error/topology/UV restrictions can leave more triangles.
+
+Static simplification now includes normals, tangent data, UV coordinates and
+texture-transform scale in its attribute error metric. Skinned simplification
+also accounts for normalized packed normal/UV attributes and texture UV scale.
+Static attachments are processed separately from skinned meshes.
+
+Saved geometry reductions include portable history in glTF root extras. On
+reimport, further geometry reduction is disabled; textures, animation-key
+cleanup, geometry decompression and storage codecs remain available. Load the
+original model to choose a different geometry goal. Older files without the
+history marker cannot be identified reliably and should also be regenerated
+from their original rather than passed through multiple percentage reductions.
+
+Draco now uses Edgebreaker where supported. The encoder's sequential fallback
+for morph targets/sparse data is retained by the underlying library. Tests also
+verify the binding of bone weights and UV after vertex reordering.
+
+The APK is named **Phoenix Forge Quality TEST** and uses the distinct ID
+`com.phoenix.glbfbxconverter.qualitytest`. It can coexist with prior stable and
+Codecs TEST apps. This does not claim Blender-equivalent visual quality for
+all meshes; compare the preview and verify actual deformation on the target
+Android device.

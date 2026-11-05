@@ -9,6 +9,7 @@
  */
 import { compactPrimitive, weldPrimitive } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
+import {attributeValues,uvScales} from './static-simplify.js';
 
 const MAX_VERTICES = 1_200_000;
 const TRIANGLES = 4;
@@ -59,14 +60,14 @@ function buildSignature(prim){
  const ids=prim.getAttribute('JOINTS_0').getArray();
  if(!positions||!weights||!ids)
    throw Error('Только Float32 координаты/веса пока поддерживаются для безопасного LOD');
- const normal=copyFloat(prim.getAttribute('NORMAL'),count,3);
- const uv=copyFloat(prim.getAttribute('TEXCOORD_0'),count,2);
+ const normal=attributeValues(prim.getAttribute('NORMAL'));
+ const uv=attributeValues(prim.getAttribute('TEXCOORD_0'));
  if(prim.getAttribute('TEXCOORD_0')&&!uv)
    throw Error('UV с нестандартной упаковкой: изменение сетки отменено');
  const stride=(normal?3:0)+(uv?2:0)+8;
  const attrs=new Float32Array(stride*count),attrWeights=[];
  if(normal)attrWeights.push(1.25,1.25,1.25);
- if(uv)attrWeights.push(2,2);
+ if(uv)attrWeights.push(...uvScales(prim.getMaterial()).map(x=>x*2));
  for(let i=0;i<8;i++)attrWeights.push(5);
  const locks=new Uint8Array(count);
  for(let i=0;i<count;i++){

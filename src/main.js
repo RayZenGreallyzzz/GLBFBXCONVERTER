@@ -4,6 +4,7 @@ import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-codecs.js';
 import {asArrayBuffer} from './binary.js';
 import {compressGlbOffThread} from './compression-client.js';
+import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,markGeometryGlb} from './geometry-policy.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
 import { optimizeGlb, MOBILE_PRESETS, formatSize } from './glb-optimize.js';
@@ -128,12 +129,17 @@ function displayComparison(result){
 }
 function display(){
  const m=modelStats(state.root,state.clips);
- $('opt-geometry').disabled=false;
+ const history=state.sourceBuffer?geometryHistory(inspectGlb(state.sourceBuffer).json.extras):null;
+ $('opt-geometry').disabled=!!history;
+ if(history)$('opt-geometry').checked=false;
  $('opt-animation').disabled=m.animations===0;
  if(m.animations===0)$('opt-animation').checked=false;
- $('selective-note').textContent=m.skinned>0
+ $('selective-note').textContent=history
+   ?'Эта сетка уже упрощена: '+history.sourceTriangles.toLocaleString('ru-RU')+' → '+history.triangles.toLocaleString('ru-RU')+' треугольников. Для другой цели открой исходный GLB. Текстуры и кодеки доступны отдельно.'
+   :m.skinned>0
    ?'Скелет найден: доступно осторожное упрощение с защитой UV, суставов и весов. Перед сохранением сравни движения рук и ног. Исходник не перезаписывается.'
    :'Включай только те части, которые хочешь обработать. При отсутствии улучшений исходный GLB остаётся неизменным.';
+ updateGeometryControls();
  const metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
  $('metrics').replaceChildren();
  for(const [label,value] of metrics){const row=document.createElement('div');row.className='metric';const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row)}
@@ -233,6 +239,8 @@ async function preparePreview(){
    const useGeometry=$('opt-geometry').checked&&!$('opt-geometry').disabled;
    const useTextures=$('opt-textures').checked;
    const useAnimation=$('opt-animation').checked&&!$('opt-animation').disabled;
+   const targetTriangles=$('geometry-mode').value==='target'?Number($('geometry-target').value):null;
+   const geometryError=Number($('geometry-error').value);
    const geometryCodec=$('geometry-codec').value;
    const textureCodec=useTextures?$('texture-codec').value:'keep';
    if(!useGeometry&&!useTextures&&!useAnimation&&geometryCodec==='keep')
@@ -242,10 +250,11 @@ async function preparePreview(){
      // A 1.94M-face 3MF must not be exported to a full-size GLB, loaded
      // again by glTF-Transform, and then optimized: Android runs out of RAM.
      const stats=modelStats(state.root,state.clips);
+     const goal=useGeometry?geometryPlan({sourceTriangles:stats.triangles,ratio,targetTriangles,error:geometryError}):null;
      if(!useGeometry&&stats.triangles>600000)
        throw Error('Для тяжёлого 3MF включи оптимизацию сетки. Прямой экспорт полной модели без упрощения доступен во вкладке «Конвертация».');
      const prepared=await simplify3mfScene(state.root,{
-       ratio:useGeometry?ratio:1,error:preset.error,
+       ratio:goal?.ratio??1,error:geometryError,
        onProgress:(percent,message)=>{progress(percent);status(message)}
      });
      let bytes;
@@ -260,6 +269,8 @@ async function preparePreview(){
        // The compact preview shares the original materials, not geometry.
        release3mfSimplifiedGeometry(prepared.root);
      }
+     if(prepared.optimizedTriangles<prepared.sourceTriangles)
+       bytes=markGeometryGlb(bytes,optimizationHistory(prepared.sourceTriangles,prepared.optimizedTriangles,goal?.targetTriangles,geometryError));
      optimized={
        bytes,beforeBytes:state.bytes,afterBytes:bytes.byteLength,
        sourceTriangles:prepared.sourceTriangles,
@@ -269,6 +280,7 @@ async function preparePreview(){
          ?'Сетка реально упрощена через Meshoptimizer с сохранением UV; оригинал не менялся.'
          :'Упрощение без потери формы не уменьшило число треугольников; сохранён GLB с исходной сеткой.'
      };
+     if(goal&&targetTriangles!==null)optimized.note+=' '+geometryTargetNote(goal.targetTriangles,prepared.optimizedTriangles);
    }else{
      // Ordinary GLBs keep the original fast path and byte-for-byte fallback.
      const source=state.sourceBuffer||
@@ -277,7 +289,7 @@ async function preparePreview(){
          includeCustomExtensions:false
        });
      optimized=await optimizeGlb(source,{
-       texture:Number($('texture').value),ratio,error:preset.error,
+       texture:Number($('texture').value),ratio,error:geometryError,targetTriangles,
        geometry:useGeometry, textures:useTextures&&textureCodec==='keep',animationKeys:useAnimation,
        onProgress:(percent,message)=>{progress(percent);status(message)}
      });
@@ -659,14 +671,20 @@ function changeQuality(id){
  const preset=MOBILE_PRESETS[id]||MOBILE_PRESETS.balanced;
  $('preset').value=id;
  $('texture').value=String(preset.texture);
- $('geometry').value=id==='original'?'none':String(preset.ratio);
  document.querySelectorAll('[data-quality]').forEach(b=>{
    const active=b.dataset.quality===id;
    b.classList.toggle('active',active);
    b.setAttribute('aria-pressed',String(active));
  });
  discardPreview();
- status('Качество выбрано. Нажми «Создать предпросмотр».');
+ status('Размер текстур выбран. Цель сетки настраивается отдельно.');
+}
+function updateGeometryControls(){
+ const enabled=$('opt-geometry').checked&&!$('opt-geometry').disabled;
+ const target=$('geometry-mode').value==='target';
+ $('geometry-ratio-field').hidden=target;
+ $('geometry-target-field').hidden=!target;
+ for(const id of ['geometry-mode','geometry-target','geometry-error','geometry'])$(id).disabled=!enabled;
 }
 document.querySelectorAll('[data-quality]').forEach(b=>
  b.addEventListener('click',()=>changeQuality(b.dataset.quality)));
@@ -674,9 +692,10 @@ $('opt-textures').addEventListener('change',()=>{
   $('texture-codec').disabled=!$('opt-textures').checked;
   if(!$('opt-textures').checked)$('texture-codec').value='keep';
 });
-for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation','geometry-codec','texture-codec'])
+for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation','geometry-codec','texture-codec','geometry-mode','geometry-target','geometry-error'])
  $(id).addEventListener('change',()=>{
  if(state.busy)return;
+ updateGeometryControls();
  discardPreview();status('Настройки изменены. Создай предпросмотр заново.');
 });
 $('view-original').addEventListener('click',()=>showComparison(false));

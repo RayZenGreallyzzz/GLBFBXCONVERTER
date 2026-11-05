@@ -10,6 +10,8 @@ import {unzipSync,zipSync} from 'fflate';
 import {compressionFixture} from '../tests/helpers/compression-fixtures.mjs';
 import {inspectGlb} from '../src/format.js';
 import {createCodecIO} from '../src/codec-io.js';
+import {Document,WebIO,Accessor} from '@gltf-transform/core';
+import {geometryHistory} from '../src/geometry-policy.js';
 import {exportTextured3mf} from '../src/three-mf.js';
 
 const origin='http://127.0.0.1:4178';
@@ -64,6 +66,14 @@ try{
   await download.saveAs(path);return new Uint8Array(await readFile(path));
  }
  await load(source,'fixture.glb');
+ await page.getByText('Точные настройки (необязательно)',{exact:true}).click();
+ assert.equal(await page.locator('#geometry-ratio-field').isVisible(),false);
+ assert.equal(await page.locator('#geometry-target-field').isVisible(),true);
+ await page.locator('#geometry-mode').selectOption('ratio');
+ assert.equal(await page.locator('#geometry-ratio-field').isVisible(),true);
+ assert.equal(await page.locator('#geometry-target-field').isVisible(),false);
+ await page.locator('#geometry-mode').selectOption('target');
+ await page.getByText('Точные настройки (необязательно)',{exact:true}).click();
  await page.locator('#opt-geometry').uncheck();
  await preview();
  assert.deepEqual(await download(),source,'default unchanged GLB must stay byte-identical');
@@ -99,16 +109,49 @@ try{
   }
  }
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
- const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,12,12),new THREE.MeshStandardMaterial()));
+ const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});
  const files=unzipSync(new Uint8Array(print.content));files['padding.bin']=new Uint8Array(11*1024*1024);
  const large=zipSync(files,{level:0});
  await load(large,'preview-regression.3mf');
  await page.locator('#opt-geometry').check();
+ await page.locator('#geometry-target').fill('5000');
+ await page.locator('#geometry-error').selectOption('0.008');
  await page.locator('#geometry-codec').selectOption('keep');
  await page.locator('#texture-codec').selectOption('keep');
- await preview();assert.ok(inspectGlb(await download()).meshes>0);
+ await preview();const simplified=await download();
+ assert.ok(inspectGlb(simplified).meshes>0);
+ assert.ok(geometryHistory(inspectGlb(simplified).json.extras));
  console.log('Browser: streamed 3MF → simplified preview → saved GLB OK');
+ await load(simplified,'optimized-result.glb');
+ assert.equal(await page.locator('#opt-geometry').isDisabled(),true);
+ assert.equal(await page.locator('#opt-geometry').isChecked(),false);
+ assert.equal(await page.locator('#opt-textures').isDisabled(),false);
+ console.log('Browser: reimported simplified mesh is protected against another destructive pass');
+ // A new original can still generate independent geometry previews.
+ const doc=new Document(),buf=doc.createBuffer();
+ const geo=new THREE.PlaneGeometry(1,1,100,100);
+ const accessor=(array,type)=>doc.createAccessor().setBuffer(buf).setType(type).setArray(array);
+ const primitive=doc.createPrimitive().setAttribute('POSITION',accessor(geo.attributes.position.array,Accessor.Type.VEC3))
+  .setAttribute('NORMAL',accessor(geo.attributes.normal.array,Accessor.Type.VEC3))
+  .setAttribute('TEXCOORD_0',accessor(geo.attributes.uv.array,Accessor.Type.VEC2))
+  .setIndices(accessor(new Uint32Array(geo.index.array),Accessor.Type.SCALAR));
+ doc.createScene().addChild(doc.createNode().setMesh(doc.createMesh().addPrimitive(primitive)));
+ const independent=await new WebIO().writeBinary(doc);
+ await load(independent,'new-original.glb');
+ await page.locator('#opt-geometry').check();await page.locator('#opt-textures').uncheck();
+ await page.locator('#geometry-error').selectOption('0.003');
+ await page.locator('#geometry-target').fill('5000');
+ await page.locator('[data-quality="high"]').click();
+ assert.equal(await page.locator('#geometry-target').inputValue(),'5000');
+ assert.equal(await page.locator('#geometry-error').inputValue(),'0.003');
+ await preview();
+ const first=inspectGlb(await download());assert.ok(geometryHistory(first.json.extras));
+ await page.locator('#geometry-target').fill('3000');await preview();
+ const next=geometryHistory(inspectGlb(await download()).json.extras);
+ assert.equal(next.sourceTriangles,20000);
+ assert.equal(next.targetTriangles,3000);
+ console.log('Browser: custom triangle goals use the original; texture presets stay independent');
  assert.deepEqual(external,[],'all codecs must be loaded from the local app');
  assert.deepEqual(errors,[],'browser must not raise uncaught exceptions');
  console.log('Production browser codec checks passed.');

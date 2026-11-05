@@ -48,10 +48,10 @@ export async function compressGlb(input,{geometryCodec='keep',textureCodec='keep
    if(!document.getRoot().listMeshes().some(m=>m.listPrimitives().some(p=>p.getMode()===4)))
     throw Error('Draco требует полигональную модель из треугольников');
    document.createExtension(KHRDracoMeshCompression).setRequired(true).setEncoderOptions({
-    method:KHRDracoMeshCompression.EncoderMethod.SEQUENTIAL,encodeSpeed:5,decodeSpeed:5,
+    method:KHRDracoMeshCompression.EncoderMethod.EDGEBREAKER,encodeSpeed:5,decodeSpeed:5,
     quantizationBits:{POSITION:20,NORMAL:12,TEX_COORD:16,COLOR:12,GENERIC:0}
    });
-   notes.push('Draco: высокая точность; костные веса без квантования');
+   notes.push('Draco Edgebreaker: высокая точность; костные веса без квантования');
   }else notes.push('Сжатие геометрии снято');
  }else{
   // readBinary decodes the input; preserve its codec when only texture mode changes.
@@ -59,7 +59,7 @@ export async function compressGlb(input,{geometryCodec='keep',textureCodec='keep
   if(existing){
    io.registerDependencies({'draco3d.encoder':await (await import('./codec-io.js')).getDracoModule('encoder')});
    // Texture-only edits must not add another lossy geometry quantization pass.
-   existing.setEncoderOptions({method:KHRDracoMeshCompression.EncoderMethod.SEQUENTIAL,
+   existing.setEncoderOptions({method:KHRDracoMeshCompression.EncoderMethod.EDGEBREAKER,
     quantizationBits:{POSITION:0,NORMAL:0,TEX_COORD:0,COLOR:0,GENERIC:0}});
   }
  }
