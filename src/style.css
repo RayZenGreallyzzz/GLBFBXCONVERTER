@@ -11,6 +11,7 @@
 .advanced{border:1px solid #22465e;border-radius:10px;margin:12px 0;padding:12px;color:#afcfe1}
 .advanced summary{cursor:pointer;user-select:none;margin-bottom:6px}
 .advanced label{margin-top:12px}
+#geometry-ratio-field[hidden],#geometry-target-field[hidden]{display:none}
 .compare-report{margin:12px 0 10px;padding:12px;background:#101f34;border:1px solid #274961;border-radius:12px;min-height:68px;color:#c0dbea;line-height:1.5}
 .compare-report p{margin:5px 0}
 .compare-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

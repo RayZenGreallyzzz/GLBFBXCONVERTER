@@ -66,6 +66,14 @@ try{
   await download.saveAs(path);return new Uint8Array(await readFile(path));
  }
  await load(source,'fixture.glb');
+ await page.getByText('Точные настройки (необязательно)',{exact:true}).click();
+ assert.equal(await page.locator('#geometry-ratio-field').isVisible(),false);
+ assert.equal(await page.locator('#geometry-target-field').isVisible(),true);
+ await page.locator('#geometry-mode').selectOption('ratio');
+ assert.equal(await page.locator('#geometry-ratio-field').isVisible(),true);
+ assert.equal(await page.locator('#geometry-target-field').isVisible(),false);
+ await page.locator('#geometry-mode').selectOption('target');
+ await page.getByText('Точные настройки (необязательно)',{exact:true}).click();
  await page.locator('#opt-geometry').uncheck();
  await preview();
  assert.deepEqual(await download(),source,'default unchanged GLB must stay byte-identical');
@@ -133,7 +141,11 @@ try{
  await load(independent,'new-original.glb');
  await page.locator('#opt-geometry').check();await page.locator('#opt-textures').uncheck();
  await page.locator('#geometry-error').selectOption('0.003');
- await page.locator('#geometry-target').fill('5000');await preview();
+ await page.locator('#geometry-target').fill('5000');
+ await page.locator('[data-quality="high"]').click();
+ assert.equal(await page.locator('#geometry-target').inputValue(),'5000');
+ assert.equal(await page.locator('#geometry-error').inputValue(),'0.003');
+ await preview();
  const first=inspectGlb(await download());assert.ok(geometryHistory(first.json.extras));
  await page.locator('#geometry-target').fill('3000');await preview();
  const next=geometryHistory(inspectGlb(await download()).json.extras);
