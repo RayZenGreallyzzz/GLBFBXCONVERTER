@@ -59,6 +59,22 @@ test('binary preview accepts real ArrayBuffer and sliced Uint8Array without unre
  assert.deepEqual([...new Uint8Array(asArrayBuffer(bytes.subarray(1,4)))],[1,2,3]);
  assert.equal(asArrayBuffer(bytes.buffer),bytes.buffer);
 });
+test('Draco Edgebreaker preserves weight/UV binding when ordinary skinned vertices are reordered',async()=>{
+ const source=await compressionFixture(),result=await compressGlb(source,{geometryCodec:'draco'});
+ const a=await (await createCodecIO(source)).readBinary(source);
+ const b=await (await createCodecIO(result.bytes)).readBinary(result.bytes);
+ const before=a.getRoot().listMeshes()[0].listPrimitives()[0];
+ const after=b.getRoot().listMeshes()[0].listPrimitives()[0];
+ const count=after.getAttribute('POSITION').getCount();
+ for(let i=0;i<count;i++){
+  const p=after.getAttribute('POSITION').getElement(i,[]);
+  const old=Math.round(p[1]*20)*21+Math.round(p[0]*20);
+  assert.deepEqual(after.getAttribute('JOINTS_0').getElement(i,[]),before.getAttribute('JOINTS_0').getElement(old,[]));
+  assert.deepEqual(after.getAttribute('WEIGHTS_0').getElement(i,[]),before.getAttribute('WEIGHTS_0').getElement(old,[]));
+  const uv=after.getAttribute('TEXCOORD_0').getElement(i,[]),originalUV=before.getAttribute('TEXCOORD_0').getElement(old,[]);
+  assert.ok(uv.every((v,k)=>Math.abs(v-originalUV[k])<3e-5));
+ }
+});
 test('required Meshopt fallback buffers are accepted; real external buffers are rejected',async()=>{
  const src=await compressionFixture(),r=await compressGlb(src,{geometryCodec:'meshopt'});
  assert.ok(inspectGlb(r.bytes).meshes);

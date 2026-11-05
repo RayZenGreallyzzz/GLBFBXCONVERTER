@@ -1,9 +1,10 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
-import { weld, simplify, resample } from '@gltf-transform/functions';
-import { MeshoptSimplifier } from 'meshoptimizer';
+import { resample } from '@gltf-transform/functions';
 import { simplifySkinnedMeshes } from './skin-simplify.js';
+import {simplifyStaticMeshes} from './static-simplify.js';
+import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,HISTORY_KEY} from './geometry-policy.js';
 
 export const MOBILE_PRESETS = Object.freeze({
   mobile: { texture: 512, ratio: 0.22, error: 0.07 },
@@ -139,6 +140,7 @@ export async function resizeTextures(document, maxSize, quality = 0.83) {
 
 export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   error = 0.025, geometry = true, textures = true, animationKeys = false,
+  targetTriangles = null,
   onProgress = () => {} } = {}) {
   if (!originalBuffer) throw Error('Отсутствует исходный GLB');
   const original = originalBuffer instanceof Uint8Array
@@ -151,6 +153,9 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   const skins = document.getRoot().listSkins().length;
   const animations = document.getRoot().listAnimations().length;
   const sourceImages = document.getRoot().listTextures().length;
+  const history=geometryHistory(document.getRoot().getExtras());
+  const goal=geometry?geometryPlan({sourceTriangles,ratio,targetTriangles,error,history}):null;
+  if(goal)ratio=goal.ratio;
   const originalKeyCount = countAnimationKeys(document);
   const plan = selectiveOptimizationPlan({geometry,textures,animationKeys,ratio});
   onProgress(28, 'Анализируем геометрию и скелеты...');
@@ -158,15 +163,15 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   let changed=false;
   let removedKeys=0;
   if (plan.geometry && skins === 0 && sourceTriangles > 0) {
-    await MeshoptSimplifier.ready;
-    onProgress(35, 'Упрощаем сетку с помощью Meshoptimizer...');
-    await document.transform(weld(), simplify({
-      simplifier: MeshoptSimplifier, ratio, error,
-      lockBorder: true, cleanup: true
-    }));
+    onProgress(35, 'Упрощаем сетку с учётом нормалей, UV и швов…');
+    const stats=await simplifyStaticMeshes(document,{ratio,error});
+    geometryNote=stats.reduced?'Сетка упрощена с учётом нормалей, UV и швов.'
+      :'Безопасных сокращений не найдено: сохранена исходная сетка.';
+    if(stats.skipped)geometryNote+=' Пропущены неподдерживаемые примитивы и morph targets: '+stats.skipped+'.';
   } else if (plan.geometry && skins && sourceTriangles>0) {
     onProgress(35, 'Защищаем суставы, UV и веса костей при упрощении сетки...');
     const stats=await simplifySkinnedMeshes(document,{ratio,error});
+    await simplifyStaticMeshes(document,{ratio,error});
     geometryNote=stats.reduced
       ?'Скелетная сетка: '+stats.trianglesBefore.toLocaleString('ru-RU')+
        ' → '+stats.trianglesAfter.toLocaleString('ru-RU')+
@@ -179,6 +184,9 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   if (optimizedTriangles > sourceTriangles)
     throw Error('Оптимизация неожиданно увеличила число треугольников');
   if (optimizedTriangles < sourceTriangles) changed=true;
+  if(optimizedTriangles<sourceTriangles)
+    document.getRoot().setExtras({...document.getRoot().getExtras(),
+      [HISTORY_KEY]:optimizationHistory(sourceTriangles,optimizedTriangles,goal?.targetTriangles,error)});
   let textureStats={resized:0,lossy:0,unchanged:sourceImages};
   if (plan.textures) {
     onProgress(65, 'Обрабатываем только выбранные текстуры...');
@@ -193,6 +201,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
     if(removedKeys<0)throw Error('Оптимизация неожиданно добавила ключи анимаций');
     if(removedKeys>0)changed=true;
   }
+  if(goal&&targetTriangles!==null)geometryNote+=' '+geometryTargetNote(goal.targetTriangles,optimizedTriangles);
   const noteParts=[geometryNote];
   if(removedKeys>0)noteParts.push('Удалено повторов ключей: '+removedKeys+'.');
   const unchangedResult=(message)=>{
@@ -222,5 +231,6 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   return { bytes: output, beforeBytes: original.byteLength,
     afterBytes: output.byteLength, sourceTriangles, optimizedTriangles,
     skins, animations, textureStats, removedKeys,unchanged:false,
+    targetTriangles:goal?.targetTriangles??null,
     note:noteParts.join(' ') };
 }
