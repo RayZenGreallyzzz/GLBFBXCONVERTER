@@ -108,6 +108,7 @@ try{
  await load(large,'preview-regression.3mf');
  await page.locator('#opt-geometry').check();
  await page.locator('#geometry-target').fill('5000');
+ await page.locator('#geometry-error').selectOption('0.008');
  await page.locator('#geometry-codec').selectOption('keep');
  await page.locator('#texture-codec').selectOption('keep');
  await preview();const simplified=await download();
@@ -131,6 +132,7 @@ try{
  const independent=await new WebIO().writeBinary(doc);
  await load(independent,'new-original.glb');
  await page.locator('#opt-geometry').check();await page.locator('#opt-textures').uncheck();
+ await page.locator('#geometry-error').selectOption('0.003');
  await page.locator('#geometry-target').fill('5000');await preview();
  const first=inspectGlb(await download());assert.ok(geometryHistory(first.json.extras));
  await page.locator('#geometry-target').fill('3000');await preview();

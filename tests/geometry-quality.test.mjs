@@ -50,6 +50,17 @@ test('different previews start independently from the original, without mutating
  assert.equal(a.sourceTriangles,b.sourceTriangles);
  assert.equal(geometryHistory(inspectGlb(b.bytes).json.extras).sourceTriangles,5000);
 });
+test('saved reduced GLB does not carry the unused original index array',async()=>{
+ const source=await grid(false,100);
+ const result=await optimizeGlb(source,{targetTriangles:1000,error:.003,textures:false});
+ const doc=await new WebIO().readBinary(result.bytes);
+ const prim=doc.getRoot().listMeshes()[0].listPrimitives()[0];
+ assert.ok(result.optimizedTriangles<=1000);
+ assert.ok(result.bytes.length<source.length*.25,'reduced geometry must reduce stored payload');
+ assert.deepEqual(prim.listSemantics().sort(),['NORMAL','POSITION','TEXCOORD_0']);
+ assert.ok(doc.getRoot().listAccessors().every(a=>a.listParents().some(p=>p.propertyType!=='Root')),
+  'orphaned source geometry must not remain in the output');
+});
 test('quantized normals and UV are accepted and preserved exactly on surviving vertices',async()=>{
  const source=await grid(true),io=new WebIO().registerExtensions(ALL_EXTENSIONS),before=await io.readBinary(source);
  const result=await optimizeGlb(source,{targetTriangles:1500,error:.003,textures:false});

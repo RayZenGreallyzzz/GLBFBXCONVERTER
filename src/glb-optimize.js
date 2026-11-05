@@ -1,7 +1,8 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
-import { resample } from '@gltf-transform/functions';
+import { prune, resample } from '@gltf-transform/functions';
+import {PropertyType} from '@gltf-transform/core';
 import { simplifySkinnedMeshes } from './skin-simplify.js';
 import {simplifyStaticMeshes} from './static-simplify.js';
 import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,HISTORY_KEY} from './geometry-policy.js';
@@ -212,6 +213,11 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
       note:message+' Исходные байты GLB сохранены без повторного кодирования.'};
   };
   if(!changed) return unchangedResult(geometryNote+' Изменений нет: модель уже оптимизирована или выбранные части не требуют обработки.');
+  // Replacing an indices accessor can leave the original large index array
+  // orphaned. Remove only unreferenced accessors; retain all live attributes,
+  // including UVs without a current material, skin data and animation keys.
+  await document.transform(prune({propertyTypes:[PropertyType.ACCESSOR],
+    keepAttributes:true,keepExtras:true}));
   onProgress(86, 'Собираем стандартный GLB 2.0 для Godot...');
   const output = await io.writeBinary(document);
   if (output.byteLength >= original.byteLength)
