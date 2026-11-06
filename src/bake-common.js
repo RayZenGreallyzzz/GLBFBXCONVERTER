@@ -4,6 +4,10 @@ import {geometryPlan,geometryHistory} from './geometry-policy.js';
 import {inspectGlb} from './format.js';
 export async function readBakeGlb(bytes){
  const j=inspectGlb(bytes).json;let triangles=0,vertices=0;
+ // Reject optional unknown metadata too, before the IO reader can ignore it.
+ const allowed=['KHR_mesh_quantization','KHR_texture_transform','EXT_texture_webp','KHR_texture_basisu','KHR_draco_mesh_compression','EXT_meshopt_compression'];
+ const unsupported=(j.extensionsUsed||[]).filter(n=>!allowed.includes(n));
+ if(unsupported.length)throw Error('Перенос деталей пока не поддерживает расширения: '+unsupported.join(', '));
  for(const m of j.meshes||[])for(const p of m.primitives||[]){
   const n=j.accessors?.[p.attributes?.POSITION]?.count||0;vertices+=n;
   triangles+=Math.floor((p.indices===undefined?n:j.accessors?.[p.indices]?.count||0)/3);

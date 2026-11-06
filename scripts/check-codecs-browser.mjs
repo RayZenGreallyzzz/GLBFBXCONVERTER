@@ -159,7 +159,7 @@ try{
  const bakeSource=await new WebIO().writeBinary(doc);
  await load(bakeSource,'surface-original.glb');
  await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();
- await page.locator('#texture').selectOption('512');await page.locator('#geometry-target').fill('1000');
+ await page.locator('[data-quality="mobile"]').click();await page.locator('#geometry-target').fill('1000');
  await page.locator('#bake-details').check();await page.locator('#preview-opt').click();
  await page.locator('#cancel-bake').waitFor({state:'visible'});await page.locator('#cancel-bake').click();
  await page.waitForFunction(()=>document.getElementById('status').textContent.includes('отменён'));

@@ -148,3 +148,10 @@ test('BVH projection samples the correct donor face across disconnected UV islan
  }
  assert.ok(checked>10);mesh.geometry.dispose();mesh.material.dispose();
 });
+test('optional unsupported metadata is rejected before IO can discard it',async()=>{
+ const {bytes}=await sphere(),j=inspectGlb(bytes).json,old=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(12,true);
+ j.extensionsUsed=['VRMC_vrm'];j.extensions={VRMC_vrm:{specVersion:'1.0',meta:{name:'Keep avatar metadata'}}};
+ const json=new TextEncoder().encode(JSON.stringify(j)),length=Math.ceil(json.length/4)*4,out=new Uint8Array(bytes.length-old+length),view=new DataView(out.buffer);
+ out.set(bytes.subarray(0,12));view.setUint32(8,out.length,true);view.setUint32(12,length,true);view.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+length);out.set(json,20);out.set(bytes.subarray(20+old),20+length);
+ await assert.rejects(()=>readBakeGlb(out),/VRMC_vrm/);
+});
