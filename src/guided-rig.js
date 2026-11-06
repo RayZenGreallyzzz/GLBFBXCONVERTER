@@ -12,11 +12,19 @@ export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  if((j.skins||[]).length||(j.animations||[]).length)throw Error('Для создания нового скелета нужен исходный GLB без скелета и анимаций');
  if((j.meshes||[]).some(m=>(m.primitives||[]).some(p=>p.targets?.length)))throw Error('Новый скелет с Blend Shapes пока не поддерживается. Сохрани формы и используй существующий скелет.');
  if((j.scenes||[]).length!==1||j.cameras?.length)throw Error('Создание скелета: нужна одна сцена без камер');
+ if((j.nodes||[]).some(n=>n.extensions?.KHR_lights_punctual||n.extensions?.EXT_mesh_gpu_instancing))throw Error('Для нового скелета нужна сцена без источников света и GPU-инстансов');
+ const active=new Set(),visit=i=>{if(active.has(i))return;const n=j.nodes?.[i];if(!n)throw Error('Отсутствует узел сцены');active.add(i);for(const child of n.children||[])visit(child)};
+ for(const i of j.scenes[0].nodes||[])visit(i);
+ if((j.nodes||[]).some((n,i)=>n.mesh!==undefined&&!active.has(i)))throw Error('В файле есть меши вне активной сцены. Подготовь одну сцену персонажа.');
  if(![32,48,64].includes(resolution))throw Error('Неверная точность весов');
  let vertices=0,triangles=0;
  for(const node of j.nodes||[])if(node.mesh!==undefined){const m=j.meshes?.[node.mesh];if(!m)throw Error('Отсутствует меш');for(const p of m.primitives||[]){const a=j.accessors?.[p.attributes?.POSITION],n=a?.count;if(p.mode!==undefined&&p.mode!==4||!Number.isSafeInteger(n)||n<3)throw Error('Для скелета нужна треугольная геометрия');vertices+=n;triangles+=(p.indices===undefined?n:j.accessors?.[p.indices]?.count||0)/3}}
  if(!vertices||vertices>650000||triangles>1000000)throw Error('Для нового скелета: до 650 тысяч вершин и 1 млн треугольников. Сначала подготовь сетку в оптимизации.');
- const estimatedMiB=Math.ceil((bytes.byteLength*3+vertices*120+triangles*16+(resolution+2)**3*22*16+32*1048576)/1048576);
+ let decodedBytes=0;
+ const components={5120:1,5121:1,5122:2,5123:2,5125:4,5126:4},widths={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16};
+ for(const a of j.accessors||[]){const size=components[a.componentType]*widths[a.type]*a.count;if(!Number.isSafeInteger(a.count)||a.count<0||!Number.isSafeInteger(size))throw Error('Некорректный размер данных модели');decodedBytes+=size}
+ for(const v of j.bufferViews||[]){if(!Number.isSafeInteger(v.byteLength)||v.byteLength<0)throw Error('Некорректный размер буфера');decodedBytes+=v.byteLength}
+ const estimatedMiB=Math.ceil((bytes.byteLength*3+decodedBytes*2+vertices*120+triangles*16+(resolution+2)**3*22*16+32*1048576)/1048576);
  if(!Number.isFinite(memoryBudgetMiB)||memoryBudgetMiB<64||memoryBudgetMiB>768||estimatedMiB>memoryBudgetMiB)throw Error('Скелет: расчётная память '+estimatedMiB+' МиБ, доступный предел '+memoryBudgetMiB+' МиБ. Нужен более лёгкий исходник.');
  return {vertices,triangles,estimatedMiB,resolution};
 }
