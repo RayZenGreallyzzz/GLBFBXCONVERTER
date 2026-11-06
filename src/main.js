@@ -3,6 +3,7 @@ import {ModelPlayback} from './model-playback.js';
 import {MorphPreview} from './morph-preview.js';
 import {GuidedRigUI} from './guided-rig-ui.js';
 import {makeRigPreview} from './rig-preview.js';
+import {appendGlbAnimations} from './glb-add-animations.js';
 import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -766,7 +767,12 @@ $('anim-export').addEventListener('click',async()=>{
  try{
    const clips=[...state.clips,...motion.extras];
    motionStatus('Сохраняем персонажа с '+clips.length+' анимациями…');
-   const content=await createModelExporter().parseAsync(state.root,{
+   let content;
+   if(state.type==='glb'&&state.sourceBuffer){
+     const nodeIndices=new Map();state.root.traverse(node=>{const index=state.rigLookup?.get(node)?.nodes;if(node.isBone&&index!==undefined)nodeIndices.set(node.name,index)});
+     const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});
+     content=appendGlbAnimations(state.sourceBuffer,motion.extras,{nodeIndices,memoryBudgetMiB});
+   }else content=await createModelExporter().parseAsync(state.root,{
      binary:true,trs:true,onlyVisible:false,animations:clips,
      maxTextureSize:4096,includeCustomExtensions:false
    });
