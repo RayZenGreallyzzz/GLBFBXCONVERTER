@@ -11,6 +11,7 @@
 <header><div class="logo">◆ <strong>PHOENIX <em>MODEL FORGE</em></strong></div><small>GLB · FBX · ANDROID · GODOT</small></header>
 <main>
 <section class="view">
+  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.ply,.stl,.dae,.usdz,.3mf,.zip,.bvh"></label><span id="filename">Файл не выбран</span></div>
   <div id="viewport">
     <div id="empty">Загрузи 3D-модель или BVH-движение: GLB, FBX, glTF, VRM, OBJ, PLY, STL, DAE, USDZ, 3MF, ZIP, BVH</div>
     <div id="preview-switch" class="preview-switch" hidden>
@@ -19,7 +20,6 @@
     </div>
     <div id="view-label" class="view-label" hidden>Исходная модель</div>
   </div>
-  <div class="viewbar"><label class="load">＋ Загрузить модель<input hidden id="model-file" type="file" multiple accept=".glb,.fbx,.gltf,.vrm,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.ply,.stl,.dae,.usdz,.3mf,.zip,.bvh"></label><span id="filename">Файл не выбран</span></div>
   <div id="view-quality-picker" class="view-quality-picker" hidden>
     <label>3MF — качество только просмотра
       <select id="view-quality" aria-label="Качество 3MF просмотра">

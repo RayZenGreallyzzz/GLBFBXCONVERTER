@@ -196,6 +196,36 @@ try{
  const denseDownload=page.waitForEvent('download');await page.locator('#convert-export').click();const denseCopy=await denseDownload,densePath=join(temp,'dense-copy.glb');await denseCopy.saveAs(densePath);
  assert.deepEqual(new Uint8Array(await readFile(densePath)),denseSource);
  console.log('Browser: file-backed bounded bake → cancel/restore → three workers → exact original copy');
+ // High-DPI canvas backing pixels must not cover or push away file selection
+ // when a tablet rotates. Check actual hit testing, then open the file picker.
+ const tablet=await browser.newContext({viewport:{width:1280,height:800},deviceScaleFactor:2,isMobile:true,hasTouch:true});
+ await tablet.route('**/*',route=>{
+  const url=new URL(route.request().url());if(url.origin===origin||['blob:','data:'].includes(url.protocol))return route.continue();external.push(url.href);return route.abort();
+ });
+ const tabletPage=await tablet.newPage();tabletPage.on('pageerror',e=>errors.push(e.message));await tabletPage.goto(origin);
+ await tabletPage.locator('#brand-splash').waitFor({state:'detached',timeout:15000});
+ async function checkTabletUpload(){
+  await tabletPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const geometry=await tabletPage.evaluate(()=>{
+   const label=document.querySelector('.viewbar .load'),bar=label.getBoundingClientRect(),v=document.getElementById('viewport').getBoundingClientRect(),c=document.querySelector('#viewport>canvas').getBoundingClientRect();
+   const hit=document.elementFromPoint(bar.x+bar.width/2,bar.y+bar.height/2);
+   return {buttonVisible:bar.width>0&&bar.height>0&&bar.top>=0&&bar.bottom<=innerHeight,buttonAboveViewer:bar.bottom<=v.top+1,buttonClickable:hit?.closest('.load')===label,canvasWidth:c.width,canvasHeight:c.height,viewerWidth:v.width,viewerHeight:v.height};
+  });
+  assert.equal(geometry.buttonVisible,true,JSON.stringify(geometry));assert.equal(geometry.buttonAboveViewer,true,JSON.stringify(geometry));assert.equal(geometry.buttonClickable,true,JSON.stringify(geometry));
+  assert.ok(Math.abs(geometry.canvasWidth-geometry.viewerWidth)<1,JSON.stringify(geometry));assert.ok(Math.abs(geometry.canvasHeight-geometry.viewerHeight)<1,JSON.stringify(geometry));assert.ok(geometry.viewerHeight<=651,JSON.stringify(geometry));
+  const chooser=tabletPage.waitForEvent('filechooser');await tabletPage.locator('.viewbar .load').tap();
+  await (await chooser).setFiles({name:'tablet-upload.glb',mimeType:'application/octet-stream',buffer:Buffer.from(source)});
+  await tabletPage.waitForFunction(()=>/Загружено|Ошибка загрузки/.test(document.getElementById('status').textContent),{},{timeout:60000});
+  assert.ok(!(await tabletPage.locator('#status').innerText()).includes('Ошибка'));
+ }
+ for(const [width,height]of [[1280,800],[800,1280],[720,1080],[1280,800]]){
+  await tabletPage.setViewportSize({width,height});await tabletPage.evaluate(()=>scrollTo(0,0));await checkTabletUpload();
+ }
+ // Emulate a WebView dropping the CSS min() height declaration. The canvas
+ // must still stay bounded instead of feeding its intrinsic pixels into layout.
+ await tabletPage.addStyleTag({content:'#viewport{height:auto!important}'});await checkTabletUpload();
+ await tablet.close();
+ console.log('Browser: high-DPI tablet rotation → upload stays visible/clickable → picker works; auto-height stays bounded');
  assert.deepEqual(external,[],'all codecs must be loaded from the local app');
  assert.deepEqual(errors,[],'browser must not raise uncaught exceptions');
  console.log('Production browser codec checks passed.');
