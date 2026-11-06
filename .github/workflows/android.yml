@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -54,9 +54,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.baketest.memory"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.baketest.memory"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Phoenix Forge Bake RAM TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.baketest.bounded"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.baketest.bounded"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Phoenix Forge Bake LOW RAM TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -80,6 +80,7 @@ jobs:
           grep -Eq '^assets/public/assets/surface-bake-worker-.*\.js$' /tmp/phoenix-apk-filelist.txt
           grep -Eq '^assets/public/assets/bake-prepare-.*\.js$' /tmp/phoenix-apk-filelist.txt
           grep -Eq '^assets/public/assets/bake-project-.*\.js$' /tmp/phoenix-apk-filelist.txt
+          grep -Eq '^assets/public/assets/bake-unwrap-.*\.js$' /tmp/phoenix-apk-filelist.txt
           grep -Fqx 'assets/public/codecs/bake/XATLAS_LICENSE.txt' /tmp/phoenix-apk-filelist.txt
           python - <<'PY'
           from PIL import Image

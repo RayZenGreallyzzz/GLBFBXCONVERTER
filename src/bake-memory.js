@@ -1,4 +1,8 @@
 // These are task estimates, not Android heap limits or allocation guarantees.
+export function boundedGeometryMemory(bytes,accessorBytes,triangles,vertices){
+ // Includes allocator / WASM high-water overhead observed in the 5.24M test.
+ return bytes+accessorBytes+triangles*4+vertices*4+240*1048576+200000*192;
+}
 export function bakeMemoryBudget({android=false,deviceMemory,native}={}){
  const fallback=android?(deviceMemory&&deviceMemory<=2?256:384):(deviceMemory&&deviceMemory<=4?384:768);
  if(!android||!native)return fallback;

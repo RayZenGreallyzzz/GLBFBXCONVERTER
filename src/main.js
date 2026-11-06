@@ -35,7 +35,7 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;
 configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
 let activeBake=null;
 function status(t){$('status').textContent=t}
@@ -64,6 +64,15 @@ function suspendGpu(root){
   for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture)textures.add(v);
  });
  for(const t of textures)t.dispose();
+}
+function suspendStaticBakeSource(){
+ scene.remove(state.root);release(state.root);state.root=null;state.sourceBuffer=null;
+ renderer.renderLists.dispose();
+}
+async function restoreStaticBakeSource(){
+ if(state.root)return;
+ const data=await state.sourceFile.arrayBuffer(),loaded=await createModelLoader().parseAsync(data,'');
+ state.sourceBuffer=data;state.root=loaded.scene;state.clips=loaded.animations||[];state.root.visible=false;scene.add(state.root);
 }
 function fit(){
   const bounds=new THREE.Box3().setFromObject(state.root);if(bounds.isEmpty())return;
@@ -208,7 +217,7 @@ async function load(file,attachments=[file]){
      state.mixer.clipAction(clips[0]).play();
    }
    state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
-   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.info=info;
+   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.sourceFile=ext==='glb'&&source===file?source:null;state.info=info;
    updateExportWarnings();
    const faces=modelStats(state.root).triangles;
    set3mfViewQuality(ext==='3mf'&&faces>350000?25:100);
@@ -244,7 +253,7 @@ async function preparePreview(){
  if(!state.root||state.busy)return;
  discardPreview();
  state.busy=true;buttons();progress(5);
- let loaded=null,baking=false;
+ let loaded=null,baking=false,suspended=false,sourceStats=null;
  try{
    const preset=MOBILE_PRESETS[$('preset').value]||MOBILE_PRESETS.balanced;
    const value=$('geometry').value;
@@ -262,10 +271,13 @@ async function preparePreview(){
    let optimized;
    if(useBake){
      if(state.type!=='glb'||!state.sourceBuffer||!useGeometry||!useTextures)throw Error('Для переноса деталей загрузи исходный GLB и включи сетку и текстуры.');
-     baking=true;activeBake=new AbortController();buttons();state.root.visible=false;suspendGpu(state.root);
-     optimized=await bakeGlbOffThread(state.sourceBuffer,{
+     sourceStats=modelStats(state.root,state.clips);
+     const lowMemory=!!state.sourceFile&&sourceStats.triangles>262144&&!sourceStats.skinned&&!sourceStats.bones&&!sourceStats.animations;
+     baking=true;activeBake=new AbortController();buttons();
+     if(lowMemory){suspendStaticBakeSource();suspended=true}else{state.root.visible=false;suspendGpu(state.root)}
+     optimized=await bakeGlbOffThread(lowMemory?state.sourceFile:state.sourceBuffer,{
        ratio,targetTriangles,error:geometryError,resolution:Math.min(2048,Number($('texture').value)),
-       animationKeys:useAnimation
+       animationKeys:useAnimation,lowMemory
      },{signal:activeBake.signal,onProgress:(percent,message)=>{progress(percent);status(message)},
        readMemoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()})});
      activeBake=null;buttons();
@@ -327,7 +339,8 @@ async function preparePreview(){
        note:(optimized.note||'')+' '+packed.codecNote};
    }
    const parsed=inspectGlb(optimized.bytes);
-   assertGlbPreserved(modelStats(state.root,state.clips),parsed,state.clips);
+   if(suspended){await restoreStaticBakeSource();suspended=false}
+   assertGlbPreserved(sourceStats||modelStats(state.root,state.clips),parsed,state.clips);
    status('Подготавливаем 3D-предпросмотр…');
    progress(93);
    const ab=asArrayBuffer(optimized.bytes);
@@ -349,6 +362,7 @@ async function preparePreview(){
    status(error?.name==='AbortError'?error.message:'Ошибка предпросмотра: '+(error?.message||error));
  }finally{
    activeBake=null;
+   if(suspended){try{await restoreStaticBakeSource()}catch(e){status('Не удалось вернуть просмотр исходника: '+e.message+'. Открой исходный GLB заново.')}}
    if(baking&&!state.previewRoot)showComparison(false);
    state.busy=false;buttons();
    setTimeout(()=>progress(0),1000);
