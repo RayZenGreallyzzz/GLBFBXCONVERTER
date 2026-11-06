@@ -58,3 +58,12 @@
 /* Canvas backing pixels must not set its CSS size or cover the upload bar. */
 #viewport>canvas{position:absolute;top:0;left:0;z-index:0;display:block;width:100%;height:100%}
 #empty,.view-label{z-index:1}
+
+.metrics-title{margin:12px 12px 0;font-size:13px;font-weight:700;color:#bcd4e5}
+.metrics-title[hidden],.model-playback[hidden]{display:none}
+.model-playback{padding:12px;border-bottom:1px solid #23435c;display:grid;gap:8px}
+.model-playback label{margin:0;min-width:0}
+.model-playback-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.model-playback button{flex:1;border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer}
+.model-playback button:disabled{opacity:.45;cursor:not-allowed}
+.model-playback small{color:#aabfd3;line-height:1.4}

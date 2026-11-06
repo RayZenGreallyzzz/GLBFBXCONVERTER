@@ -1,10 +1,10 @@
 import {Document,WebIO,Accessor} from '@gltf-transform/core';
 import {KHRTextureBasisu} from '@gltf-transform/extensions';
-export async function compressionFixture({texture=null,textureMime='image/ktx2',morph=false}={}){
+export async function compressionFixture({texture=null,textureMime='image/ktx2',morph=false,segments=20}={}){
  const doc=new Document(),buffer=doc.createBuffer();
  const acc=(arr,type)=>doc.createAccessor().setBuffer(buffer).setType(type).setArray(arr);
  const positions=[],uv=[],joints=[],weights=[],indices=[];
- const n=20;
+ const n=segments;
  for(let y=0;y<=n;y++)for(let x=0;x<=n;x++){
   positions.push(x/n,y/n,Math.sin(x)*.005);uv.push(x/n,y/n);
   joints.push(0,1,0,0);weights.push(1-x/n,x/n,0,0);
