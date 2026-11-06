@@ -30,7 +30,7 @@ export function inspectMorphJson(json){
  for(const n of json.nodes||[])if(n.weights&&(n.weights.length!==(json.meshes?.[n.mesh]?.primitives?.[0]?.targets?.length||0)||n.weights.some(v=>!Number.isFinite(v))))throw Error('Повреждены индивидуальные веса Blend Shapes');
  for(const a of json.animations||[])for(const c of a.channels||[])if(c.target?.path==='weights'){
   const s=a.samplers?.[c.sampler],input=json.accessors?.[s?.input],output=json.accessors?.[s?.output],n=json.nodes?.[c.target.node],count=json.meshes?.[n?.mesh]?.primitives?.[0]?.targets?.length||0;
-  if(!count||!input||!output||output.type!=='SCALAR'||output.count!==input.count*count*(s.interpolation==='CUBICSPLINE'?3:1))throw Error('Повреждена анимация Blend Shapes');
+  if(!count||!input||!output||input.type!=='SCALAR'||input.componentType!==5126||output.componentType!==5126||input.normalized||output.normalized||!['LINEAR','STEP','CUBICSPLINE'].includes(s.interpolation||'LINEAR')||output.type!=='SCALAR'||output.count!==input.count*count*(s.interpolation==='CUBICSPLINE'?3:1))throw Error('Повреждена анимация Blend Shapes');
   animationBytes+=(input.count+output.count)*4;
  }
  if(bytes>MAX_MORPH_BYTES||animationBytes>32*1048576)throw Error('Blend Shapes требуют больше 96 МиБ данных форм или 32 МиБ анимаций. Для Android нужен более лёгкий исходник.');
@@ -60,7 +60,12 @@ export function captureMorphs(document,{ids=false}={}){
   if(ids)prim.setAttribute(MORPH_ID,document.createAccessor().setBuffer(root.listBuffers()[0]||document.createBuffer()).setType(Accessor.Type.SCALAR).setArray(Float32Array.from({length:count},(_,i)=>i)));
  }
  const meshState=meshes.map(m=>({weights:m.getWeights().slice(),names:m.listPrimitives().map(p=>p.listTargets().map(t=>t.getName()))})),nodeState=nodes.map(n=>n.getWeights().slice());
- const channels=root.listAnimations().flatMap((a,ai)=>a.listChannels().filter(c=>c.getTargetPath()==='weights').map(c=>{const s=c.getSampler();return {ai,node:nodes.indexOf(c.getTargetNode()),interpolation:s.getInterpolation(),input:s.getInput().getArray(),output:s.getOutput().getArray()}}));
+ const channels=root.listAnimations().flatMap((a,ai)=>a.listChannels().filter(c=>c.getTargetPath()==='weights').map(c=>{
+  const s=c.getSampler(),input=s.getInput().getArray(),output=s.getOutput().getArray();
+  for(let i=0;i<input.length;i++)if(!Number.isFinite(input[i])||input[i]<0||i&&input[i]<=input[i-1])throw Error('Некорректное время анимации мимики');
+  for(const value of output)if(!Number.isFinite(value))throw Error('Нечисловое значение анимации мимики');
+  return {ai,node:nodes.indexOf(c.getTargetNode()),interpolation:s.getInterpolation(),input,output};
+ }));
  return {parts,meshState,nodeState,channels};
 }
 export function assertMorphMetadata(saved,document){
@@ -101,5 +106,6 @@ export function assertMorphRows(saved,document,{maps=morphMaps(document),baked=f
 }
 export async function resampleWithMorphs(document){
  const samplers=new Set(document.getRoot().listAnimations().flatMap(a=>a.listChannels().filter(c=>c.getTargetPath()==='weights').map(c=>c.getSampler()))),saved=Array.from(samplers,s=>({s,input:s.getInput().clone(),output:s.getOutput().clone()}));
+ if(!samplers.size){await document.transform(resample());return}
  try{await document.transform(resample({cleanup:false}))}finally{for(const {s,input,output}of saved)s.setInput(input).setOutput(output)}
 }

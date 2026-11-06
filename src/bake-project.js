@@ -1,4 +1,4 @@
-import {prune,resample} from '@gltf-transform/functions';
+import {prune} from '@gltf-transform/functions';
 import {PropertyType} from '@gltf-transform/core';
 import {readBakeGlb,bakePlan,bakePrimitives,assertBakeRigPreserved} from './bake-common.js';
 import {primitiveGeometry,packedProjectionSource} from './bake-geometry.js';

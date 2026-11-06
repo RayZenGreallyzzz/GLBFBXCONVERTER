@@ -3,6 +3,8 @@ import {EXTMeshoptCompression,KHRDracoMeshCompression,KHRTextureBasisu} from '@g
 import {getTextureColorSpace,listTextureSlots} from '@gltf-transform/functions';
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import {asBytes} from './binary.js';
+import {inspectGlb} from './format.js';
+import {inspectMorphJson,captureMorphs,assertMorphMetadata} from './morph-policy.js';
 
 function hash(array){
  if(!array)return null;
@@ -32,9 +34,10 @@ export async function compressGlb(input,{geometryCodec='keep',textureCodec='keep
   !['keep','etc1s','uastc'].includes(textureCodec))throw Error('Неизвестный способ сжатия');
  const source=asBytes(input);
  if(geometryCodec==='keep'&&textureCodec==='keep')return {bytes:source,codecNote:''};
+ const morphInfo=inspectMorphJson(inspectGlb(source).json);
  const io=await createCodecIO(source,{dracoEncode:geometryCodec==='draco'});
  onProgress(5,'Читаем модель для сжатия…');
- const document=await io.readBinary(source),before=snapshot(document);
+ const document=await io.readBinary(source),before=snapshot(document),morph=morphInfo.targets?captureMorphs(document):null;
  const notes=[];
  if(geometryCodec!=='keep'){
   removeGeometryCompression(document);
@@ -90,6 +93,7 @@ export async function compressGlb(input,{geometryCodec='keep',textureCodec='keep
  const bytes=await io.writeBinary(document);
  const verifyIO=await createCodecIO(bytes);
  const reopened=await verifyIO.readBinary(bytes);
+ if(morph)assertMorphMetadata(morph,reopened);
  if(snapshot(reopened)!==before)throw Error('Проверка обнаружила изменение геометрии, скелета, анимаций или материалов. Сохранение отменено.');
  onProgress(100,'Сжатый GLB проверен');
  return {bytes,codecNote:notes.join('. ')+'.'+(bytes.length>=source.length

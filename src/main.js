@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import {ModelPlayback} from './model-playback.js';
+import {MorphPreview} from './morph-preview.js';
+import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-codecs.js';
@@ -36,9 +38,9 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;
 configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',viewProxyRoot:null,bvhOnly:false,mixer:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
-const modelPlayback=new ModelPlayback();
+const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -60,6 +62,7 @@ function buttons(){
  $('cancel-bake').hidden=!activeBake;
  updateGeometryControls();
  updatePlaybackButtons();
+ updateMorphButtons();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -69,7 +72,7 @@ function suspendGpu(root){
  for(const t of textures)t.dispose();
 }
 function suspendStaticBakeSource(){
- modelPlayback.dispose();
+ modelPlayback.dispose();morphPreview.dispose();
  const geometries=new Set(),images=new Set();
  state.root.traverse(n=>{if(!n.isMesh)return;geometries.add(n.geometry);for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture&&typeof v.image?.close==='function')images.add(v.image)});
  scene.remove(state.root);release(state.root);
@@ -171,7 +174,7 @@ function displayMetrics(){
  const variant=isPreview?'optimized':'original',size=isPreview?state.preview.bytes.byteLength:state.bytes;
  title.textContent=isPreview?'Результат оптимизации':'Исходная модель';
  $('metrics').dataset.variant=variant;$('metrics').setAttribute('aria-label',title.textContent);
- const metrics=[['size','Размер',formatSize(size)],['meshes','Меши',m.meshes],['triangles','Полигоны',m.triangles],['vertices','Вершины',m.vertices],['materials','Материалы',m.materials],['textures','Текстуры',m.textures],['bones','Кости',m.bones],['animations','Анимации',m.animations]];
+ const metrics=[['size','Размер',formatSize(size)],['meshes','Меши',m.meshes],['triangles','Полигоны',m.triangles],['vertices','Вершины',m.vertices],['materials','Материалы',m.materials],['textures','Текстуры',m.textures],['bones','Кости',m.bones],['animations','Анимации',m.animations],['morphs','Формы',m.morphs||0]];
  for(const [key,label,value]of metrics){
   const row=document.createElement('div');row.className='metric';row.dataset.metric=key;
   const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row);
@@ -189,10 +192,28 @@ function updatePlaybackButtons(){
 }
 function refreshModelPlayback(){
  modelPlayback.setModels(state.bvhOnly?null:state.root,state.clips,state.previewRoot,state.previewClips);
+ refreshMorphControls();
  const picker=$('model-clip'),selected=picker.value;picker.replaceChildren();
  for(let i=0;i<state.clips.length;i++){const option=document.createElement('option');option.value=String(i);option.textContent=state.clips[i].name||'Анимация '+(i+1);picker.append(option)}
  if(Array.from(picker.options).some(o=>o.value===selected))picker.value=selected;
  updatePlaybackButtons();
+}
+function updateMorphButtons(){
+ const has=morphPreview.entries.length>0;$('morph-preview').hidden=!has;
+ for(const id of ['morph-select','morph-weight','morph-reset'])$(id).disabled=!has||state.busy||!morphPreview.compatible;
+ $('morph-note').textContent=morphPreview.compatible?'Ручная проверка форм останавливает клип. Изменения просмотра не записываются в GLB.':'Для ручной проверки форм сохрани результат и открой его как GLB: структура просмотра исходника и результата отличается.';
+}
+function updateMorphValue(){
+ const [mesh,index]=$('morph-select').value.split(':').map(Number),e=morphPreview.entries[mesh];if(!e)return;
+ const value=e.values[index];$('morph-weight').min=String(Math.min(-1,value));$('morph-weight').max=String(Math.max(1,value));$('morph-weight').value=String(value);$('morph-value').textContent=Math.round(value*100)+'%';
+}
+function refreshMorphControls(){
+ morphPreview.setModels(state.root,state.previewRoot);const picker=$('morph-select'),selected=picker.value;picker.replaceChildren();
+ for(let mesh=0;mesh<morphPreview.entries.length;mesh++){
+  const e=morphPreview.entries[mesh],group=document.createElement('optgroup');group.label=e.node.name||'Меш '+(mesh+1);
+  e.names.forEach((name,index)=>{const option=document.createElement('option');option.value=mesh+':'+index;option.textContent=name;group.append(option)});picker.append(group);
+ }
+ if(Array.from(picker.options).some(o=>o.value===selected))picker.value=selected;updateMorphValue();updateMorphButtons();
 }
 function display(){
  const m=state.sourceMetrics=modelStats(state.root,state.clips);
@@ -229,9 +250,9 @@ async function load(file,attachments=[file]){
      ext=archive.format;data=await source.arrayBuffer();
      status('ZIP распакован: '+archive.entryCount+' ресурсов. Основной файл: '+source.name);
    }
-   let clips=[],info='';
+   let clips=[],info='',hasMorphs=false;
    if(ext==='glb'){
-     const check=inspectGlb(data),loaded=await createModelLoader().parseAsync(data,'');
+     const check=inspectGlb(data);hasMorphs=inspectMorphJson(check.json).targets>0;const loaded=await createModelLoader().parseAsync(data,'');
      root=loaded.scene;clips=loaded.animations||[];
      info='GLB 2.0. Мешей: '+check.meshes+'. Анимаций: '+check.animations+'. Доп. расширения: '+(check.required.join(', ')||'нет')+'.';
    }else if(ext==='fbx'){
@@ -253,7 +274,7 @@ async function load(file,attachments=[file]){
    clear3mfViewport();
    if(state.mixer){state.mixer.stopAllAction();state.mixer.uncacheRoot(state.root);state.mixer=null;}
    if(state.root){scene.remove(state.root);release(state.root)}
-   scene.add(root);state.root=root;state.clips=clips;
+   scene.add(root);state.root=root;state.clips=clips;state.hasMorphs=hasMorphs||modelStats(root,clips).morphs>0;
    state.bvhOnly=ext==='bvh';
    if(state.bvhOnly && clips.length){
      state.mixer=new THREE.AnimationMixer(root);
@@ -317,7 +338,7 @@ async function preparePreview(){
    if(useBake){
      if(state.type!=='glb'||!state.sourceBuffer||!useGeometry||!useTextures)throw Error('Для переноса деталей загрузи исходный GLB и включи сетку и текстуры.');
      sourceStats=modelStats(state.root,state.clips);
-     const lowMemory=!!state.sourceFile&&sourceStats.triangles>262144&&!sourceStats.skinned&&!sourceStats.bones&&!sourceStats.animations;
+     const lowMemory=!!state.sourceFile&&sourceStats.triangles>262144&&!sourceStats.skinned&&!sourceStats.bones&&!sourceStats.animations&&!state.hasMorphs;
      baking=true;activeBake=new AbortController();buttons();
      if(lowMemory){suspendStaticBakeSource();suspended=true}else{state.root.visible=false;suspendGpu(state.root)}
      optimized=await bakeGlbOffThread(lowMemory?state.sourceFile:state.sourceBuffer,{
@@ -592,7 +613,7 @@ $('model-file').addEventListener('change',e=>{
 });
 function motionStatus(message){$('anim-status').textContent=message}
 function stopMotionPlayback(){
- modelPlayback.stop();
+ modelPlayback.stop();morphPreview.reset();updateMorphValue();
  if(state.mixer){
    state.mixer.stopAllAction();
    if(state.root)state.mixer.uncacheRoot(state.root);
@@ -788,11 +809,17 @@ for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animati
  updateGeometryControls();
  discardPreview();status('Настройки изменены. Создай предпросмотр заново.');
 });
+$('morph-select').addEventListener('change',updateMorphValue);
+$('morph-weight').addEventListener('input',()=>{
+ if(state.busy)return;const value=Number($('morph-weight').value);
+ try{modelPlayback.stop();if(state.mixer||motion.pose)stopMotionPlayback();const [mesh,index]=$('morph-select').value.split(':').map(Number);morphPreview.setWeight(mesh,index,value);updateMorphValue();buttons()}catch(e){status('Ошибка проверки мимики: '+e.message)}
+});
+$('morph-reset').addEventListener('click',()=>{stopMotionPlayback();updateMorphValue();buttons()});
 $('model-play').addEventListener('click',()=>{
  if(state.busy||!state.root)return;
  try{
   if(modelPlayback.playing)modelPlayback.pause();
-  else {if(state.mixer||motion.pose)stopMotionPlayback();modelPlayback.play(Number($('model-clip').value));}
+  else {if(state.mixer||motion.pose)stopMotionPlayback();if(!modelPlayback.active){morphPreview.reset();updateMorphValue()}modelPlayback.play(Number($('model-clip').value));}
  }catch(e){status('Ошибка воспроизведения: '+e.message)}
  buttons();
 });
@@ -845,3 +872,4 @@ function hideBrandSplash(){
 }
 if(document.readyState==='complete')setTimeout(hideBrandSplash,1700);
 else window.addEventListener('load',()=>setTimeout(hideBrandSplash,1700),{once:true});
+

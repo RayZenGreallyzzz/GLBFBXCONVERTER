@@ -1,7 +1,7 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
-import { prune, resample } from '@gltf-transform/functions';
+import { prune } from '@gltf-transform/functions';
 import {PropertyType} from '@gltf-transform/core';
 import {inspectGlb} from './format.js';
 import {inspectMorphJson,captureMorphs,assertMorphRows,morphMaps,resampleWithMorphs} from './morph-policy.js';
@@ -172,7 +172,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
     const stats=await simplifyStaticMeshes(document,{ratio,error});
     geometryNote=stats.reduced?'Сетка упрощена с учётом нормалей, UV и швов.'
       :'Безопасных сокращений не найдено: сохранена исходная сетка.';
-    if(stats.skipped)geometryNote+=' Пропущены неподдерживаемые примитивы : '+stats.skipped+'.';
+    if(stats.skipped)geometryNote+=' Пропущены неподдерживаемые примитивы: '+stats.skipped+'.';
   } else if (plan.geometry && skins && sourceTriangles>0) {
     onProgress(35, 'Защищаем суставы, UV и веса костей при упрощении сетки...');
     const stats=await simplifySkinnedMeshes(document,{ratio,error});

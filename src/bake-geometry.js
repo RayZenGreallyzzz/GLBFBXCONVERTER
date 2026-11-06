@@ -6,6 +6,7 @@ import createXAtlas from 'xatlas-wasm';
 import * as Mikk from 'three/examples/jsm/libs/mikktspace.module.js';
 import {attributeValues,simplifyStaticMeshes} from './static-simplify.js';
 import {morphValue} from './morph-policy.js';
+import {transportMorphTangents} from './bake-morph.js';
 import {simplifyBakeChunks} from './bake-chunks.js';
 import {packedValues,positionBounds} from './bake-packed.js';
 import {faceTangents} from './bake-frame.js';
@@ -134,18 +135,9 @@ export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVe
    for(const {semantic,accessor}of source.attributes){
     const array=new Float32Array(count*3);
     for(let i=0;i<count;i++)for(let k=0;k<3;k++)array[i*3+k]=morphValue(accessor,oldVertices[i]*3+k);
-    target.setAttribute(semantic,document.createAccessor().setBuffer(buffer).setType(Accessor.Type.VEC3).setArray(array));
+    target.setAttribute(semantic,document.createAccessor().setBuffer(buffer).setType(Accessor.Type.VEC3).setArray(array).setSparse(accessor.getSparse()));
    }
-   if(target.getAttribute('TANGENT')){
-    const dp=target.getAttribute('POSITION')?.getArray(),dn=target.getAttribute('NORMAL')?.getArray(),p=position.slice(),norm=n.slice();
-    for(let i=0;i<p.length;i++){p[i]+=dp?.[i]||0;norm[i]+=dn?.[i]||0}
-    for(let i=0;i<norm.length;i+=3){const len=Math.hypot(norm[i],norm[i+1],norm[i+2]);if(!(len>0))throw Error('Нулевая нормаль в Blend Shape '+source.name);for(let k=0;k<3;k++)norm[i+k]/=len}
-    const frame=await bakeTangents(p,norm,uv),delta=target.getAttribute('TANGENT').getArray();
-    for(let i=0;i<count;i++){
-     if(frame[i*4+3]!==tangents[i*4+3])throw Error('Blend Shape '+source.name+' меняет ориентацию касательных. Используй обычную оптимизацию без переноса деталей.');
-     for(let k=0;k<3;k++)delta[i*3+k]=frame[i*4+k]-tangents[i*4+k];
-    }
-   }
+   if(target.getAttribute('TANGENT'))transportMorphTangents(data,oldVertices,tangents,target);
    prim.addTarget(target);
   }
   prim.setIndices(document.createAccessor().setBuffer(buffer).setType(Accessor.Type.SCALAR).setArray(result.indices));return result;
