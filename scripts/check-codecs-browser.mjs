@@ -181,6 +181,7 @@ try{
  const oldX=await page.locator('#rig-x').inputValue();await page.locator('#rig-x').fill(String(Number(oldX)+.0001));await page.locator('#rig-x').press('Tab');
  assert.equal(await page.locator('#rig-confirm').isChecked(),false);assert.equal(await page.locator('#rig-export').isDisabled(),true);assert.equal(await page.locator('#opt-export').isDisabled(),true);
  await page.locator('#rig-x').fill(oldX);await page.locator('#rig-x').press('Tab');await page.locator('#rig-confirm').check();await createBodyRig();
+ await page.locator('#rig-resolution').selectOption('48');assert.equal(await page.locator('#rig-export').isDisabled(),true);assert.equal(await page.locator('#rig-confirm').isChecked(),false);await page.locator('#rig-resolution').selectOption('32');await page.locator('#rig-confirm').check();await createBodyRig();
  const adopted=await downloadRig();await page.locator('#rig-use').click();assert.equal(await page.locator('#tab-anim').isVisible(),true);assert.equal(await page.locator('#anim-bvh-file').isDisabled(),false);assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
  await page.locator('[data-tab="convert"]').click();const adoptedWaiting=page.waitForEvent('download');await page.locator('#convert-export').click();const adoptedFile=await adoptedWaiting,adoptedPath=join(temp,'body-adopted.glb');await adoptedFile.saveAs(adoptedPath);assert.deepEqual(new Uint8Array(await readFile(adoptedPath)),adopted);
  await page.locator('[data-tab="anim"]').click();

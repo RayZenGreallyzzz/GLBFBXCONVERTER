@@ -12,6 +12,7 @@ export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  if((j.skins||[]).length||(j.animations||[]).length)throw Error('Для создания нового скелета нужен исходный GLB без скелета и анимаций');
  if((j.meshes||[]).some(m=>(m.primitives||[]).some(p=>p.targets?.length)))throw Error('Новый скелет с Blend Shapes пока не поддерживается. Сохрани формы и используй существующий скелет.');
  if((j.scenes||[]).length!==1||j.cameras?.length)throw Error('Создание скелета: нужна одна сцена без камер');
+ if((j.images||[]).some(image=>image.uri))throw Error('Для офлайн-риггинга нужны изображения, встроенные в GLB, без внешних ссылок');
  if((j.nodes||[]).some(n=>n.extensions?.KHR_lights_punctual||n.extensions?.EXT_mesh_gpu_instancing))throw Error('Для нового скелета нужна сцена без источников света и GPU-инстансов');
  const active=new Set(),visit=i=>{if(active.has(i))return;const n=j.nodes?.[i];if(!n)throw Error('Отсутствует узел сцены');active.add(i);for(const child of n.children||[])visit(child)};
  for(const i of j.scenes[0].nodes||[])visit(i);

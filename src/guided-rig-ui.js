@@ -13,6 +13,7 @@ export class GuidedRigUI{
   $('rig-joint').addEventListener('change',()=>{this.fields();this.markers()});
   for(const axis of ['x','y','z'])$('rig-'+axis).addEventListener('change',()=>{if(!this.guides||api.busy())return;const value=Number($('rig-'+axis).value);if(!Number.isFinite(value)){this.fields();return}this.invalidate();this.guides[$('rig-joint').value][['x','y','z'].indexOf(axis)]=value;this.markers();this.refresh()});
   for(const id of ['rig-confirm','rig-edit'])$(id).addEventListener('change',()=>this.refresh());
+  $('rig-resolution').addEventListener('change',()=>{this.invalidate();this.refresh()});
   $('rig-build').addEventListener('click',()=>this.build());$('rig-cancel').addEventListener('click',()=>this.job?.cancel());
   $('rig-test-play').addEventListener('click',()=>this.play());$('rig-test-stop').addEventListener('click',()=>this.stop());
   $('rig-export').addEventListener('click',()=>this.export());$('rig-use').addEventListener('click',()=>this.use());

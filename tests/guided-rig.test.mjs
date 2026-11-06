@@ -9,6 +9,7 @@ import {makeRigPreview,rigBendTestClip} from '../src/rig-preview.js';
 import {rigFixture} from './helpers/rig-fixture.mjs';
 import {compressionFixture} from './helpers/compression-fixtures.mjs';
 import {startGuidedRig} from '../src/guided-rig-client.js';
+import {inspectGlb} from '../src/format.js';
 
 async function runtime(bytes){const io=new WebIO(),d=await io.readBinary(bytes);for(const m of d.getRoot().listMaterials())m.dispose();for(const t of d.getRoot().listTextures())t.dispose();const copy=await io.writeBinary(d);return new GLTFLoader().parseAsync(copy.buffer.slice(copy.byteOffset,copy.byteOffset+copy.byteLength),'')}
 for(const settings of [{scale:1},{scale:.01},{scale:100,mirror:true}])test('guided skeleton retains world rest geometry, images and valid skin; '+JSON.stringify(settings),async()=>{
@@ -47,4 +48,9 @@ test('rigging rejects existing skins, missing guides and insufficient memory wit
  const rigged=await compressionFixture(),copy=rigged.slice();assert.throws(()=>rigPreflight(rigged),/без скелета/);assert.deepEqual(rigged,copy);
  const f=await rigFixture();await assert.rejects(buildGuidedRig(f.bytes,{guides:{}}),/точку/);assert.throws(()=>rigPreflight(f.bytes,{memoryBudgetMiB:64,resolution:64}),/память/);
  const changed=structuredClone(f.guides);changed.leftWrist=[NaN,0,0];await assert.rejects(buildGuidedRig(f.bytes,{guides:changed}),/точку/);
+ const metadata=change=>{const json=inspectGlb(f.bytes).json;change(json);const text=new TextEncoder().encode(JSON.stringify(json)),n=Math.ceil(text.length/4)*4,out=new Uint8Array(20+n),view=new DataView(out.buffer);view.setUint32(0,0x46546c67,true);view.setUint32(4,2,true);view.setUint32(8,out.length,true);view.setUint32(12,n,true);view.setUint32(16,0x4e4f534a,true);out.fill(32,20);out.set(text,20);return out};
+ assert.throws(()=>rigPreflight(metadata(j=>j.images=[{uri:'https://example.invalid/body.png'}])),/внешних ссылок/);
+ assert.throws(()=>rigPreflight(metadata(j=>j.nodes.push({mesh:0}))),/вне активной сцены/);
+ assert.throws(()=>rigPreflight(metadata(j=>j.nodes[0].extensions={EXT_mesh_gpu_instancing:{}})),/GPU/);
+ assert.throws(()=>rigPreflight(metadata(j=>j.accessors.push({componentType:5126,type:'VEC4',count:1000000000}))),/память/);
 });
