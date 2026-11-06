@@ -56,7 +56,7 @@ jobs:
           set -e
           sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.baketest.bounded"/' android/app/build.gradle
           grep -q 'applicationId "com.phoenix.glbfbxconverter.baketest.bounded"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Phoenix Forge Bake LOW RAM TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/Phoenix Model Forge/Forge LOW RAM TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -91,9 +91,10 @@ jobs:
           assert Path('dist/branding/splash.png').stat().st_size>100000
           print('Verified new 192px launcher and full-screen 720x1280 splash in APK')
           PY
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-LOW-RAM-TEST.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Model-Forge-Bake-Test-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Phoenix-Forge-LOW-RAM-TEST-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-LOW-RAM-TEST.apk
           if-no-files-found: error
