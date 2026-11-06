@@ -5,6 +5,7 @@ import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-
 import {asArrayBuffer} from './binary.js';
 import {compressGlbOffThread} from './compression-client.js';
 import {bakeGlbOffThread} from './surface-bake-client.js';
+import {resolveBakeMemoryBudget} from './bake-memory.js';
 import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,markGeometryGlb} from './geometry-policy.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
@@ -22,6 +23,7 @@ import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
  SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
 const $=id=>document.getElementById(id),saver=registerPlugin('ModelSaver');
+const deviceMemory=registerPlugin('DeviceMemory');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#0a1423');
 scene.add(new THREE.HemisphereLight(0xe6f0ff,0x314256,2.6));
 const sunlight=new THREE.DirectionalLight(0xffffff,2.4);sunlight.position.set(5,9,7);scene.add(sunlight);
@@ -263,8 +265,9 @@ async function preparePreview(){
      baking=true;activeBake=new AbortController();buttons();state.root.visible=false;suspendGpu(state.root);
      optimized=await bakeGlbOffThread(state.sourceBuffer,{
        ratio,targetTriangles,error:geometryError,resolution:Math.min(2048,Number($('texture').value)),
-       animationKeys:useAnimation,memoryBudgetMiB:navigator.deviceMemory&&navigator.deviceMemory<=4?384:768
-     },{signal:activeBake.signal,onProgress:(percent,message)=>{progress(percent);status(message)}});
+       animationKeys:useAnimation
+     },{signal:activeBake.signal,onProgress:(percent,message)=>{progress(percent);status(message)},
+       readMemoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()})});
      activeBake=null;buttons();
    }else if(state.type==='3mf'){
      // A 1.94M-face 3MF must not be exported to a full-size GLB, loaded

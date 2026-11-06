@@ -2,7 +2,8 @@ import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import {countTriangles} from './glb-optimize.js';
 import {geometryPlan,geometryHistory} from './geometry-policy.js';
 import {inspectGlb} from './format.js';
-export async function readBakeGlb(bytes){
+import {checkBakeMemory} from './bake-memory.js';
+export async function readBakeGlb(bytes,{memoryBudgetMiB}={}){
  const j=inspectGlb(bytes).json;let triangles=0,vertices=0;
  // Reject optional unknown metadata too, before the IO reader can ignore it.
  const allowed=['KHR_mesh_quantization','KHR_texture_transform','EXT_texture_webp','KHR_texture_basisu','KHR_draco_mesh_compression','EXT_meshopt_compression'];
@@ -14,6 +15,8 @@ export async function readBakeGlb(bytes){
  }
  if(triangles>6000000||vertices>3500000||(j.buffers||[]).reduce((n,b)=>n+b.byteLength,0)>512*1048576)
   throw Error('Исходник слишком большой для переноса деталей на Android');
+ // Reject geometry that cannot fit before allocating decoded accessors/WASM.
+ if(memoryBudgetMiB!==undefined)checkBakeMemory({geometryBytes:bytes.byteLength*2+vertices*40+triangles*38,memoryBudgetMiB});
  const io=await createCodecIO(bytes),document=await io.readBinary(bytes);
  removeGeometryCompression(document);return {io,document};
 }
@@ -43,11 +46,10 @@ export function bakePlan(document,bytes,{targetTriangles=50000,ratio=.5,error=.0
   decode+=Math.ceil(s[0]*factor)*Math.ceil(s[1]*factor)*4;decoderPeak=Math.max(decoderPeak,s[0]*s[1]*4);
  }
  // Peak estimate is a guard, not a guarantee of available device RAM.
- const estimate=Math.max(bytes*2+vertices*40+sourceTriangles*38,
-  bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+resolution*resolution*(32+16*primitives.length)+goal.targetTriangles*250);
- if(estimate>memoryBudgetMiB*1048576)
-  throw Error('Расчётная память задачи — '+Math.ceil(estimate/1048576)+' МиБ, предел — '+memoryBudgetMiB+' МиБ. Уменьши размер карт или исходную модель.');
- return {...goal,resolution,sourceTriangles,estimatedMiB:Math.ceil(estimate/1048576),unchanged:false};
+ const estimatedMiB=checkBakeMemory({geometryBytes:bytes*2+vertices*40+sourceTriangles*38,
+  projectionBytes:bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+goal.targetTriangles*250,
+  mapBytesPerPixel:32+16*primitives.length,resolution,memoryBudgetMiB});
+ return {...goal,resolution,sourceTriangles,estimatedMiB,unchanged:false};
 }
 function equalArray(a,b,label){
  if(!a||!b||a.length!==b.length)throw Error('Изменились '+label);

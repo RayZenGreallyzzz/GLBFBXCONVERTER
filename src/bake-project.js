@@ -39,7 +39,7 @@ async function textureMaps(material,decode){
 function textureInfo(material,name){const info=material['get'+name+'TextureInfo']();if(info){info.setTexCoord(0).setWrapS(33071).setWrapT(33071);info.setExtension('KHR_texture_transform',null);}}
 export async function projectBakeGlb(original,prepared,options={}){
  const progress=options.onProgress||(()=>{}),decode=options.decodeImage||decodeBakeImage,encode=options.encodeImage||encodeBakeImage;progress(2,'Строим проекцию деталей исходника…');
- const donor=await readBakeGlb(original),low=await readBakeGlb(prepared.bytes),plan=bakePlan(donor.document,original.byteLength,options);
+ const donor=await readBakeGlb(original,options),low=await readBakeGlb(prepared.bytes),plan=bakePlan(donor.document,original.byteLength,options);
  if(plan.unchanged)throw Error('Для переноса нужна уменьшенная сетка');assertBakeRigPreserved(donor.document,low.document);
  const from=bakePrimitives(donor.document),to=bakePrimitives(low.document),reports=[];if(from.length!==to.length)throw Error('Изменилось число частей модели');const root=low.document.getRoot();
  for(let i=0;i<from.length;i++){

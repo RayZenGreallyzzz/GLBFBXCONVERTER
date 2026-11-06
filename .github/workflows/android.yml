@@ -42,6 +42,7 @@ jobs:
           mkdir -p android/app/src/main/java/com/phoenix/glbfbxconverter
           cp android-native/MainActivity.java android/app/src/main/java/com/phoenix/glbfbxconverter/MainActivity.java
           cp android-native/ModelSaverPlugin.java android/app/src/main/java/com/phoenix/glbfbxconverter/ModelSaverPlugin.java
+          cp android-native/DeviceMemoryPlugin.java android/app/src/main/java/com/phoenix/glbfbxconverter/DeviceMemoryPlugin.java
       - name: Apply mascot Android branding and splash
         run: |
           python scripts/apply_android_branding.py

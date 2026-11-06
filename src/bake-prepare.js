@@ -6,7 +6,7 @@ import {simplifySkinnedMeshes} from './skin-simplify.js';
 import {countTriangles} from './glb-optimize.js';
 export async function prepareBakeGlb(bytes,options={}){
  const progress=options.onProgress||(()=>{});progress(2,'Читаем исходник для переноса деталей…');
- const {io,document}=await readBakeGlb(bytes),plan=bakePlan(document,bytes.byteLength,options);
+ const {io,document}=await readBakeGlb(bytes,options),plan=bakePlan(document,bytes.byteLength,options);
  if(plan.unchanged)return {bytes,unchanged:true,sourceTriangles:plan.sourceTriangles,optimizedTriangles:plan.sourceTriangles};
  const skinned=new Set(document.getRoot().listNodes().filter(n=>n.getSkin()).map(n=>n.getMesh())),primitives=bakePrimitives(document);
  progress(8,'Создаём лёгкую сетку из оригинала…');await simplifySkinnedMeshes(document,{ratio:plan.ratio,error:plan.error});

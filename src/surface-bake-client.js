@@ -12,9 +12,18 @@ function phase(data,{signal,onProgress}){
   try{worker.postMessage({...data,bytes:copy},transfers)}catch(e){finish(e)}
  });
 }
-export async function bakeGlbOffThread(bytes,options,{signal,onProgress=()=>{}}={}){
- const original=asBytes(bytes),prepared=await phase({phase:'prepare',bytes:original,options},{signal,onProgress:(p,m)=>onProgress(p*.38,m)});
+export async function bakeGlbOffThread(bytes,options,{signal,onProgress=()=>{},readMemoryBudget}={}){
+ async function phaseOptions(){
+  if(signal?.aborted)throw abortError();
+  const budget=readMemoryBudget?await readMemoryBudget():options.memoryBudgetMiB??768;
+  if(signal?.aborted)throw abortError();
+  if(!Number.isFinite(budget)||budget<64||budget>768)throw Error('Неверный предел памяти');
+  return {...options,memoryBudgetMiB:Math.min(options.memoryBudgetMiB??768,budget)};
+ }
+ const original=asBytes(bytes),prepareOptions=await phaseOptions();
+ const prepared=await phase({phase:'prepare',bytes:original,options:prepareOptions},{signal,onProgress:(p,m)=>onProgress(p*.38,m)});
  if(prepared.unchanged)return {...prepared,beforeBytes:original.byteLength,afterBytes:original.byteLength,removedKeys:0,note:'Сетка уже не больше выбранной цели. Исходный GLB сохранён без изменений.'};
  if(signal?.aborted)throw abortError();
- return phase({phase:'project',bytes:original,prepared,options},{signal,onProgress:(p,m)=>onProgress(40+p*.54,m)});
+ const projectOptions=await phaseOptions();
+ return phase({phase:'project',bytes:original,prepared,options:projectOptions},{signal,onProgress:(p,m)=>onProgress(40+p*.54,m)});
 }
