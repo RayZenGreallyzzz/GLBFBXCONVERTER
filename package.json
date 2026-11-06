@@ -23,12 +23,16 @@
     "fflate": "^0.8.2",
     "ktx2-encoder": "0.6.0",
     "meshoptimizer": "^0.25.0",
-    "three": "0.170.0"
+    "three": "0.170.0",
+    "three-mesh-bvh": "0.9.18",
+    "xatlas-wasm": "0.1.3"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
     "@capacitor/cli": "^7.0.0",
+    "gltf-validator": "2.0.0-dev.3.10",
     "playwright": "1.64.1",
+    "pngjs": "7.0.0",
     "vite": "^6.0.0"
   }
 }

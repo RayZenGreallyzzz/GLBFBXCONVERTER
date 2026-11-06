@@ -80,6 +80,10 @@
       </select></label>
       <p class="tip">Если цель требует слишком большой погрешности или нарушает ограничения швов, останется больше треугольников. Меняй цель на исходнике, а не пережимай сохранённую сетку несколько раз.</p>
     </div>
+    <div class="compare-report" id="surface-bake-settings">
+      <label><input id="bake-details" type="checkbox" disabled> Перенести детали исходника на новую сетку</label>
+      <p class="tip">Экспериментальный режим для GLB: новая UV-развёртка, цвет, нормали и свойства материала. Включи сетку и текстуры. Карты — до 2048 px, цель — до 200 тысяч треугольников. Всё работает офлайн. Если проекция не покрыла поверхность, сохранение отменяется. Blend Shapes и дополнительные расширения материалов пока не поддерживаются.</p>
+    </div>
     <details class="advanced">
       <summary>Сжатие GLB — Meshopt / Draco / KTX2</summary>
       <label>Сжатие геометрии<select id="geometry-codec">
@@ -96,6 +100,7 @@
       <p class="tip">Результат — GLB с выбранными расширениями. Кодеки встроены и работают офлайн. KTX2: максимум 2048 px для экономии памяти; normal/ORM сохраняются в UASTC. Нужна поддержка кодеков в целевой программе. Сжатие может увеличить уже компактный файл — смотри размер и предпросмотр.</p>
     </details>
     <button class="primary" id="preview-opt" disabled>◉ СОЗДАТЬ ПРЕДПРОСМОТР</button>
+    <button class="primary" id="cancel-bake" type="button" hidden>ОТМЕНИТЬ ПЕРЕНОС ДЕТАЛЕЙ</button>
     <div class="compare-report" id="compare-report" aria-live="polite">
       <p>Загрузи модель, выбери качество и нажми «Создать предпросмотр».</p>
     </div>

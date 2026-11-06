@@ -9,7 +9,7 @@ const out=new URL('public/codecs/',root);
 const three=dirname(dirname(require.resolve('three')));
 const draco=dirname(require.resolve('draco3dgltf'));
 const ktx=dirname(dirname(fileURLToPath(import.meta.resolve('ktx2-encoder'))));
-for(const dir of ['draco','basis','ktx2'])await mkdir(new URL(dir+'/',out),{recursive:true});
+for(const dir of ['draco','basis','ktx2','bake'])await mkdir(new URL(dir+'/',out),{recursive:true});
 for(const name of ['draco_wasm_wrapper.js','draco_decoder.wasm'])
  await copyFile(join(three,'examples/jsm/libs/draco/gltf',name),new URL('draco/'+name,out));
 for(const [source,dest,globalName] of [
@@ -31,3 +31,9 @@ await copyFile(join(ktx,'../THIRD_PARTY_NOTICES.md'),new URL('ktx2/THIRD_PARTY_N
  await copyFile(join(ktx,'../../THIRD_PARTY_NOTICES.md'),new URL('ktx2/THIRD_PARTY_NOTICES.md',out));
 });
 console.log('Offline Draco decoder/encoder and KTX2 transcoder/encoder prepared.');
+const atlas=dirname(dirname(fileURLToPath(import.meta.resolve('xatlas-wasm'))));
+const bvh=dirname(dirname(fileURLToPath(import.meta.resolve('three-mesh-bvh'))));
+await copyFile(join(atlas,'README.md'),new URL('bake/XATLAS_WASM_README.txt',out));
+await copyFile(new URL('third-party/xatlas-LICENSE.txt',root),new URL('bake/XATLAS_LICENSE.txt',out));
+await copyFile(join(bvh,'LICENSE'),new URL('bake/BVH_LICENSE.txt',out));
+console.log('xatlas/MikkTSpace WASM is embedded in surface workers; notices prepared.');

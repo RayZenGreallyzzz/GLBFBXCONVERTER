@@ -1,5 +1,7 @@
 # GLB FBX Converter — Phoenix Model Forge
 
+[Экспериментальный перенос деталей в Android](docs/offline-surface-bake.md)
+
 Standalone Android-first 3D converter and optimizer for GLB/FBX and Godot.
 
 The stable main branch is the initial converter. This working branch builds on

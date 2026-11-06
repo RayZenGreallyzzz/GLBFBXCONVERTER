@@ -152,6 +152,31 @@ try{
  assert.equal(next.sourceTriangles,20000);
  assert.equal(next.targetTriangles,3000);
  console.log('Browser: custom triangle goals use the original; texture presets stay independent');
+ // Real production workers, embedded WASM, cancel/retry, and source integrity.
+ primitive.setMaterial(doc.createMaterial('Baking source').setAlphaMode('BLEND')
+  .setBaseColorTexture(doc.createTexture('Color').setMimeType('image/png')
+   .setImage(new Uint8Array(Buffer.from(png,'base64')))));
+ const bakeSource=await new WebIO().writeBinary(doc);
+ await load(bakeSource,'surface-original.glb');
+ await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();
+ await page.locator('#texture').selectOption('512');await page.locator('#geometry-target').fill('1000');
+ await page.locator('#bake-details').check();await page.locator('#preview-opt').click();
+ await page.locator('#cancel-bake').waitFor({state:'visible'});await page.locator('#cancel-bake').click();
+ await page.waitForFunction(()=>document.getElementById('status').textContent.includes('отменён'));
+ assert.equal(await page.locator('#opt-export').isDisabled(),true);
+ await preview();const baked=await download(),bakedJson=inspectGlb(baked);
+ assert.equal(geometryHistory(bakedJson.json.extras).surfaceBake.projectionMisses,0);
+ assert.equal(geometryHistory(bakedJson.json.extras).surfaceBake.resolution,512);
+ assert.ok(bakedJson.json.materials[0].normalTexture);
+ assert.ok(bakedJson.json.meshes[0].primitives[0].attributes.TANGENT!==undefined);
+ await page.locator('#view-original').click();await page.locator('#view-optimized').click();
+ await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
+ const originalDownload=page.waitForEvent('download');await page.locator('#convert-export').click();
+ const originalFile=await originalDownload,originalPath=join(temp,'original-copy.glb');await originalFile.saveAs(originalPath);
+ assert.deepEqual(new Uint8Array(await readFile(originalPath)),bakeSource);
+ await page.locator('[data-tab="opt"]').click();await load(baked,'baked-reimport.glb');
+ assert.equal(await page.locator('#bake-details').isDisabled(),true);
+ console.log('Browser: offline surface workers → cancel/retry → save/reimport; original byte-identical');
  assert.deepEqual(external,[],'all codecs must be loaded from the local app');
  assert.deepEqual(errors,[],'browser must not raise uncaught exceptions');
  console.log('Production browser codec checks passed.');
