@@ -32,6 +32,7 @@ test('changing clips, replacing models and disposal restore their original trans
 test('missing, mismatched and zero-duration clips fail with restored poses and no active mixers',()=>{
  const source=rig(),result=rig(),player=new ModelPlayback(),original=pose(source.root);result.clips[0].name='Other';
  player.setModels(source.root,source.clips,result.root,result.clips);assert.throws(()=>player.play(0),/не совпадают/);assert.equal(player.active,false);assert.deepEqual(pose(source.root),original);
+ result.clips[0].name=source.clips[0].name;result.clips[0].duration=0;player.setModels(source.root,source.clips,result.root,result.clips);assert.throws(()=>player.play(0),/длительности/);assert.equal(player.active,false);assert.deepEqual(pose(source.root),original);
  player.setModels(source.root,[new THREE.AnimationClip('Empty',0,[])]);assert.throws(()=>player.play(0),/длительности/);assert.equal(player.active,false);
  player.dispose();assert.throws(()=>player.play(0),/не найдена/);
 });

@@ -19,6 +19,7 @@ export class ModelPlayback{
     for(const model of this.models){
      const candidate=model.clips[index];
      if(!candidate||candidate.name!==clip.name)throw Error('Анимации исходника и результата не совпадают');
+     if(!(candidate.duration>0)||!Number.isFinite(candidate.duration))throw Error('У анимации нет длительности');
      const mixer=new AnimationMixer(model.root);this.mixers.push({mixer,root:model.root});
      mixer.clipAction(candidate).reset().setLoop(LoopRepeat,Infinity).play();
     }
