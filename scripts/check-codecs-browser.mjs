@@ -11,6 +11,7 @@ import {compressionFixture} from '../tests/helpers/compression-fixtures.mjs';
 import {inspectGlb} from '../src/format.js';
 import {createCodecIO} from '../src/codec-io.js';
 import {Document,WebIO,Accessor} from '@gltf-transform/core';
+import {EXTTextureWebP} from '@gltf-transform/extensions';
 import {geometryHistory} from '../src/geometry-policy.js';
 import {exportTextured3mf} from '../src/three-mf.js';
 import {formatSize} from '../src/glb-optimize.js';
@@ -162,6 +163,8 @@ try{
  console.log('Browser: NPC morph bake → combined manual expressions → cubic face clip → reset → immutable saves');
  // Guided body rig uses the real worker and production GLTFLoader associations.
  const body=await rigFixture({texture:new Uint8Array(Buffer.from(png,'base64'))});
+ const webp=await page.evaluate(base64=>new Promise(resolve=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=im.width;c.height=im.height;c.getContext('2d').drawImage(im,0,0);resolve(c.toDataURL('image/webp').split(',')[1])};im.src='data:image/png;base64,'+base64}),png);
+ const bodyIO=new WebIO().registerExtensions([EXTTextureWebP]),bodyDoc=await bodyIO.readBinary(body.bytes);bodyDoc.getRoot().listTextures()[0].setImage(new Uint8Array(Buffer.from(webp,'base64'))).setMimeType('image/webp');bodyDoc.createExtension(EXTTextureWebP).setRequired(true);body.bytes=await bodyIO.writeBinary(bodyDoc);
  await load(body.bytes,'body-original.glb');await page.locator('[data-tab="rig"]').click();
  assert.equal(await page.locator('#rig-build').isDisabled(),true);await page.locator('#rig-draft').click();
  assert.equal(await page.locator('#rig-joint option').count(),18);await page.locator('#rig-side').click();assert.equal(await page.locator('#rig-side').getAttribute('aria-pressed'),'true');await page.locator('#rig-front').click();
@@ -189,9 +192,14 @@ try{
  const bodyMotion=['HIERARCHY','ROOT Hips','{','OFFSET 0 0 0','CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation','JOINT Chest','{','OFFSET 0 1 0','CHANNELS 3 Zrotation Xrotation Yrotation','End Site','{','OFFSET 0 1 0','}','}','}','MOTION','Frames: 3','Frame Time: .0333333','0 0 0 0 0 0 0 0 0','0 0 0 0 0 0 15 0 0','0 0 0 0 0 0 30 0 0'].join('\n')+'\n';
  await page.locator('#anim-bvh-file').setInputFiles({name:'body-motion.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled||/Ошибка BVH/.test(document.getElementById('anim-status').textContent));
  await page.locator('#anim-preview').click();assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'));assert.equal(await page.locator('#anim-add').isDisabled(),false);await page.locator('#anim-add').click();
- const bodyAnimationWaiting=page.waitForEvent('download');await page.locator('#anim-export').click();const bodyAnimation=await bodyAnimationWaiting,bodyAnimationPath=join(temp,'body-animation.glb');await bodyAnimation.saveAs(bodyAnimationPath);const animatedBody=inspectGlb(new Uint8Array(await readFile(bodyAnimationPath)));assert.equal(animatedBody.skins,1);assert.equal(animatedBody.animations,1);
+ async function downloadBodyAnimation(){const waiting=page.waitForEvent('download');await page.locator('#anim-export').click();const file=await waiting,path=join(temp,file.suggestedFilename());await file.saveAs(path);return new Uint8Array(await readFile(path))}
+ function assertOriginalContainer(original,output){const a=inspectGlb(original).json,b=inspectGlb(output).json;for(const key of ['meshes','nodes','skins','images','textures','materials','extensionsUsed','extensionsRequired'])assert.deepEqual(b[key],a[key],key+' changed during BVH export');const prefix=bytes=>{const jLength=new DataView(bytes.buffer,bytes.byteOffset).getUint32(12,true),bin=20+jLength;return bytes.subarray(bin+8,bin+8+new DataView(bytes.buffer,bytes.byteOffset).getUint32(bin,true))};assert.deepEqual(prefix(output).subarray(0,prefix(original).length),prefix(original),'original BIN must stay exact')}
+ const animatedBytes=await downloadBodyAnimation(),animatedBody=inspectGlb(animatedBytes);assert.equal(animatedBody.skins,1);assert.equal(animatedBody.animations,1);assertOriginalContainer(adopted,animatedBytes);assert.ok(animatedBody.required.includes('EXT_texture_webp'));
+ await load(animatedBytes,'body-with-bvh.glb');assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
+ await page.locator('#anim-bvh-file').setInputFiles({name:'body-motion-second.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled);await page.locator('#anim-preview').click();await page.locator('#anim-add').click();const secondAnimation=await downloadBodyAnimation();assert.equal(inspectGlb(secondAnimation).animations,2);assertOriginalContainer(animatedBytes,secondAnimation);
  await page.locator('[data-tab="opt"]').click();
  console.log('Browser: guided body points → cancel/retry → real worker → bend review → immutable export → edit invalidation → adoption → BVH retarget/export');
+ console.log('Browser: WebP GLB → BVH append → exact original image/geometry bytes → reimport → second BVH preserves first clip');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});
