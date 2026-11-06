@@ -1,7 +1,8 @@
 import {MeshBVH,CENTER} from 'three-mesh-bvh';
-import {Ray,Vector3,Triangle,DoubleSide} from 'three';
+import {Vector3} from 'three';
 import {chunkedBakeHits} from './bake-hits.js';
 import {valueAt} from './bake-packed.js';
+import {createBakeProjector,sampleBakeTarget,surfaceBarycentric} from './bake-projection.js';
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const linear=x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4;
 const srgb=x=>x<=.0031308?x*12.92:1.055*x**(1/2.4)-.055;
@@ -47,16 +48,17 @@ export function projectBakePixels(source,target,{size=1024,maps={},normalScale=1
  const distance=scale*projectionDistance,epsilon=scale*1e-7;
  const hits=source.packed?chunkedBakeHits(source,target,{size,distance,epsilon,onProgress:p=>onProgress(p*.6,{coverage:0,projected:0,misses:0})}):null;
  const bvh=hits?null:new MeshBVH(geometry,{strategy:CENTER,targetLeafSize:16,indirect:true});
+ const projector=bvh?createBakeProjector(source,bvh,{distance,epsilon}):null;
  const output={base:new Uint8ClampedArray(size*size*4),normal:new Uint8ClampedArray(size*size*4),orm:new Uint8ClampedArray(size*size*4)};
  if(maps.emissive)output.emissive=new Uint8ClampedArray(size*size*4);
  const covered=new Uint8Array(size*size),valid=new Uint8Array(size*size);
  const point=new Vector3(),lowN=new Vector3(),cageN=new Vector3(),lowT=new Vector3(),lowB=new Vector3();
  const highN=new Vector3(),highT=new Vector3(),highB=new Vector3(),cross=new Vector3(),sampleN=new Vector3(),weights=new Vector3();
- const a=new Vector3(),b=new Vector3(),c=new Vector3(),e1=new Vector3(),e2=new Vector3(),ray=new Ray(new Vector3(),new Vector3()),closest={point:new Vector3()},highIds=new Uint32Array(3);
+ const a=new Vector3(),b=new Vector3(),c=new Vector3(),e1=new Vector3(),e2=new Vector3(),highIds=new Uint32Array(3);
  const sourceIndex=source.indices,pos=source.positions;let coverage=0,misses=0,projected=0,normalPixels=0;
- function face(index,p){
+ function face(index,p,barycentric){
   const ia=sourceIndex[index*3],ib=sourceIndex[index*3+1],ic=sourceIndex[index*3+2];
-  put3(pos,ia,a);put3(pos,ib,b);put3(pos,ic,c);Triangle.getBarycoord(p,a,b,c,weights);
+  put3(pos,ia,a);put3(pos,ib,b);put3(pos,ic,c);if(barycentric)weights.copy(barycentric);else if(!surfaceBarycentric(p,a,b,c,weights))throw Error('Вырожденная грань исходника при переносе');
   interpolate3(source.normals,ia,ib,ic,weights,highN).normalize();highIds[0]=ia;highIds[1]=ib;highIds[2]=ic;return highIds;
  }
  function uvAt(map,ids){
@@ -75,16 +77,10 @@ export function projectBakePixels(source,target,{size=1024,maps={},normalScale=1
    const u=x+.5,v=y+.5,w0=((vs[1]-vs[2])*(u-us[2])+(us[2]-us[1])*(v-vs[2]))/den,w1=((vs[2]-vs[0])*(u-us[2])+(us[0]-us[2])*(v-vs[2]))/den,w2=1-w0-w1;
    if(Math.min(w0,w1,w2)<-1e-7)continue;const pixel=y*size+x;if(valid[pixel]||hits&&!hits.matches(pixel,tri))continue;
    if(!covered[pixel]){covered[pixel]=1;coverage++;}
-   weights.set(w0,w1,w2);interpolate3(target.positions,...ids,weights,point);interpolate3(target.normals,...ids,weights,lowN).normalize();
-   if(target.projectionNormals)interpolate3(target.projectionNormals,...ids,weights,cageN).normalize();else cageN.copy(lowN);
-   let best=hits?hits.hit(pixel):null,bestDistance=Infinity;
-   if(!hits)for(const direction of [-1,1]){
-    ray.direction.copy(cageN).multiplyScalar(direction);ray.origin.copy(point).addScaledVector(ray.direction,-epsilon);
-    const hit=bvh.raycastFirst(ray,DoubleSide,0,distance+epsilon);
-    if(hit){face(hit.faceIndex,hit.point);const d=hit.point.distanceToSquared(point);if(highN.dot(cageN)>.05&&d<bestDistance){best=hit;bestDistance=d;}}
-   }
-   if(!hits&&!best){const hit=bvh.closestPointToPoint(point,closest,0,distance);if(hit&&hit.distance<=distance){face(hit.faceIndex,hit.point);if(highN.dot(cageN)>.05)best=hit;}}
-   if(!best)continue;const hi=face(best.faceIndex,best.point),base=maps.base?sample(maps.base,hi,true):[1,1,1,1];
+   weights.set(w0,w1,w2);interpolate3(target.normals,...ids,weights,lowN).normalize();
+   sampleBakeTarget(target,ids,w1,w2,point,cageN);
+   const best=hits?hits.hit(pixel):projector.project(point,cageN);
+   if(!best)continue;const hi=face(best.faceIndex,best.point,best.barycentric),base=maps.base?sample(maps.base,hi,true):[1,1,1,1];
    if(source.colors)for(let k=0;k<source.colorSize;k++){
     let color=0;for(let j=0;j<3;j++)color+=valueAt(source.colors,hi[j]*source.colorSize+k)*weights.getComponent(j);base[k]=k<3?srgb(linear(base[k])*color):base[k]*color;
    }
@@ -110,7 +106,7 @@ export function projectBakePixels(source,target,{size=1024,maps={},normalScale=1
    lowT.addScaledVector(lowN,-lowT.dot(lowN)).normalize();lowB.crossVectors(lowN,lowT).multiplyScalar(sign<0?-1:1);
    const normal=[sampleN.dot(lowT)*.5+.5,sampleN.dot(lowB)*.5+.5,sampleN.dot(lowN)*.5+.5,1];if(!normal.every(Number.isFinite))continue;
    for(const [name,value]of [['base',base],['normal',normal],['orm',orm]])for(let k=0;k<4;k++)output[name][pixel*4+k]=Math.round(clamp(value[k],0,1)*255);
-   if(output.emissive){face(best.faceIndex,best.point);const color=sample(maps.emissive,hi,true);for(let k=0;k<4;k++)output.emissive[pixel*4+k]=Math.round(clamp(color[k],0,1)*255);}
+   if(output.emissive){face(best.faceIndex,best.point,best.barycentric);const color=sample(maps.emissive,hi,true);for(let k=0;k<4;k++)output.emissive[pixel*4+k]=Math.round(clamp(color[k],0,1)*255);}
    valid[pixel]=1;projected++;if(maps.normal)normalPixels++;
   }
  }

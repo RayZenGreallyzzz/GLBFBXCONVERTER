@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -54,9 +54,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.baketest.uvmemory"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.baketest.uvmemory"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge UV RAM TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.baketest.projection"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.baketest.projection"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge PROJECTION TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -91,10 +91,10 @@ jobs:
           assert Path('dist/branding/splash.png').stat().st_size>100000
           print('Verified new 192px launcher and full-screen 720x1280 splash in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-UV-RAM-TEST.apk
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-PROJECTION-TEST.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-UV-RAM-TEST-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-UV-RAM-TEST.apk
+          name: Phoenix-Forge-PROJECTION-TEST-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-PROJECTION-TEST.apk
           if-no-files-found: error
