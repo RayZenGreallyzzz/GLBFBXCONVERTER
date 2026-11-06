@@ -39,6 +39,12 @@
     </div>
     <small>Исходник и результат показывают одно движение в один момент времени.</small>
   </div>
+  <div id="morph-preview" class="model-playback" hidden>
+    <label>Мимика · Blend Shapes<select id="morph-select" aria-label="Форма мимики"></select></label>
+    <label>Вес формы <output id="morph-value">0%</output><input id="morph-weight" type="range" min="-1" max="1" step="0.01" value="0" aria-label="Вес формы мимики"></label>
+    <button type="button" id="morph-reset">Сбросить мимику</button>
+    <small id="morph-note"></small>
+  </div>
   <p id="metrics-title" class="metrics-title" hidden></p>
   <div id="metrics" class="metrics"></div>
 </section>
@@ -91,8 +97,8 @@
     </div>
     <div class="compare-report" id="surface-bake-settings">
       <label><input id="bake-details" type="checkbox" disabled> Перенести детали исходника на новую сетку</label>
-      <p class="tip"><strong>Тест экономного переноса.</strong> Крупные GLB без костей и анимаций обрабатываются с экономией памяти. Нужен оригинал без Meshopt/Draco, с текстурами PNG/JPEG/WebP. Сжатие результата доступно после переноса. Исходный просмотр вернётся после завершения или отмены.</p>
-      <p class="tip">Экспериментальный режим для GLB: новая UV-развёртка, цвет, нормали и свойства материала. Включи сетку и текстуры. Карты — до 2048 px, цель — до 200 тысяч треугольников. Всё работает офлайн. Если проекция не покрыла поверхность, сохранение отменяется. Blend Shapes и дополнительные расширения материалов пока не поддерживаются.</p>
+      <p class="tip"><strong>Тест экономного переноса.</strong> Крупные GLB без костей, анимаций и морфов обрабатываются с экономией памяти. Нужен оригинал без Meshopt/Draco, с текстурами PNG/JPEG/WebP. Сжатие результата доступно после переноса. Исходный просмотр вернётся после завершения или отмены.</p>
+      <p class="tip">Экспериментальный режим для GLB: новая UV-развёртка, цвет, нормали и свойства материала. Включи сетку и текстуры. Карты — до 2048 px, цель — до 200 тысяч треугольников. Всё работает офлайн. Если проекция не покрыла поверхность, сохранение отменяется. Blend Shapes сохраняются с защитой вершин мимики; из-за этого треугольников может остаться больше цели. До 64 форм и 96 МиБ распакованных данных морфов. Дополнительные расширения материалов пока не поддерживаются.</p>
     </div>
     <details class="advanced">
       <summary>Сжатие GLB — Meshopt / Draco / KTX2</summary>
@@ -219,3 +225,4 @@
   <p id="status" role="status">Готово. Всё работает локально, без интернета.</p>
 </section>
 </main><script type="module" src="/src/main.js"></script></body></html>
+

@@ -27,12 +27,12 @@ export function inspectGlb(value){
   return {type:'glb',meshes:json.meshes?.length||0,skins:json.skins?.length||0,animations:json.animations?.length||0,images:json.images?.length||0,json,required:json.extensionsRequired||[]};
 }
 export function modelStats(root,clips=[]){
-  const stats={meshes:0,skinned:0,bones:0,triangles:0,vertices:0,animations:clips.length,tracks:clips.reduce((x,c)=>x+(c.tracks?.length||0),0)};
+  const stats={meshes:0,skinned:0,bones:0,triangles:0,vertices:0,animations:clips.length,morphs:0,tracks:clips.reduce((x,c)=>x+(c.tracks?.length||0),0)};
   const materials=new Set(),textures=new Set();
   root?.traverse(node=>{
     if(node.isBone)stats.bones++;
     if(!node.isMesh)return;
-    stats.meshes++;if(node.isSkinnedMesh)stats.skinned++;
+    stats.meshes++;if(node.isSkinnedMesh)stats.skinned++;stats.morphs+=node.morphTargetInfluences?.length||0;
     const g=node.geometry,p=g?.getAttribute('position'),ind=g?.index;
     stats.vertices+=p?.count||0;stats.triangles+=Math.floor((ind?.count||p?.count||0)/3);
     for(const m of Array.isArray(node.material)?node.material:[node.material]){

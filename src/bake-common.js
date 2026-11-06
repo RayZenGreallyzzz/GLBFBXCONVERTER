@@ -3,13 +3,15 @@ import {countTriangles} from './glb-optimize.js';
 import {geometryPlan,geometryHistory} from './geometry-policy.js';
 import {inspectGlb} from './format.js';
 import {checkBakeMemory,boundedGeometryMemory} from './bake-memory.js';
+import {inspectMorphJson} from './morph-policy.js';
+export function morphBakeMemory(info){return info.targets?info.bytes*3+Math.min(info.triangles,200000)*3*info.maxStride*2:0}
 function selectedAccessorBytes(json,geometryOnly){
  const used=new Set();for(const m of json.meshes||[])for(const p of m.primitives||[]){if(p.indices!==undefined)used.add(p.indices);for(const [s,i]of Object.entries(p.attributes||{}))if(!geometryOnly||s==='POSITION')used.add(i)}
  const sizes={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16},bytes={5120:1,5121:1,5122:2,5123:2,5125:4,5126:4};
  return (json.accessors||[]).reduce((n,a,i)=>n+(!geometryOnly||used.has(i)?a.count*sizes[a.type]*bytes[a.componentType]:0),0);
 }
 export async function readBakeGlb(bytes,{memoryBudgetMiB,lowMemory=false,geometryOnly=false}={}){
- const j=inspectGlb(bytes).json;let triangles=0,vertices=0;
+ const j=inspectGlb(bytes).json,morph=inspectMorphJson(j);let triangles=0,vertices=0;
  // Reject optional unknown metadata too, before the IO reader can ignore it.
  const allowed=['KHR_mesh_quantization','KHR_texture_transform','EXT_texture_webp','KHR_texture_basisu','KHR_draco_mesh_compression','EXT_meshopt_compression'];
  const unsupported=(j.extensionsUsed||[]).filter(n=>!allowed.includes(n));
@@ -22,9 +24,10 @@ export async function readBakeGlb(bytes,{memoryBudgetMiB,lowMemory=false,geometr
   throw Error('Исходник слишком большой для переноса деталей на Android');
  // Reject geometry that cannot fit before allocating decoded accessors/WASM.
  if(lowMemory&&(j.skins?.length||j.animations?.length))throw Error('Экономный перенос пока поддерживает статические модели без скелета и анимаций');
+ if(lowMemory&&morph.targets)throw Error('Blend Shapes используют путь с сохранением мимики. Экономный статический перенос для них недоступен.');
  if(lowMemory&&(j.images||[]).some(i=>i.mimeType==='image/ktx2'))throw Error('Экономный перенос пока требует исходные текстуры PNG, JPEG или WebP. KTX2 доступен после переноса.');
  if(lowMemory&&(j.extensionsUsed||[]).some(n=>['KHR_draco_mesh_compression','EXT_meshopt_compression'].includes(n)))throw Error('Экономный перенос пока требует исходный GLB без Meshopt/Draco. Сжатие готового результата доступно после переноса.');
- if(memoryBudgetMiB!==undefined)checkBakeMemory({geometryBytes:lowMemory?boundedGeometryMemory(bytes.byteLength,selectedAccessorBytes(j,geometryOnly),triangles,vertices):bytes.byteLength*2+vertices*40+triangles*38,memoryBudgetMiB});
+ if(memoryBudgetMiB!==undefined)checkBakeMemory({geometryBytes:(lowMemory?boundedGeometryMemory(bytes.byteLength,selectedAccessorBytes(j,geometryOnly),triangles,vertices):bytes.byteLength*2+vertices*40+triangles*38)+morphBakeMemory(morph),memoryBudgetMiB});
  const io=await createCodecIO(bytes);let document;
  if(lowMemory&&geometryOnly){
   const data=await io.binaryToJSON(bytes),used=new Set();
@@ -53,7 +56,7 @@ export function bakePlan(document,bytes,{targetTriangles=50000,ratio=.5,error=.0
   !['KHR_mesh_quantization','KHR_texture_transform','EXT_texture_webp','KHR_texture_basisu'].includes(n));
  if(unsupported.length)throw Error('Перенос деталей пока не поддерживает расширения: '+unsupported.join(', '));
  for(const p of primitives){
-  if(p.getMode()!==4||p.listTargets().length)throw Error('Перенос деталей: Morph Targets и нетреугольные примитивы пока не поддерживаются');
+  if(p.getMode()!==4)throw Error('Перенос деталей: нетреугольные примитивы пока не поддерживаются');
   if(!p.getAttribute('POSITION'))throw Error('Отсутствуют координаты вершин');
  }
  const vertices=primitives.reduce((n,p)=>n+p.getAttribute('POSITION').getCount(),0);
@@ -65,8 +68,9 @@ export function bakePlan(document,bytes,{targetTriangles=50000,ratio=.5,error=.0
  }
  // Peak estimate is a guard, not a guarantee of available device RAM.
  const accessors=root.listAccessors().reduce((n,a)=>n+(a.getArray()?.byteLength||0),0),images=root.listTextures().reduce((n,t)=>n+(t.getImage()?.byteLength||0),0);
- const estimatedMiB=checkBakeMemory({geometryBytes:lowMemory?boundedGeometryMemory(bytes,accessors,sourceTriangles,vertices):bytes*2+vertices*40+sourceTriangles*38,
-  projectionBytes:lowMemory?bytes+accessors+images*2+decode+decoderPeak+200000*250+32*1048576:bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+goal.targetTriangles*250,
+ const morphBytes=primitives.reduce((n,p)=>n+p.listTargets().reduce((s,t)=>s+t.listAttributes().reduce((v,a)=>v+a.getCount()*12,0),0),0),morphStride=Math.max(0,...primitives.map(p=>p.listTargets().reduce((s,t)=>s+t.listAttributes().length*12,0))),morphExtra=morphBakeMemory({targets:morphBytes>0,bytes:morphBytes,triangles:sourceTriangles,maxStride:morphStride});
+ const estimatedMiB=checkBakeMemory({geometryBytes:(lowMemory?boundedGeometryMemory(bytes,accessors,sourceTriangles,vertices):bytes*2+vertices*40+sourceTriangles*38)+morphExtra,
+  projectionBytes:(lowMemory?bytes+accessors+images*2+decode+decoderPeak+200000*250+32*1048576:bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+goal.targetTriangles*250)+morphExtra,
   mapBytesPerPixel:(lowMemory?86:32)+16*primitives.length,resolution,memoryBudgetMiB});
  return {...goal,resolution,sourceTriangles,estimatedMiB,unchanged:false};
 }

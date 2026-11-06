@@ -1,8 +1,10 @@
 // Offline glTF 2.0 optimizer. Works directly on the original GLB bytes:
 // unlike GLTFExporter round-tripping, source images are kept when unchanged.
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
-import { prune, resample } from '@gltf-transform/functions';
+import { prune } from '@gltf-transform/functions';
 import {PropertyType} from '@gltf-transform/core';
+import {inspectGlb} from './format.js';
+import {inspectMorphJson,captureMorphs,assertMorphRows,morphMaps,resampleWithMorphs} from './morph-policy.js';
 import { simplifySkinnedMeshes } from './skin-simplify.js';
 import {simplifyStaticMeshes} from './static-simplify.js';
 import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,HISTORY_KEY} from './geometry-policy.js';
@@ -146,10 +148,12 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   if (!originalBuffer) throw Error('Отсутствует исходный GLB');
   const original = originalBuffer instanceof Uint8Array
     ? originalBuffer : new Uint8Array(originalBuffer);
+  const morphInfo=inspectMorphJson(inspectGlb(original).json);
   const io = await createCodecIO(original);
   onProgress(12, 'Читаем оригинальный GLB без повторного кодирования...');
   const document = await io.readBinary(original);
   removeGeometryCompression(document);
+  const morph=morphInfo.targets?captureMorphs(document,{ids:geometry}):null;
   const sourceTriangles = countTriangles(document);
   const skins = document.getRoot().listSkins().length;
   const animations = document.getRoot().listAnimations().length;
@@ -168,7 +172,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
     const stats=await simplifyStaticMeshes(document,{ratio,error});
     geometryNote=stats.reduced?'Сетка упрощена с учётом нормалей, UV и швов.'
       :'Безопасных сокращений не найдено: сохранена исходная сетка.';
-    if(stats.skipped)geometryNote+=' Пропущены неподдерживаемые примитивы и morph targets: '+stats.skipped+'.';
+    if(stats.skipped)geometryNote+=' Пропущены неподдерживаемые примитивы: '+stats.skipped+'.';
   } else if (plan.geometry && skins && sourceTriangles>0) {
     onProgress(35, 'Защищаем суставы, UV и веса костей при упрощении сетки...');
     const stats=await simplifySkinnedMeshes(document,{ratio,error});
@@ -196,12 +200,13 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   }
   if (plan.animationKeys && animations>0) {
     onProgress(72, 'Удаляем только повторяющиеся ключи анимаций...');
-    await document.transform(resample());
+    await resampleWithMorphs(document);
     const optimizedKeyCount=countAnimationKeys(document);
     removedKeys=originalKeyCount-optimizedKeyCount;
     if(removedKeys<0)throw Error('Оптимизация неожиданно добавила ключи анимаций');
     if(removedKeys>0)changed=true;
   }
+  if(morph)geometryNote+=' Blend Shapes: вершины мимики и их окружение защищены; имена, веса и анимации форм сохраняются.';
   if(goal&&targetTriangles!==null)geometryNote+=' '+geometryTargetNote(goal.targetTriangles,optimizedTriangles);
   const noteParts=[geometryNote];
   if(removedKeys>0)noteParts.push('Удалено повторов ключей: '+removedKeys+'.');
@@ -213,6 +218,8 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
       note:message+' Исходные байты GLB сохранены без повторного кодирования.'};
   };
   if(!changed) return unchangedResult(geometryNote+' Изменений нет: модель уже оптимизирована или выбранные части не требуют обработки.');
+  let morphMap;
+  if(morph){if(!geometry)captureMorphs(document,{ids:true});morphMap=morphMaps(document,{remove:true});assertMorphRows(morph,document,{maps:morphMap})}
   // Replacing an indices accessor can leave the original large index array
   // orphaned. Remove only unreferenced accessors; retain all live attributes,
   // including UVs without a current material, skin data and animation keys.
@@ -226,6 +233,7 @@ export async function optimizeGlb(originalBuffer, { texture = 1024, ratio = 0.5,
   // can remain compressed when no texture resizing is requested.
   const forbidden = ['KHR_draco_mesh_compression', 'EXT_meshopt_compression'];
   const optimizedIO = await io.readBinary(output);
+  if(morph)assertMorphRows(morph,optimizedIO,{maps:morphMap});
   const required = optimizedIO.getRoot().listExtensionsRequired().map(e => e.extensionName);
   if (required.some(e => forbidden.includes(e)))
     throw Error('Результат требует внешнего декодера: ' + required.join(', '));

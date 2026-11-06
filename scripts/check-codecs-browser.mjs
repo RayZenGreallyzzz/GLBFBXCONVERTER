@@ -15,6 +15,8 @@ import {geometryHistory} from '../src/geometry-policy.js';
 import {exportTextured3mf} from '../src/three-mf.js';
 import {formatSize} from '../src/glb-optimize.js';
 import {assertBakeRigPreserved} from '../src/bake-common.js';
+import {morphFixture} from '../tests/helpers/morph-fixture.mjs';
+import {captureMorphs,assertMorphMetadata} from '../src/morph-policy.js';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -142,6 +144,20 @@ try{
  assert.deepEqual(new Uint8Array(await readFile(rigPath)),riggedSource);assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'stopped');
  await page.locator('[data-tab="opt"]').click();
  console.log('Browser: skinned surface bake → synchronized clip preview → active metrics → immutable save and original copy');
+ const npcSource=await morphFixture({texture:new Uint8Array(Buffer.from(png,'base64')),tangents:true,sparse:true});
+ await load(npcSource,'npc-morphs.glb');assert.equal(await page.locator('#morph-preview').isVisible(),true);assert.deepEqual(await page.locator('#morph-select option').allTextContents(),['Smile','Blink']);
+ async function morphWeight(value){await page.locator('#morph-weight').evaluate((el,v)=>{el.value=String(v);el.dispatchEvent(new Event('input',{bubbles:true}))},value)}
+ await page.locator('#morph-select').selectOption('0:0');await morphWeight(.8);assert.equal(await page.locator('#morph-value').innerText(),'80%');
+ await page.locator('#morph-select').selectOption('0:1');await morphWeight(.6);await page.locator('#morph-select').selectOption('0:0');assert.equal(await page.locator('#morph-value').innerText(),'80%');
+ await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();await page.locator('#opt-animation').check();await page.locator('#geometry-target').fill('1000');await page.locator('#bake-details').check();
+ await preview();const npcBaked=await download(),npcDoc=await new WebIO().readBinary(npcSource),npcOut=await new WebIO().readBinary(npcBaked);assertMorphMetadata(captureMorphs(npcDoc),npcOut);assert.equal(geometryHistory(inspectGlb(npcBaked).json.extras).surfaceBake.projectionMisses,0);
+ assert.equal(await page.locator('[data-metric="morphs"] strong').innerText(),'2');
+ await page.locator('#morph-select').selectOption('0:0');assert.equal(await page.locator('#morph-value').innerText(),'20%');await morphWeight(.9);
+ await page.locator('#view-original').click();assert.equal(await page.locator('#morph-value').innerText(),'90%');await page.locator('#view-optimized').click();assert.deepEqual(await download(),npcBaked,'manual expressions must not rewrite prepared GLB');
+ await page.locator('#model-clip').selectOption({label:'Face_CUBICSPLINE'});await page.locator('#model-play').click();await page.waitForTimeout(200);await morphWeight(.4);assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'stopped');
+ await page.locator('#morph-reset').click();assert.equal(await page.locator('#morph-value').innerText(),'20%');
+ await page.locator('[data-tab="convert"]').click();const npcDownload=page.waitForEvent('download');await page.locator('#convert-export').click();const npcCopy=await npcDownload,npcPath=join(temp,'npc-original.glb');await npcCopy.saveAs(npcPath);assert.deepEqual(new Uint8Array(await readFile(npcPath)),npcSource);await page.locator('[data-tab="opt"]').click();
+ console.log('Browser: NPC morph bake → combined manual expressions → cubic face clip → reset → immutable saves');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});
@@ -269,3 +285,4 @@ try{
 }finally{
  await browser?.close();server.kill();await rm(temp,{recursive:true,force:true});
 }
+
