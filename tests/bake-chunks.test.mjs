@@ -54,6 +54,26 @@ test('cancelling file-backed UV preparation never starts projection and leaves t
  globalThis.Worker=class{constructor(){workers.push(this)}postMessage(data){this.data=data;queueMicrotask(()=>{if(data.phase==='prepare')this.onmessage({data:{result:{bytes:new Uint8Array([9]),unchanged:false}}});else this.onmessage({data:{progress:true,percent:1,message:'UV'}})})}terminate(){this.terminated=true}};
  try{await assert.rejects(()=>bakeGlbOffThread(file,{lowMemory:true},{signal:abort.signal,onProgress:(_p,m)=>{if(m==='UV')abort.abort()}}),e=>e.name==='AbortError');assert.equal(workers.length,2);assert.ok(workers.every(w=>w.terminated));assert.deepEqual(new Uint8Array(await file.arrayBuffer()),new Uint8Array([1,2,3,4]))}finally{globalThis.Worker=previous}
 });
+test('bounded stages let a terminated worker settle before querying live RAM, and cancellation interrupts the wait',async()=>{
+ const previous=globalThis.Worker,workers=[];let ended=0,reads=0;
+ globalThis.Worker=class{
+  constructor(){workers.push(this)}
+  postMessage(){queueMicrotask(()=>this.onmessage({data:{result:{bytes:new Uint8Array([1]),unchanged:false}}}))}
+  terminate(){this.terminated=true;ended=performance.now()}
+ };
+ try{
+  await bakeGlbOffThread(new Blob([new Uint8Array([1,2])]),{lowMemory:true},{readMemoryBudget:async()=>{
+   if(reads++)assert.ok(performance.now()-ended>=175,'native snapshot must follow worker teardown settling');
+   return 512;
+  }});
+  assert.equal(reads,3);assert.ok(workers.every(w=>w.terminated));
+  workers.length=0;reads=0;const abort=new AbortController();
+  const originalTerminate=globalThis.Worker.prototype.terminate;
+  globalThis.Worker.prototype.terminate=function(){originalTerminate.call(this);setTimeout(()=>abort.abort(),20)};
+  await assert.rejects(()=>bakeGlbOffThread(new Blob([new Uint8Array([1,2])]),{lowMemory:true},{signal:abort.signal,readMemoryBudget:async()=>{reads++;return 512}}),e=>e.name==='AbortError');
+  assert.equal(reads,1);assert.equal(workers.length,1);assert.ok(workers[0].terminated);
+ }finally{globalThis.Worker=previous}
+});
 test('bounded simplification preserves planar patch boundaries without holes',{timeout:120000},async()=>{
  const {d,p}=fixture(new THREE.PlaneGeometry(2,2,400,400));let chunks=0;
  const r=await simplifyBakeChunks(d,p,{ratio:.02,error:.003,onProgress:(_p,r)=>chunks=r.chunks});

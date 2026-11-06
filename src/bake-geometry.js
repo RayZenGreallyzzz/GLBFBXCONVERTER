@@ -9,6 +9,7 @@ import {simplifyBakeChunks} from './bake-chunks.js';
 import {packedValues,positionBounds} from './bake-packed.js';
 import {faceTangents} from './bake-frame.js';
 let atlasModule;
+export async function getBakeAtlasModule(){atlasModule ||= createXAtlas();return atlasModule}
 const finite=a=>{for(const x of a)if(!Number.isFinite(x))throw Error('В сетке есть нечисловые значения');return a};
 export function primitiveGeometry(prim){
  const p=prim.getAttribute('POSITION');
@@ -71,32 +72,16 @@ export function removeBakeDegenerates(prim){
  if(out.length<source.length){prim.setIndices(prim.getIndices().clone().setArray(new Uint32Array(out)));compactPrimitive(prim);}
  return (source.length-out.length)/3;
 }
-export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()=>{}){
- atlasModule ||= createXAtlas();const module=await atlasModule,atlas=module.createAtlas();
- const buffer=document.getRoot().listBuffers()[0]||document.createBuffer(),data=primitiveGeometry(prim);
- const normalGeo=data.geometry;normalGeo.computeVertexNormals();const normals=normalGeo.attributes.normal.array;
- normalGeo.computeBoundingBox();const bounds=normalGeo.boundingBox,extent=Math.max(bounds.max.x-bounds.min.x,bounds.max.y-bounds.min.y,bounds.max.z-bounds.min.z);
- const center=[(bounds.min.x+bounds.max.x)/2,(bounds.min.y+bounds.max.y)/2,(bounds.min.z+bounds.max.z)/2];
- // xatlas uses absolute geometric tolerances. A unit-sized donor with millions
- // of tiny boundary faces can otherwise lose valid triangles before packing.
- const atlasPositions=Float32Array.from(data.positions,(v,i)=>(v-center[i%3])*1000/extent);
+// Both UV paths share corner reconstruction, cage normals and frame validation.
+export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVertices,uv){
+ const buffer=document.getRoot().listBuffers()[0]||document.createBuffer(),count=oldVertices.length;
  const attributes=prim.listSemantics().filter(s=>!['NORMAL','TANGENT','COLOR_0'].includes(s)&&!s.startsWith('TEXCOORD_')).map(s=>({semantic:s,accessor:prim.getAttribute(s),size:prim.getAttribute(s).getElementSize()}));
  const margin=Math.max(4,Math.round(resolution/128));
- try{
-  atlas.setProgressCallback((category,percent)=>{onProgress(category,percent);return true});
-  const err=atlas.addMesh({positions:atlasPositions,normals,indices:new Uint32Array(data.indices)});
-  if(err)throw Error('Ошибка UV-развёртки: '+module.addMeshErrorString(err));
-  atlas.generate({maxIterations:1},{resolution,padding:margin*2,bilinear:true,blockAlign:true});
-  if(atlas.atlasCount!==1||!atlas.width||!atlas.height)throw Error('Сетка не помещается в одну текстуру');
-  const mesh=atlas.getMesh(0),count=mesh.indices.length;if(!count||count%3)throw Error('UV-развёртка вернула пустую сетку');
-  const uv=new Float32Array(count*2),n=new Float32Array(count*3),position=new Float32Array(count*3),oldVertices=new Uint32Array(count),scale=1-2*margin/resolution;
-  for(let c=0;c<count;c++){
-   const v=mesh.vertices[mesh.indices[c]],old=v.xref;
-   if(v.atlasIndex!==0){const e=new Error('Не удалось развернуть часть поверхности. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
-   if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');oldVertices[c]=old;
-   for(let k=0;k<3;k++){position[c*3+k]=data.positions[old*3+k];n[c*3+k]=normals[old*3+k];}
-   uv[c*2]=margin/resolution+v.uv[0]/atlas.width*scale;uv[c*2+1]=margin/resolution+v.uv[1]/atlas.height*scale;
-  }
+ const n=new Float32Array(count*3),position=new Float32Array(count*3);
+ for(let c=0;c<count;c++){
+  const old=oldVertices[c];if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');
+  for(let k=0;k<3;k++){position[c*3+k]=data.positions[old*3+k];n[c*3+k]=normals[old*3+k];}
+ }
   const projectionNormals=n.slice();
   for(let i=0;i<count;i+=3){
    const a=i*2,b=a+2,c=a+4,area=(uv[b]-uv[a])*(uv[c+1]-uv[a+1])-(uv[b+1]-uv[a+1])*(uv[c]-uv[a]);
@@ -135,6 +120,36 @@ export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()
    for(let i=0;i<count;i++)for(let k=0;k<size;k++)array[i*size+k]=source[oldVertices[i]*size+k];prim.setAttribute(semantic,accessor.clone().setArray(array));
   }
   prim.setIndices(document.createAccessor().setBuffer(buffer).setType(Accessor.Type.SCALAR).setArray(result.indices));return result;
+}
+export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()=>{}){
+ const module=await getBakeAtlasModule(),atlas=module.createAtlas();
+ const data=primitiveGeometry(prim);
+ const normalGeo=data.geometry;normalGeo.computeVertexNormals();const normals=normalGeo.attributes.normal.array;
+ normalGeo.computeBoundingBox();const bounds=normalGeo.boundingBox,extent=Math.max(bounds.max.x-bounds.min.x,bounds.max.y-bounds.min.y,bounds.max.z-bounds.min.z);
+ const center=[(bounds.min.x+bounds.max.x)/2,(bounds.min.y+bounds.max.y)/2,(bounds.min.z+bounds.max.z)/2];
+ // xatlas uses absolute geometric tolerances. A unit-sized donor with millions
+ // of tiny boundary faces can otherwise lose valid triangles before packing.
+ const atlasPositions=Float32Array.from(data.positions,(v,i)=>(v-center[i%3])*1000/extent);
+ const margin=Math.max(4,Math.round(resolution/128));
+ try{
+  atlas.setProgressCallback((category,percent)=>{onProgress(category,percent);return true});
+  const err=atlas.addMesh({positions:atlasPositions,normals,indices:new Uint32Array(data.indices)});
+  if(err)throw Error('Ошибка UV-развёртки: '+module.addMeshErrorString(err));
+  atlas.generate({maxIterations:1},{resolution,padding:margin*2,bilinear:true,blockAlign:true});
+  if(atlas.atlasCount!==1||!atlas.width||!atlas.height)throw Error('Сетка не помещается в одну текстуру');
+  const mesh=atlas.getMesh(0),count=mesh.indices.length;if(!count||count%3)throw Error('UV-развёртка вернула пустую сетку');
+  const uv=new Float32Array(count*2),oldVertices=new Uint32Array(count),scale=1-2*margin/resolution;
+  for(let c=0;c<count;c++){
+   const v=mesh.vertices[mesh.indices[c]],old=v.xref;
+   if(v.atlasIndex!==0){const e=new Error('Не удалось развернуть часть поверхности. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
+   if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');oldVertices[c]=old;
+   uv[c*2]=margin/resolution+v.uv[0]/atlas.width*scale;uv[c*2+1]=margin/resolution+v.uv[1]/atlas.height*scale;
+  }
+  return await writeBakeAtlas(document,prim,resolution,data,normals,oldVertices,uv);
  }finally{atlas.destroy();normalGeo.dispose()}
 }
-export function finishBakePrimitive(prim){weldPrimitive(prim);compactPrimitive(prim)}
+export function finishBakePrimitive(prim,reweld=false){
+ // xatlas output is already indexed, so the default weld skips it. Bounded UV
+ // explicitly rewelds identical complete tuples, retaining UV/tangent seams.
+ weldPrimitive(prim,{overwrite:reweld});if(!reweld)compactPrimitive(prim);
+}

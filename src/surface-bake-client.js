@@ -1,5 +1,15 @@
 import {asBytes} from './binary.js';
 function abortError(){const e=new Error('Перенос деталей отменён. Исходник сохранён.');e.name='AbortError';return e}
+function settleWorker(signal){
+ // Termination requests are immediate; WebView releases a worker's WASM heap
+ // asynchronously. Yield before asking Android for the next live RAM budget.
+ return new Promise((resolve,reject)=>{
+  if(signal?.aborted){reject(abortError());return}
+  const cancel=()=>{clearTimeout(timer);signal?.removeEventListener('abort',cancel);reject(abortError())};
+  const timer=setTimeout(()=>{signal?.removeEventListener('abort',cancel);resolve()},200);
+  signal?.addEventListener('abort',cancel,{once:true});
+ });
+}
 function phase(data,{signal,onProgress}){
  return new Promise((resolve,reject)=>{
   if(signal?.aborted){reject(abortError());return}
@@ -15,8 +25,9 @@ function phase(data,{signal,onProgress}){
  });
 }
 export async function bakeGlbOffThread(bytes,options,{signal,onProgress=()=>{},readMemoryBudget}={}){
- async function phaseOptions(){
+ async function phaseOptions(afterWorker=false){
   if(signal?.aborted)throw abortError();
+  if(afterWorker&&options.lowMemory)await settleWorker(signal);
   const budget=readMemoryBudget?await readMemoryBudget():options.memoryBudgetMiB??768;
   if(signal?.aborted)throw abortError();
   if(!Number.isFinite(budget)||budget<64||budget>768)throw Error('Неверный предел памяти');
@@ -27,15 +38,15 @@ export async function bakeGlbOffThread(bytes,options,{signal,onProgress=()=>{},r
  if(prepared.unchanged)return {...prepared,beforeBytes:originalSize,afterBytes:originalSize,removedKeys:0,note:'Сетка уже не больше выбранной цели. Исходный GLB сохранён без изменений.'};
  if(options.lowMemory){
   for(let attempt=0;attempt<2;attempt++){
-   try{prepared=await phase({phase:'unwrap',prepared,options:await phaseOptions()},{signal,onProgress:(p,m)=>onProgress(30+p*.15,m)});break}
+   try{prepared=await phase({phase:'unwrap',prepared,options:await phaseOptions(true)},{signal,onProgress:(p,m)=>onProgress(30+p*.15,m)});break}
    catch(e){
     if(attempt||!['BAKE_UV','BAKE_FRAME'].includes(e.code))throw e;
     onProgress(5,'Создаём альтернативную сетку из исходного файла…');
-    prepared=await phase({phase:'prepare',...source,options:{...await phaseOptions(),geometryOnly:true,regularize:true}},{signal,onProgress:(p,m)=>onProgress(p*.3,m)});
+    prepared=await phase({phase:'prepare',...source,options:{...await phaseOptions(true),geometryOnly:true,regularize:true}},{signal,onProgress:(p,m)=>onProgress(p*.3,m)});
    }
   }
  }
  if(signal?.aborted)throw abortError();
- const projectOptions=await phaseOptions();
+ const projectOptions=await phaseOptions(true);
  return phase({phase:'project',...source,prepared,options:projectOptions},{signal,onProgress:(p,m)=>onProgress(46+p*.48,m)});
 }

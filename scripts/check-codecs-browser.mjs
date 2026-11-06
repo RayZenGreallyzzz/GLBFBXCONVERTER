@@ -186,10 +186,11 @@ try{
   .setIndices(accessor(new Uint32Array(dense.index.array),Accessor.Type.SCALAR));
  const denseSource=await new WebIO().writeBinary(doc);await load(denseSource,'large-static-original.glb');
  await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();await page.locator('#bake-details').check();
- await page.locator('#geometry-target').fill('5000');await page.locator('#geometry-error').selectOption('0.008');
+ await page.locator('#geometry-target').fill('30000');await page.locator('#geometry-error').selectOption('0.008');
  await page.locator('#preview-opt').click();await page.locator('#cancel-bake').waitFor({state:'visible'});await page.locator('#cancel-bake').click();
  await page.waitForFunction(()=>document.getElementById('status').textContent.includes('отменён')&&!document.getElementById('preview-opt').disabled,{},{timeout:60000});
  await preview();const denseBaked=inspectGlb(await download());assert.equal(geometryHistory(denseBaked.json.extras).sourceTriangles,320000);
+ assert.ok(geometryHistory(denseBaked.json.extras).triangles>16384,'production worker must exercise bounded UV charts');
  assert.equal(geometryHistory(denseBaked.json.extras).surfaceBake.projectionMisses,0);
  await page.locator('#view-original').click();await page.locator('#view-optimized').click();
  await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
