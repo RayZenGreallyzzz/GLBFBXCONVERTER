@@ -62,6 +62,7 @@ test('Mixamo with extra head/hips bones, weights and ear/tail clips retains samp
  const matrices=new Float32Array(skin.listJoints().length*16);skin.listJoints().forEach((n,i)=>matrices.set(new THREE.Matrix4().fromArray(n.getWorldMatrix()).invert().elements,i*16));skin.getInverseBindMatrices().setArray(matrices);
  const prim=root.listMeshes()[0].listPrimitives()[0],j=prim.getAttribute('JOINTS_0').getArray(),w=prim.getAttribute('WEIGHTS_0').getArray();
  for(let i=0;i<j.length/4;i+=50){j[i*4]=5;w[i*4]=1;w[i*4+1]=0;}
+ for(let i=25;i<j.length/4;i+=50){j[i*4]=i%100===25?3:4;w[i*4]=1;w[i*4+1]=0;}
  for(const [name,node]of [['Ears',left],['TailMotion',tail]]){
   const input=doc.createAccessor().setBuffer(buffer).setType('SCALAR').setArray(new Float32Array([0,.5,1]));
   const output=doc.createAccessor().setBuffer(buffer).setType('VEC4').setArray(new Float32Array([0,0,0,1,0,0,Math.sin(.1),Math.cos(.1),0,0,0,1]));
@@ -87,16 +88,20 @@ test('Mixamo with extra head/hips bones, weights and ear/tail clips retains samp
  for(let i=0;i<sourcePositions.count;i++)byPosition.set([sourcePositions.getX(i),sourcePositions.getY(i),sourcePositions.getZ(i)].join(','),i);
  const player=new ModelPlayback();player.setModels(a.scene,a.animations,b.scene,b.animations);
  for(let clip=0;clip<a.animations.length;clip++){
-  player.stop();player.play(clip);
+  player.stop();for(const m of meshes)m.skeleton.update();
+  const rest=Array.from({length:sourcePositions.count},(_,i)=>meshes[0].getVertexPosition(i,new THREE.Vector3()).applyMatrix4(meshes[0].matrixWorld));let moved=false;
+  player.play(clip);
   for(let frame=0;frame<9;frame++){
    player.update(.1);for(const m of meshes)m.skeleton.update();
    const p=meshes[1].geometry.getAttribute('position');
    for(let i=0;i<p.count;i++){
     const old=byPosition.get([p.getX(i),p.getY(i),p.getZ(i)].join(','));assert.notEqual(old,undefined);
     const x=meshes[0].getVertexPosition(old,new THREE.Vector3()).applyMatrix4(meshes[0].matrixWorld),y=meshes[1].getVertexPosition(i,new THREE.Vector3()).applyMatrix4(meshes[1].matrixWorld);
+    if(x.distanceTo(rest[old])>1e-5)moved=true;
     assert.ok(x.distanceTo(y)<1e-5,'baked vertex deformation changed in '+a.animations[clip].name+' at '+player.time);
    }
   }
+  assert.ok(moved,'each clip must actually deform surviving vertices: '+a.animations[clip].name);
  }
  player.dispose();
 });
