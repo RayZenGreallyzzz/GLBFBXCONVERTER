@@ -49,7 +49,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <p class="tip">Кнопки ниже задают размер текстур. Цель сетки и сохранение формы настраиваются отдельно. Каждый предпросмотр создаётся из загруженного исходника.</p>
@@ -180,6 +180,27 @@
     <div id="mixamo-notice" class="compare-report" hidden role="note">Профиль Mixamo: сохранится модель с текстурами. Если хочешь расставлять точки для нового скелета, загрузи GLB без скелета в T/A-позе. Наличие уже готового скелета проверим перед экспортом.</div>
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
+  <section id="tab-rig" class="tab-panel hidden">
+    <h2>Создание скелета тела</h2>
+    <p class="tip">Тестовый режим для гуманоидного GLB без костей, анимаций и Blend Shapes, стоящего в T/A-позе. Создай черновик точек, проверь центры суставов спереди и сбоку, затем рассчитай веса. Сетка и исходные изображения сохраняются. Всё работает офлайн.</p>
+    <button type="button" id="rig-draft" class="primary" disabled>＋ СОЗДАТЬ ЧЕРНОВИК ТОЧЕК</button>
+    <div class="compare-report">
+      <div class="row-buttons"><button type="button" id="rig-front" aria-pressed="true" disabled>Спереди</button><button type="button" id="rig-side" aria-pressed="false" disabled>Сбоку</button></div>
+      <label>Сустав<select id="rig-joint" disabled></select></label>
+      <p class="tip">Жёлтая точка — выбранный сустав. При включённой расстановке коснись просмотра: спереди задаются положение и высота, сбоку — глубина и высота. Левая и правая стороны относятся к персонажу.</p>
+      <label><input type="checkbox" id="rig-edit" checked disabled> Расставлять точки касанием</label>
+      <details><summary>Точное положение сустава</summary><label>X <input id="rig-x" type="number" step="any" disabled></label><label>Y <input id="rig-y" type="number" step="any" disabled></label><label>Z <input id="rig-z" type="number" step="any" disabled></label></details>
+      <label>Точность расчёта весов<select id="rig-resolution" disabled><option value="32">Экономно</option><option value="48" selected>Баланс</option><option value="64">Точнее — больше памяти</option></select></label>
+      <label><input type="checkbox" id="rig-confirm" disabled> Я проверил точки спереди и сбоку</label>
+    </div>
+    <button type="button" id="rig-build" class="primary" disabled>● СОЗДАТЬ СКЕЛЕТ И ВЕСА</button>
+    <button type="button" id="rig-cancel" hidden>Отменить создание скелета</button>
+    <p id="rig-status" class="compare-report" role="status">Загрузи GLB без скелета, анимаций и форм.</p>
+    <div class="row-buttons"><button type="button" id="rig-test-play" disabled>▶ Проверить сгибы</button><button type="button" id="rig-test-stop" disabled>■ Исходная поза</button></div>
+    <button type="button" id="rig-export" class="primary save-btn" disabled>▣ СОХРАНИТЬ GLB СО СКЕЛЕТОМ</button>
+    <button type="button" id="rig-use" class="primary" disabled>ИСПОЛЬЗОВАТЬ ЭТОТ СКЕЛЕТ ДЛЯ АНИМАЦИЙ</button>
+    <p class="tip">Скелет тела: 27 костей, до 4 влияний на вершину. Движение пальцев, ушей и хвоста требует дополнительных костей и весов. Автоматические веса — начальная привязка: проверь плечи, локти, таз и колени. Ошибку посадки точек исправляй на исходнике. До 650 тысяч вершин и 1 млн треугольников; доступная память может ограничить задачу раньше.</p>
+  </section>
   <section id="tab-anim" class="tab-panel hidden">
   <h2>Автоадаптация BVH → персонаж</h2>
   <p class="tip">1. Загрузи GLB / FBX / VRM со скелетом. 2. Выбери BVH. 3. Нажми «Адаптировать и посмотреть». Программа сопоставит кости, учтёт исходную позу и пропорции. При необходимости уточни кости вручную. Исходник не изменяется.</p>
@@ -225,4 +246,5 @@
   <p id="status" role="status">Готово. Всё работает локально, без интернета.</p>
 </section>
 </main><script type="module" src="/src/main.js"></script></body></html>
+
 

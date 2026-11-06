@@ -67,6 +67,11 @@
 .model-playback button{flex:1;border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer}
 .model-playback button:disabled{opacity:.45;cursor:not-allowed}
 .model-playback small{color:#aabfd3;line-height:1.4}
+.tabs{overflow-x:auto;scrollbar-width:thin}.tabs button{flex:0 0 auto;min-width:72px}
+#tab-rig .row-buttons button,#rig-cancel{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer}
+#tab-rig button:disabled{opacity:.45;cursor:not-allowed}
+#tab-rig input[type=number]{width:100%;min-width:0;padding:11px;border:1px solid #315772;border-radius:7px;background:#112239;color:#e9f4fc}
 
 
 #morph-weight{width:100%;accent-color:#24afd5}#morph-value{font-variant-numeric:tabular-nums;color:#8de6d8}
+

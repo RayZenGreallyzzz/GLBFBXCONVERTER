@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {ModelPlayback} from './model-playback.js';
 import {MorphPreview} from './morph-preview.js';
+import {GuidedRigUI} from './guided-rig-ui.js';
+import {makeRigPreview} from './rig-preview.js';
 import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -38,10 +40,11 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;
 configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
+let guidedRigUi=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
 function buttons(){
@@ -63,6 +66,7 @@ function buttons(){
  updateGeometryControls();
  updatePlaybackButtons();
  updateMorphButtons();
+ guidedRigUi?.refresh();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -72,6 +76,7 @@ function suspendGpu(root){
  for(const t of textures)t.dispose();
 }
 function suspendStaticBakeSource(){
+ guidedRigUi?.clearResult();
  modelPlayback.dispose();morphPreview.dispose();
  const geometries=new Set(),images=new Set();
  state.root.traverse(n=>{if(!n.isMesh)return;geometries.add(n.geometry);for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture&&typeof v.image?.close==='function')images.add(v.image)});
@@ -80,13 +85,13 @@ function suspendStaticBakeSource(){
  // This discarded static graph is rebuilt from File. Clear CPU buffers even
  // if renderer bookkeeping briefly retains the old mesh objects.
  for(const geometry of geometries)if(geometry){geometry.attributes={};geometry.setIndex(null);geometry.morphAttributes={}}
- state.root=null;state.sourceBuffer=null;
+ state.root=null;state.sourceBuffer=null;state.rigLookup=null;
  renderer.renderLists.dispose();
 }
 async function restoreStaticBakeSource(){
  if(state.root)return;
  const data=await state.sourceFile.arrayBuffer(),loaded=await createModelLoader().parseAsync(data,'');
- state.sourceBuffer=data;state.root=loaded.scene;state.clips=loaded.animations||[];state.root.visible=false;scene.add(state.root);
+ state.sourceBuffer=data;state.root=loaded.scene;state.clips=loaded.animations||[];state.rigLookup=new WeakMap(loaded.parser.associations);state.root.visible=false;scene.add(state.root);
 }
 function fit(){
   const bounds=new THREE.Box3().setFromObject(state.root);if(bounds.isEmpty())return;
@@ -95,7 +100,7 @@ function fit(){
   camera.near=Math.max(.0001,dist/50000);camera.far=Math.max(200,dist*300);
   camera.updateProjectionMatrix();orbit.update();
 }
-function release(root){root?.traverse(obj=>{if(!obj.isMesh)return;obj.geometry?.dispose();for(const m of Array.isArray(obj.material)?obj.material:[obj.material])if(m){for(const v of Object.values(m))if(v?.isTexture)v.dispose();m.dispose()}})}
+function release(root,{keepTextures=false}={}){keepTextures=keepTextures||!!root?.userData.phoenixSharedTextures;const skeletons=new Set();root?.traverse(obj=>{if(!obj.isMesh)return;obj.geometry?.dispose();if(obj.skeleton)skeletons.add(obj.skeleton);for(const m of Array.isArray(obj.material)?obj.material:[obj.material])if(m){if(!keepTextures)for(const v of Object.values(m))if(v?.isTexture)v.dispose();m.dispose()}});for(const skeleton of skeletons)skeleton.dispose()}
 function showComparison(optimized=false){
  const isPreview=optimized&&!!state.previewRoot;
  state.viewMode=isPreview?'optimized':'original';
@@ -106,7 +111,7 @@ function showComparison(optimized=false){
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
- $('view-label').textContent=isPreview?'После оптимизации':'Исходная модель';
+ $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':'После оптимизации'):'Исходная модель';
  displayMetrics();
 }
 function clear3mfViewport(){
@@ -133,6 +138,7 @@ function set3mfViewQuality(percent){
  showComparison(false);
 }
 function discardPreview(){
+ guidedRigUi?.clearResult();
  modelPlayback.stop();
  if(state.previewRoot){
    scene.remove(state.previewRoot);release(state.previewRoot);
@@ -250,10 +256,10 @@ async function load(file,attachments=[file]){
      ext=archive.format;data=await source.arrayBuffer();
      status('ZIP распакован: '+archive.entryCount+' ресурсов. Основной файл: '+source.name);
    }
-   let clips=[],info='',hasMorphs=false;
+   let clips=[],info='',hasMorphs=false,rigLookup=null;
    if(ext==='glb'){
      const check=inspectGlb(data);hasMorphs=inspectMorphJson(check.json).targets>0;const loaded=await createModelLoader().parseAsync(data,'');
-     root=loaded.scene;clips=loaded.animations||[];
+     root=loaded.scene;clips=loaded.animations||[];rigLookup=new WeakMap(loaded.parser.associations);
      info='GLB 2.0. Мешей: '+check.meshes+'. Анимаций: '+check.animations+'. Доп. расширения: '+(check.required.join(', ')||'нет')+'.';
    }else if(ext==='fbx'){
      const check=inspectFbx(data);root=new FBXLoader().parse(data,'');clips=root.animations||[];
@@ -274,7 +280,7 @@ async function load(file,attachments=[file]){
    clear3mfViewport();
    if(state.mixer){state.mixer.stopAllAction();state.mixer.uncacheRoot(state.root);state.mixer=null;}
    if(state.root){scene.remove(state.root);release(state.root)}
-   scene.add(root);state.root=root;state.clips=clips;state.hasMorphs=hasMorphs||modelStats(root,clips).morphs>0;
+   scene.add(root);state.root=root;state.clips=clips;state.rigLookup=rigLookup;state.hasMorphs=hasMorphs||modelStats(root,clips).morphs>0;
    state.bvhOnly=ext==='bvh';
    if(state.bvhOnly && clips.length){
      state.mixer=new THREE.AnimationMixer(root);
@@ -440,7 +446,7 @@ async function savePreview(){
  if(!state.preview||state.busy)return;
  state.busy=true;buttons();
  try{
-   const name=state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
+   const name=state.preview.kind==='rig'?state.name+'_rig.glb':state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
       (state.preview.codecSuffix||'')+'.glb';
    await save(state.preview.bytes,name,'model/gltf-binary');
  }catch(error){
@@ -613,6 +619,7 @@ $('model-file').addEventListener('change',e=>{
 });
 function motionStatus(message){$('anim-status').textContent=message}
 function stopMotionPlayback(){
+ guidedRigUi?.stop();
  modelPlayback.stop();morphPreview.reset();updateMorphValue();
  if(state.mixer){
    state.mixer.stopAllAction();
@@ -853,6 +860,7 @@ $('convert-export').addEventListener('click',()=>exportAs($('target').value));
 for(const button of document.querySelectorAll('[data-tab]'))button.addEventListener('click',()=>{
  for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('active',b===button);
  for(const panel of document.querySelectorAll('.tab-panel'))panel.classList.toggle('hidden',panel.id!=='tab-'+button.dataset.tab);
+ guidedRigUi?.setTab(button.dataset.tab==='rig');
 });
 new ResizeObserver(()=>{
  const area=$('viewport');if(area.clientWidth<5||area.clientHeight<5)return;
@@ -860,7 +868,26 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 const playbackClock=new THREE.Clock();
-function tick(){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);orbit.update();renderer.render(scene,camera)}tick();buttons();
+guidedRigUi=new GuidedRigUI({
+ scene,camera,orbit,canvas:renderer.domElement,model:()=>state,busy:()=>state.busy,
+ setBusy:value=>{state.busy=value;buttons()},progress,stopPlayback:stopMotionPlayback,
+ memoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),
+ save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),resultRoot:()=>state.previewRoot,
+ invalidate:()=>{if(state.preview?.kind==='rig')discardPreview()},showResult:()=>showComparison(true),
+ result:result=>{
+  const previewRoot=makeRigPreview(state.root,state.rigLookup,result.preview);
+  discardPreview();state.preview=result;state.previewRoot=previewRoot;state.previewClips=[];state.previewMetrics=modelStats(previewRoot,[]);scene.add(previewRoot);
+  refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true);
+ },
+ use:result=>{
+  const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Скелет больше не относится к текущей модели');
+  stopMotionPlayback();modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;
+  state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.clips=[];state.name=(state.name+'_rig').slice(0,60);state.bytes=result.bytes.length;state.type='glb';state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=null;state.hasMorphs=false;state.bvhOnly=false;state.info='GLB 2.0. Создан скелет тела: '+result.bones+' костей. Перед игрой проверь деформации.';
+  resetMotionStudio();refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();
+  document.querySelector('[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери BVH-анимацию для переноса.');status('Скелет применён к рабочей копии. Исходный файл не изменялся.');buttons();
+ }
+});
+function tick(){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);orbit.update();renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){
@@ -872,4 +899,5 @@ function hideBrandSplash(){
 }
 if(document.readyState==='complete')setTimeout(hideBrandSplash,1700);
 else window.addEventListener('load',()=>setTimeout(hideBrandSplash,1700),{once:true});
+
 
