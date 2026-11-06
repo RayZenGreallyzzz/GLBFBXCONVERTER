@@ -177,6 +177,25 @@ try{
  await page.locator('[data-tab="opt"]').click();await load(baked,'baked-reimport.glb');
  assert.equal(await page.locator('#bake-details').isDisabled(),true);
  console.log('Browser: offline surface workers → cancel/retry → save/reimport; original byte-identical');
+ // The large static path drops the source viewport/bytes and reads the File in
+ // each worker. Verify restoration after cancellation and all three phases.
+ const dense=new THREE.PlaneGeometry(1,1,400,400);
+ primitive.setAttribute('POSITION',accessor(dense.attributes.position.array,Accessor.Type.VEC3))
+  .setAttribute('NORMAL',accessor(dense.attributes.normal.array,Accessor.Type.VEC3))
+  .setAttribute('TEXCOORD_0',accessor(dense.attributes.uv.array,Accessor.Type.VEC2))
+  .setIndices(accessor(new Uint32Array(dense.index.array),Accessor.Type.SCALAR));
+ const denseSource=await new WebIO().writeBinary(doc);await load(denseSource,'large-static-original.glb');
+ await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();await page.locator('#bake-details').check();
+ await page.locator('#geometry-target').fill('5000');await page.locator('#geometry-error').selectOption('0.008');
+ await page.locator('#preview-opt').click();await page.locator('#cancel-bake').waitFor({state:'visible'});await page.locator('#cancel-bake').click();
+ await page.waitForFunction(()=>document.getElementById('status').textContent.includes('отменён')&&!document.getElementById('preview-opt').disabled,{},{timeout:60000});
+ await preview();const denseBaked=inspectGlb(await download());assert.equal(geometryHistory(denseBaked.json.extras).sourceTriangles,320000);
+ assert.equal(geometryHistory(denseBaked.json.extras).surfaceBake.projectionMisses,0);
+ await page.locator('#view-original').click();await page.locator('#view-optimized').click();
+ await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
+ const denseDownload=page.waitForEvent('download');await page.locator('#convert-export').click();const denseCopy=await denseDownload,densePath=join(temp,'dense-copy.glb');await denseCopy.saveAs(densePath);
+ assert.deepEqual(new Uint8Array(await readFile(densePath)),denseSource);
+ console.log('Browser: file-backed bounded bake → cancel/restore → three workers → exact original copy');
  assert.deepEqual(external,[],'all codecs must be loaded from the local app');
  assert.deepEqual(errors,[],'browser must not raise uncaught exceptions');
  console.log('Production browser codec checks passed.');

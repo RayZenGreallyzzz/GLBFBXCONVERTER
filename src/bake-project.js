@@ -1,18 +1,18 @@
 import {prune,resample} from '@gltf-transform/functions';
 import {PropertyType} from '@gltf-transform/core';
 import {readBakeGlb,bakePlan,bakePrimitives,assertBakeRigPreserved} from './bake-common.js';
-import {primitiveGeometry} from './bake-geometry.js';
+import {primitiveGeometry,packedProjectionSource} from './bake-geometry.js';
 import {projectBakePixels,transformUV} from './bake-pixels.js';
 import {geometryTargetNote,optimizationHistory,HISTORY_KEY} from './geometry-policy.js';
 import {countTriangles,countAnimationKeys} from './glb-optimize.js';
-export async function decodeBakeImage(texture){
+export async function decodeBakeImage(texture,{maxSize=2048}={}){
  const mime=texture.getMimeType(),bytes=texture.getImage();
  if(mime==='image/ktx2'){
   if(Math.max(...texture.getSize())>4096)throw Error('KTX2-источник больше 4096 px: уменьши текстуру перед переносом');
   const {decodeKtx2}=await import('./texture-codecs.js');return decodeKtx2(bytes);
  }
  if(!['image/png','image/jpeg','image/webp'].includes(mime)||typeof createImageBitmap!=='function'||typeof OffscreenCanvas==='undefined')throw Error('Этот Android WebView не поддерживает фоновый перенос текстур. Обнови Android System WebView.');
- const size=texture.getSize(),factor=Math.min(1,2048/Math.max(...size)),width=Math.max(1,Math.round(size[0]*factor)),height=Math.max(1,Math.round(size[1]*factor));
+ const size=texture.getSize(),factor=Math.min(1,maxSize/Math.max(...size)),width=Math.max(1,Math.round(size[0]*factor)),height=Math.max(1,Math.round(size[1]*factor));
  const bitmap=await createImageBitmap(new Blob([bytes],{type:mime}),{resizeWidth:width,resizeHeight:height,resizeQuality:'high',premultiplyAlpha:'none',colorSpaceConversion:'none'});
  try{
   const canvas=new OffscreenCanvas(width,height),ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw Error('Недоступна фоновая обработка изображений');
@@ -43,8 +43,8 @@ export async function projectBakeGlb(original,prepared,options={}){
  if(plan.unchanged)throw Error('Для переноса нужна уменьшенная сетка');assertBakeRigPreserved(donor.document,low.document);
  const from=bakePrimitives(donor.document),to=bakePrimitives(low.document),reports=[];if(from.length!==to.length)throw Error('Изменилось число частей модели');const root=low.document.getRoot();
  for(let i=0;i<from.length;i++){
-  const source=primitiveGeometry(from[i]),target=primitiveGeometry(to[i]);target.uv=target.uv[0];target.margin=Math.max(4,Math.round(plan.resolution/128));
-  const material=from[i].getMaterial(),maps=await textureMaps(material,decode);if(!target.tangents||!target.uv)throw Error('Не подготовлена UV-развёртка результата');
+  const source=(from[i].getIndices()?.getCount()||from[i].getAttribute('POSITION').getCount())>786432?packedProjectionSource(from[i]):primitiveGeometry(from[i]),target=primitiveGeometry(to[i]);target.uv=target.uv[0];target.margin=Math.max(4,Math.round(plan.resolution/128));
+  const material=from[i].getMaterial(),maps=await textureMaps(material,t=>decode(t,{maxSize:options.lowMemory?Math.max(1024,plan.resolution):2048}));if(!target.tangents||!target.uv)throw Error('Не подготовлена UV-развёртка результата');
   progress(5+75*i/from.length,'Переносим поверхность части '+(i+1)+'/'+from.length+'…');
   const baked=projectBakePixels(source,target,{size:plan.resolution,maps,normalScale:material?.getNormalScale()??1,onProgress:p=>progress(5+75*(i+p)/from.length,'Перенос деталей: часть '+(i+1)+'/'+from.length+', '+Math.round(p*100)+'%')});
   const result=low.document.createMaterial((material?.getName()||'Material')+'_baked');
@@ -57,7 +57,7 @@ export async function projectBakeGlb(original,prepared,options={}){
    if(kind==='orm'){result.setMetallicRoughnessTexture(texture);textureInfo(result,'MetallicRoughness');if(maps.occlusion){result.setOcclusionTexture(texture);textureInfo(result,'Occlusion');}}
    if(kind==='emissive'){result.setEmissiveTexture(texture);textureInfo(result,'Emissive');}
   }
-  to[i].setMaterial(result);reports.push({coverage:baked.coverage,projected:baked.projected,misses:baked.misses});source.geometry.dispose();target.geometry.dispose();
+  to[i].setMaterial(result).setAttribute('_PHOENIX_PROJECTION_NORMAL',null);reports.push({coverage:baked.coverage,projected:baked.projected,misses:baked.misses});source.geometry?.dispose();target.geometry.dispose();
  }
  const sourceTriangles=countTriangles(donor.document),optimizedTriangles=countTriangles(low.document),keys=countAnimationKeys(low.document);if(options.animationKeys)await low.document.transform(resample());
  const removedKeys=keys-countAnimationKeys(low.document),history=optimizationHistory(sourceTriangles,optimizedTriangles,plan.targetTriangles,plan.error);
