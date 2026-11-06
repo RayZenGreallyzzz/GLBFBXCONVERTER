@@ -26,8 +26,15 @@ jobs:
         run: npm test
       - name: Build web frontend
         run: npm run build
-      - name: Install browser for codec integration checks
-        run: npx playwright install --with-deps chromium
+      - name: Select browser for codec integration checks
+        timeout-minutes: 5
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            google-chrome --version
+            echo 'CODEC_TEST_CHANNEL=chrome' >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+          fi
       - name: Check production codecs with external requests blocked
         run: npm run test:browser
       - name: Create Android project

@@ -31,6 +31,7 @@ try{
   await new Promise(r=>setTimeout(r,100));
  }
  browser=await chromium.launch({headless:true,
+  channel:process.env.CODEC_TEST_CHANNEL||undefined,
   executablePath:process.env.CODEC_TEST_BROWSER||undefined,
   args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader',
    ...(process.env.CODEC_TEST_BROWSER?['--single-process','--no-zygote','--in-process-gpu']:[])]});
