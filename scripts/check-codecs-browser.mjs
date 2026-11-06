@@ -13,6 +13,8 @@ import {createCodecIO} from '../src/codec-io.js';
 import {Document,WebIO,Accessor} from '@gltf-transform/core';
 import {geometryHistory} from '../src/geometry-policy.js';
 import {exportTextured3mf} from '../src/three-mf.js';
+import {formatSize} from '../src/glb-optimize.js';
+import {assertBakeRigPreserved} from '../src/bake-common.js';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -65,6 +67,15 @@ try{
   const download=await waiting,path=join(temp,download.suggestedFilename());
   await download.saveAs(path);return new Uint8Array(await readFile(path));
  }
+ async function metrics(bytes,variant){
+  const {json}=inspectGlb(bytes);let triangles=0,vertices=0;
+  for(const mesh of json.meshes||[])for(const p of mesh.primitives){vertices+=json.accessors[p.attributes.POSITION].count;triangles+=(p.indices!==undefined?json.accessors[p.indices].count:json.accessors[p.attributes.POSITION].count)/3}
+  assert.equal(await page.locator('#metrics').getAttribute('data-variant'),variant);
+  assert.equal(await page.locator('[data-metric="triangles"] strong').innerText(),String(triangles));
+  assert.equal(await page.locator('[data-metric="vertices"] strong').innerText(),String(vertices));
+  assert.equal(await page.locator('[data-metric="size"] strong').innerText(),formatSize(bytes.byteLength));
+  assert.equal(await page.locator('[data-metric="animations"] strong').innerText(),String(json.animations?.length||0));
+ }
  await load(source,'fixture.glb');
  await page.getByText('Точные настройки (необязательно)',{exact:true}).click();
  assert.equal(await page.locator('#geometry-ratio-field').isVisible(),false);
@@ -108,6 +119,29 @@ try{
    console.log('Browser: ZIP glTF + external KTX2/BIN import OK');
   }
  }
+ // Inspect the real skinned baking result in motion. Playback is view-only;
+ // saving an active frame must retain the exact prepared GLB and original file.
+ const riggedSource=await compressionFixture({texture:new Uint8Array(Buffer.from(png,'base64')),textureMime:'image/png',segments:50});
+ await load(riggedSource,'rigged-bake-original.glb');
+ await page.locator('#geometry-codec').selectOption('keep');await page.locator('#texture-codec').selectOption('keep');
+ await page.locator('#opt-geometry').check();await page.locator('#opt-textures').check();await page.locator('#opt-animation').uncheck();
+ await page.locator('[data-quality="mobile"]').click();await page.locator('#geometry-target').fill('1000');await page.locator('#geometry-error').selectOption('0.02');
+ await page.locator('#bake-details').check();await preview();const riggedBaked=await download();
+ assert.equal(inspectGlb(riggedBaked).animations,1);assert.equal(inspectGlb(riggedBaked).skins,1);
+ const rigIO=new WebIO();assertBakeRigPreserved(await rigIO.readBinary(riggedSource),await rigIO.readBinary(riggedBaked));
+ await metrics(riggedBaked,'optimized');assert.equal(await page.locator('#model-playback').isVisible(),true);
+ assert.deepEqual(await page.locator('#model-clip option').allTextContents(),['Wave']);
+ await page.locator('#model-play').click();await page.waitForTimeout(250);assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'playing');
+ await page.locator('#view-original').click();await metrics(riggedSource,'original');assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'playing');
+ await page.locator('#view-optimized').click();await metrics(riggedBaked,'optimized');
+ assert.deepEqual(await download(),riggedBaked,'playing a clip must not bake its current frame into saved bytes');
+ await page.locator('#model-play').click();assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'paused');
+ await page.locator('#model-stop').click();assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'stopped');
+ await page.locator('#model-play').click();await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
+ const rigDownload=page.waitForEvent('download');await page.locator('#convert-export').click();const rigCopy=await rigDownload,rigPath=join(temp,'rig-source-copy.glb');await rigCopy.saveAs(rigPath);
+ assert.deepEqual(new Uint8Array(await readFile(rigPath)),riggedSource);assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'stopped');
+ await page.locator('[data-tab="opt"]').click();
+ console.log('Browser: skinned surface bake → synchronized clip preview → active metrics → immutable save and original copy');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});
@@ -146,7 +180,9 @@ try{
  assert.equal(await page.locator('#geometry-target').inputValue(),'5000');
  assert.equal(await page.locator('#geometry-error').inputValue(),'0.003');
  await preview();
- const first=inspectGlb(await download());assert.ok(geometryHistory(first.json.extras));
+ const firstBytes=await download(),first=inspectGlb(firstBytes);assert.ok(geometryHistory(first.json.extras));
+ await metrics(firstBytes,'optimized');await page.locator('#view-original').click();await metrics(independent,'original');await page.locator('#view-optimized').click();await metrics(firstBytes,'optimized');
+ assert.equal(await page.locator('#model-playback').isVisible(),false);
  await page.locator('#geometry-target').fill('3000');await preview();
  const next=geometryHistory(inspectGlb(await download()).json.extras);
  assert.equal(next.sourceTriangles,20000);

@@ -14,6 +14,9 @@ import {bakeGlbOffThread} from '../src/surface-bake-client.js';
 import {geometryHistory} from '../src/geometry-policy.js';
 import {inspectGlb} from '../src/format.js';
 import {compressionFixture} from './helpers/compression-fixtures.mjs';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {ModelPlayback} from '../src/model-playback.js';
+import {cloneDocument} from '@gltf-transform/functions';
 const io=()=>new WebIO().registerExtensions(ALL_EXTENSIONS);
 const encodeImage=async({data,width,height})=>({image:new Uint8Array(PNG.sync.write({data:Buffer.from(data),width,height})),mimeType:'image/png'});
 const decodeImage=async t=>{const p=PNG.sync.read(Buffer.from(t.getImage()));return {data:p.data,width:p.width,height:p.height}};
@@ -49,7 +52,7 @@ test('projection transfers source UV transforms, normal map and ORM without ligh
  assert.deepEqual(Array.from(out.maps.base.slice(center,center+4)),[120,80,210,255]);assert.deepEqual(Array.from(out.maps.orm.slice(center,center+3)),[36,80,180]);
  assert.ok(out.maps.normal[center+1]>180);assert.equal(out.misses,0);
 });
-test('Mixamo with extra head/hips bones, weights and separate ear/tail clips survives',async()=>{
+test('Mixamo with extra head/hips bones, weights and ear/tail clips retains sampled animated vertex positions',async()=>{
  const png=PNG.sync.write({width:1,height:1,data:Buffer.from([160,90,30,255])}),original=await compressionFixture({texture:new Uint8Array(png),textureMime:'image/png'});
  const doc=await io().readBinary(original),root=doc.getRoot(),skin=root.listSkins()[0],buffer=root.listBuffers()[0],hips=root.listNodes().find(n=>n.getName()==='Hips'),arm=root.listNodes().find(n=>n.getName()==='Arm');
  const head=doc.createNode('mixamorig:Head').setTranslation([0,.2,0]);arm.addChild(head);
@@ -72,6 +75,30 @@ test('Mixamo with extra head/hips bones, weights and separate ear/tail clips sur
   for(let i=0;i<pos.length/3;i++)m.set(Array.from(pos.slice(i*3,i*3+3)).join(','),Array.from(j.slice(i*4,i*4+4)).concat(Array.from(w.slice(i*4,i*4+4))));return m;
  };
  const before=tuples(prim);for(const [key,value]of tuples(after.getRoot().listMeshes()[0].listPrimitives()[0]))assert.deepEqual(value,before.get(key));
+ // CPU skinning of the actual source/baked geometry at animated poses. Drop
+ // images only in diagnostic clones so Node's loader needs no browser Canvas.
+ async function runtime(document){
+  const copy=cloneDocument(document);for(const m of copy.getRoot().listMaterials())m.dispose();for(const t of copy.getRoot().listTextures())t.dispose();
+  const bytes=await io().writeBinary(copy);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
+ }
+ const a=await runtime(doc),b=await runtime(after),meshes=[];
+ for(const loaded of [a,b]){let mesh;loaded.scene.traverse(n=>{if(n.isSkinnedMesh)mesh=n});meshes.push(mesh)}
+ const sourcePositions=meshes[0].geometry.getAttribute('position'),byPosition=new Map();
+ for(let i=0;i<sourcePositions.count;i++)byPosition.set([sourcePositions.getX(i),sourcePositions.getY(i),sourcePositions.getZ(i)].join(','),i);
+ const player=new ModelPlayback();player.setModels(a.scene,a.animations,b.scene,b.animations);
+ for(let clip=0;clip<a.animations.length;clip++){
+  player.stop();player.play(clip);
+  for(let frame=0;frame<9;frame++){
+   player.update(.1);for(const m of meshes)m.skeleton.update();
+   const p=meshes[1].geometry.getAttribute('position');
+   for(let i=0;i<p.count;i++){
+    const old=byPosition.get([p.getX(i),p.getY(i),p.getZ(i)].join(','));assert.notEqual(old,undefined);
+    const x=meshes[0].getVertexPosition(old,new THREE.Vector3()).applyMatrix4(meshes[0].matrixWorld),y=meshes[1].getVertexPosition(i,new THREE.Vector3()).applyMatrix4(meshes[1].matrixWorld);
+    assert.ok(x.distanceTo(y)<1e-5,'baked vertex deformation changed in '+a.animations[clip].name+' at '+player.time);
+   }
+  }
+ }
+ player.dispose();
 });
 test('a model below its target is byte-identical and not rebaked',async()=>{
  const {bytes}=await sphere(),result=await prepareBakeGlb(bytes,{...options,targetTriangles:50000});assert.equal(result.unchanged,true);assert.deepEqual(result.bytes,bytes);

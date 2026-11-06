@@ -31,6 +31,15 @@
     </label>
     <small id="view-quality-note">Экспорт всегда использует исходную геометрию.</small>
   </div>
+  <div id="model-playback" class="model-playback" hidden>
+    <label>Анимация модели<select id="model-clip" aria-label="Анимация модели"></select></label>
+    <div class="model-playback-buttons">
+      <button type="button" id="model-play" aria-pressed="false" disabled>▶ Воспроизвести</button>
+      <button type="button" id="model-stop" disabled>■ Исходная поза</button>
+    </div>
+    <small>Исходник и результат показывают одно движение в один момент времени.</small>
+  </div>
+  <p id="metrics-title" class="metrics-title" hidden></p>
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">

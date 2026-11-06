@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {ModelPlayback} from './model-playback.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-codecs.js';
@@ -35,8 +36,9 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;
 configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',viewProxyRoot:null,bvhOnly:false,mixer:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
+const modelPlayback=new ModelPlayback();
 let activeBake=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -57,6 +59,7 @@ function buttons(){
  $('view-optimized').disabled=!ready||!state.previewRoot;
  $('cancel-bake').hidden=!activeBake;
  updateGeometryControls();
+ updatePlaybackButtons();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -66,6 +69,7 @@ function suspendGpu(root){
  for(const t of textures)t.dispose();
 }
 function suspendStaticBakeSource(){
+ modelPlayback.dispose();
  const geometries=new Set(),images=new Set();
  state.root.traverse(n=>{if(!n.isMesh)return;geometries.add(n.geometry);for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture&&typeof v.image?.close==='function')images.add(v.image)});
  scene.remove(state.root);release(state.root);
@@ -91,6 +95,7 @@ function fit(){
 function release(root){root?.traverse(obj=>{if(!obj.isMesh)return;obj.geometry?.dispose();for(const m of Array.isArray(obj.material)?obj.material:[obj.material])if(m){for(const v of Object.values(m))if(v?.isTexture)v.dispose();m.dispose()}})}
 function showComparison(optimized=false){
  const isPreview=optimized&&!!state.previewRoot;
+ state.viewMode=isPreview?'optimized':'original';
  if(state.root)state.root.visible=!isPreview&&!state.viewProxyRoot;
  if(state.viewProxyRoot)state.viewProxyRoot.visible=!isPreview;
  if(state.previewRoot)state.previewRoot.visible=isPreview;
@@ -99,6 +104,7 @@ function showComparison(optimized=false){
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
  $('view-label').textContent=isPreview?'После оптимизации':'Исходная модель';
+ displayMetrics();
 }
 function clear3mfViewport(){
  if(state.viewProxyRoot){
@@ -124,10 +130,12 @@ function set3mfViewQuality(percent){
  showComparison(false);
 }
 function discardPreview(){
+ modelPlayback.stop();
  if(state.previewRoot){
    scene.remove(state.previewRoot);release(state.previewRoot);
  }
- state.previewRoot=null;state.preview=null;
+ state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;
+ refreshModelPlayback();
  if(state.root)state.root.visible=true;
  $('preview-switch').hidden=true;$('view-label').hidden=true;
  showComparison(false);
@@ -156,8 +164,38 @@ function displayComparison(result){
    (result.note||'Переключай «Исходник / Результат» и сравнивай детали.');
  report.append(p);
 }
+function displayMetrics(){
+ const isPreview=state.viewMode==='optimized'&&state.previewRoot&&state.preview;
+ const m=isPreview?state.previewMetrics:state.sourceMetrics;
+ const title=$('metrics-title');title.hidden=!m;$('metrics').replaceChildren();if(!m)return;
+ const variant=isPreview?'optimized':'original',size=isPreview?state.preview.bytes.byteLength:state.bytes;
+ title.textContent=isPreview?'Результат оптимизации':'Исходная модель';
+ $('metrics').dataset.variant=variant;$('metrics').setAttribute('aria-label',title.textContent);
+ const metrics=[['size','Размер',formatSize(size)],['meshes','Меши',m.meshes],['triangles','Полигоны',m.triangles],['vertices','Вершины',m.vertices],['materials','Материалы',m.materials],['textures','Текстуры',m.textures],['bones','Кости',m.bones],['animations','Анимации',m.animations]];
+ for(const [key,label,value]of metrics){
+  const row=document.createElement('div');row.className='metric';row.dataset.metric=key;
+  const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row);
+ }
+}
+function updatePlaybackButtons(){
+ const available=!!state.root&&!state.bvhOnly&&state.clips.length>0;
+ $('model-playback').hidden=!available;
+ $('model-clip').disabled=!available||state.busy;
+ $('model-play').disabled=!available||state.busy;
+ $('model-stop').disabled=!available||state.busy||!modelPlayback.active;
+ $('model-play').textContent=modelPlayback.playing?'❚❚ Пауза':'▶ Воспроизвести';
+ $('model-play').setAttribute('aria-pressed',String(modelPlayback.playing));
+ $('model-playback').dataset.state=modelPlayback.playing?'playing':modelPlayback.active?'paused':'stopped';
+}
+function refreshModelPlayback(){
+ modelPlayback.setModels(state.bvhOnly?null:state.root,state.clips,state.previewRoot,state.previewClips);
+ const picker=$('model-clip'),selected=picker.value;picker.replaceChildren();
+ for(let i=0;i<state.clips.length;i++){const option=document.createElement('option');option.value=String(i);option.textContent=state.clips[i].name||'Анимация '+(i+1);picker.append(option)}
+ if(Array.from(picker.options).some(o=>o.value===selected))picker.value=selected;
+ updatePlaybackButtons();
+}
 function display(){
- const m=modelStats(state.root,state.clips);
+ const m=state.sourceMetrics=modelStats(state.root,state.clips);
  const history=state.sourceBuffer?geometryHistory(inspectGlb(state.sourceBuffer).json.extras):null;
  $('opt-geometry').disabled=!!history;
  if(history)$('opt-geometry').checked=false;
@@ -169,9 +207,7 @@ function display(){
    ?'Скелет найден: доступно осторожное упрощение с защитой UV, суставов и весов. Перед сохранением сравни движения рук и ног. Исходник не перезаписывается.'
    :'Включай только те части, которые хочешь обработать. При отсутствии улучшений исходный GLB остаётся неизменным.';
  updateGeometryControls();
- const metrics=[['Размер',(state.bytes/1048576).toFixed(1)+' МБ'],['Меши',m.meshes],['Полигоны',m.triangles],['Вершины',m.vertices],['Материалы',m.materials],['Текстуры',m.textures],['Кости',m.bones],['Анимации',m.animations]];
- $('metrics').replaceChildren();
- for(const [label,value] of metrics){const row=document.createElement('div');row.className='metric';const l=document.createElement('span');l.textContent=label;const n=document.createElement('strong');n.textContent=value;row.append(l,n);$('metrics').append(row)}
+ displayMetrics();
  $('compat').textContent=state.info+'\n'+
    (m.skinned?'Есть привязка к скелету; проверь анимацию в Godot.':'Скелет отсутствует либо не привязан.')+
    '\nПоддерживаемые входные форматы: '+SUPPORTED_INPUTS.map(x=>x.toUpperCase()).join(', ')+
@@ -225,6 +261,7 @@ async function load(file,attachments=[file]){
    }
    state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
    state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.sourceFile=ext==='glb'&&source===file?source:null;state.info=info;
+   refreshModelPlayback();
    updateExportWarnings();
    const faces=modelStats(state.root).triangles;
    set3mfViewQuality(ext==='3mf'&&faces>350000?25:100);
@@ -258,6 +295,7 @@ async function save(value,name,mime){
 
 async function preparePreview(){
  if(!state.root||state.busy)return;
+ stopMotionPlayback();
  discardPreview();
  state.busy=true;buttons();progress(5);
  let loaded=null,baking=false,suspended=false,sourceStats=null;
@@ -351,9 +389,10 @@ async function preparePreview(){
    status('Подготавливаем 3D-предпросмотр…');
    progress(93);
    const ab=asArrayBuffer(optimized.bytes);
-   loaded=(await createModelLoader().parseAsync(ab,'')).scene;
+   const previewModel=await createModelLoader().parseAsync(ab,'');loaded=previewModel.scene;
    loaded.visible=false;scene.add(loaded);
-   state.previewRoot=loaded;state.preview=optimized;
+   state.previewRoot=loaded;state.preview=optimized;state.previewClips=previewModel.animations||[];
+   state.previewMetrics=modelStats(loaded,state.previewClips);refreshModelPlayback();
    loaded=null;
    $('preview-switch').hidden=false;$('view-label').hidden=false;
    displayComparison(optimized);
@@ -391,6 +430,7 @@ async function savePreview(){
 
 async function exportAs(target){
  if(!state.root||state.busy)return;
+ stopMotionPlayback();
  state.busy=true;buttons();progress(3);
  try{
    const current=modelStats(state.root,state.clips);
@@ -552,6 +592,7 @@ $('model-file').addEventListener('change',e=>{
 });
 function motionStatus(message){$('anim-status').textContent=message}
 function stopMotionPlayback(){
+ modelPlayback.stop();
  if(state.mixer){
    state.mixer.stopAllAction();
    if(state.root)state.mixer.uncacheRoot(state.root);
@@ -747,6 +788,16 @@ for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animati
  updateGeometryControls();
  discardPreview();status('Настройки изменены. Создай предпросмотр заново.');
 });
+$('model-play').addEventListener('click',()=>{
+ if(state.busy||!state.root)return;
+ try{
+  if(modelPlayback.playing)modelPlayback.pause();
+  else {if(state.mixer||motion.pose)stopMotionPlayback();modelPlayback.play(Number($('model-clip').value));}
+ }catch(e){status('Ошибка воспроизведения: '+e.message)}
+ buttons();
+});
+$('model-stop').addEventListener('click',()=>{modelPlayback.stop();buttons()});
+$('model-clip').addEventListener('change',()=>{modelPlayback.stop();buttons()});
 $('view-original').addEventListener('click',()=>showComparison(false));
 $('view-optimized').addEventListener('click',()=>showComparison(true));
 $('preview-opt').addEventListener('click',preparePreview);
@@ -782,7 +833,7 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 const playbackClock=new THREE.Clock();
-function tick(){requestAnimationFrame(tick);if(state.mixer)state.mixer.update(Math.min(playbackClock.getDelta(),.1));else playbackClock.getDelta();orbit.update();renderer.render(scene,camera)}tick();buttons();
+function tick(){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);orbit.update();renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){
