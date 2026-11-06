@@ -9,7 +9,7 @@ const out=new URL('public/codecs/',root);
 const three=dirname(dirname(require.resolve('three')));
 const draco=dirname(require.resolve('draco3dgltf'));
 const ktx=dirname(dirname(fileURLToPath(import.meta.resolve('ktx2-encoder'))));
-for(const dir of ['draco','basis','ktx2','bake'])await mkdir(new URL(dir+'/',out),{recursive:true});
+for(const dir of ['draco','basis','ktx2','bake','rig'])await mkdir(new URL(dir+'/',out),{recursive:true});
 for(const name of ['draco_wasm_wrapper.js','draco_decoder.wasm'])
  await copyFile(join(three,'examples/jsm/libs/draco/gltf',name),new URL('draco/'+name,out));
 for(const [source,dest,globalName] of [
@@ -37,3 +37,5 @@ await copyFile(join(atlas,'README.md'),new URL('bake/XATLAS_WASM_README.txt',out
 await copyFile(new URL('third-party/xatlas-LICENSE.txt',root),new URL('bake/XATLAS_LICENSE.txt',out));
 await copyFile(join(bvh,'LICENSE'),new URL('bake/BVH_LICENSE.txt',out));
 console.log('xatlas/MikkTSpace WASM is embedded in surface workers; notices prepared.');
+await copyFile(new URL('third-party/voxel-skinner-LICENSE.txt',root),new URL('rig/VOXEL_SKINNER_LICENSE.txt',out));
+

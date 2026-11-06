@@ -17,6 +17,7 @@ import {formatSize} from '../src/glb-optimize.js';
 import {assertBakeRigPreserved} from '../src/bake-common.js';
 import {morphFixture} from '../tests/helpers/morph-fixture.mjs';
 import {captureMorphs,assertMorphMetadata} from '../src/morph-policy.js';
+import {rigFixture} from '../tests/helpers/rig-fixture.mjs';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -30,6 +31,7 @@ try{
   await new Promise(r=>setTimeout(r,100));
  }
  browser=await chromium.launch({headless:true,
+  channel:process.env.CODEC_TEST_CHANNEL||undefined,
   executablePath:process.env.CODEC_TEST_BROWSER||undefined,
   args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader',
    ...(process.env.CODEC_TEST_BROWSER?['--single-process','--no-zygote','--in-process-gpu']:[])]});
@@ -158,6 +160,38 @@ try{
  await page.locator('#morph-reset').click();assert.equal(await page.locator('#morph-value').innerText(),'20%');
  await page.locator('[data-tab="convert"]').click();const npcDownload=page.waitForEvent('download');await page.locator('#convert-export').click();const npcCopy=await npcDownload,npcPath=join(temp,'npc-original.glb');await npcCopy.saveAs(npcPath);assert.deepEqual(new Uint8Array(await readFile(npcPath)),npcSource);await page.locator('[data-tab="opt"]').click();
  console.log('Browser: NPC morph bake → combined manual expressions → cubic face clip → reset → immutable saves');
+ // Guided body rig uses the real worker and production GLTFLoader associations.
+ const body=await rigFixture({texture:new Uint8Array(Buffer.from(png,'base64'))});
+ await load(body.bytes,'body-original.glb');await page.locator('[data-tab="rig"]').click();
+ assert.equal(await page.locator('#rig-build').isDisabled(),true);await page.locator('#rig-draft').click();
+ assert.equal(await page.locator('#rig-joint option').count(),18);await page.locator('#rig-side').click();assert.equal(await page.locator('#rig-side').getAttribute('aria-pressed'),'true');await page.locator('#rig-front').click();
+ await page.locator('#rig-resolution').selectOption('32');await page.locator('#rig-confirm').check();await page.locator('#rig-build').click();
+ await page.locator('#rig-cancel').waitFor({state:'visible'});await page.locator('#rig-cancel').click();
+ await page.waitForFunction(()=>/отменено/.test(document.getElementById('rig-status').textContent)&&!document.getElementById('rig-build').disabled);
+ assert.equal(await page.locator('#rig-export').isDisabled(),true);
+ async function createBodyRig(){await page.locator('#rig-build').click();await page.waitForFunction(()=>!document.getElementById('rig-export').disabled||/Ошибка скелета/.test(document.getElementById('rig-status').textContent),{},{timeout:180000});assert.ok(!(await page.locator('#rig-status').innerText()).includes('Ошибка'))}
+ await createBodyRig();assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
+ async function downloadRig(){const waiting=page.waitForEvent('download');await page.locator('#rig-export').click();const file=await waiting,path=join(temp,file.suggestedFilename());await file.saveAs(path);return new Uint8Array(await readFile(path))}
+ const bodyRig=await downloadRig();assert.equal(inspectGlb(bodyRig).skins,1);await metrics(bodyRig,'optimized');
+ await page.locator('#rig-test-play').click();await page.waitForTimeout(250);assert.equal(await page.locator('#rig-test-stop').isDisabled(),false);
+ assert.deepEqual(await downloadRig(),bodyRig,'bend review must not serialize a transient pose');
+ await page.locator('#rig-test-play').click();await page.locator('#rig-test-stop').click();assert.equal(await page.locator('#rig-test-stop').isDisabled(),true);
+ await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
+ const bodyCopyWaiting=page.waitForEvent('download');await page.locator('#convert-export').click();const bodyCopy=await bodyCopyWaiting,bodyPath=join(temp,'body-original-copy.glb');await bodyCopy.saveAs(bodyPath);assert.deepEqual(new Uint8Array(await readFile(bodyPath)),body.bytes);
+ await page.locator('[data-tab="rig"]').click();await page.locator('#tab-rig summary').click();
+ const oldX=await page.locator('#rig-x').inputValue();await page.locator('#rig-x').fill(String(Number(oldX)+.0001));await page.locator('#rig-x').press('Tab');
+ assert.equal(await page.locator('#rig-confirm').isChecked(),false);assert.equal(await page.locator('#rig-export').isDisabled(),true);assert.equal(await page.locator('#opt-export').isDisabled(),true);
+ await page.locator('#rig-x').fill(oldX);await page.locator('#rig-x').press('Tab');await page.locator('#rig-confirm').check();await createBodyRig();
+ await page.locator('#rig-resolution').selectOption('48');assert.equal(await page.locator('#rig-export').isDisabled(),true);assert.equal(await page.locator('#rig-confirm').isChecked(),false);await page.locator('#rig-resolution').selectOption('32');await page.locator('#rig-confirm').check();await createBodyRig();
+ const adopted=await downloadRig();await page.locator('#rig-use').click();assert.equal(await page.locator('#tab-anim').isVisible(),true);assert.equal(await page.locator('#anim-bvh-file').isDisabled(),false);assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
+ await page.locator('[data-tab="convert"]').click();const adoptedWaiting=page.waitForEvent('download');await page.locator('#convert-export').click();const adoptedFile=await adoptedWaiting,adoptedPath=join(temp,'body-adopted.glb');await adoptedFile.saveAs(adoptedPath);assert.deepEqual(new Uint8Array(await readFile(adoptedPath)),adopted);
+ await page.locator('[data-tab="anim"]').click();
+ const bodyMotion=['HIERARCHY','ROOT Hips','{','OFFSET 0 0 0','CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation','JOINT Chest','{','OFFSET 0 1 0','CHANNELS 3 Zrotation Xrotation Yrotation','End Site','{','OFFSET 0 1 0','}','}','}','MOTION','Frames: 3','Frame Time: .0333333','0 0 0 0 0 0 0 0 0','0 0 0 0 0 0 15 0 0','0 0 0 0 0 0 30 0 0'].join('\n')+'\n';
+ await page.locator('#anim-bvh-file').setInputFiles({name:'body-motion.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled||/Ошибка BVH/.test(document.getElementById('anim-status').textContent));
+ await page.locator('#anim-preview').click();assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'));assert.equal(await page.locator('#anim-add').isDisabled(),false);await page.locator('#anim-add').click();
+ const bodyAnimationWaiting=page.waitForEvent('download');await page.locator('#anim-export').click();const bodyAnimation=await bodyAnimationWaiting,bodyAnimationPath=join(temp,'body-animation.glb');await bodyAnimation.saveAs(bodyAnimationPath);const animatedBody=inspectGlb(new Uint8Array(await readFile(bodyAnimationPath)));assert.equal(animatedBody.skins,1);assert.equal(animatedBody.animations,1);
+ await page.locator('[data-tab="opt"]').click();
+ console.log('Browser: guided body points → cancel/retry → real worker → bend review → immutable export → edit invalidation → adoption → BVH retarget/export');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});
@@ -285,4 +319,5 @@ try{
 }finally{
  await browser?.close();server.kill();await rm(temp,{recursive:true,force:true});
 }
+
 
