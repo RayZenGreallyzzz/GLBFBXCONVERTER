@@ -28,14 +28,17 @@ export async function simplifyBakeStatic(document,prim,{ratio,error,regularize=f
  await MeshoptSimplifier.ready;
  const buffer=document.getRoot().listBuffers()[0]||document.createBuffer();
  const temp=document.createPrimitive().setAttribute('POSITION',document.createAccessor().setBuffer(buffer).setType(Accessor.Type.VEC3).setArray(attributeValues(prim.getAttribute('POSITION'))));
- if(prim.getIndices())temp.setIndices(prim.getIndices().clone());weldPrimitive(temp);
+ // weldPrimitive creates independent indices; share the donor read-only here
+ // rather than clone tens of megabytes that will immediately be replaced.
+ if(prim.getIndices())temp.setIndices(prim.getIndices());weldPrimitive(temp);
  const p=temp.getAttribute('POSITION'),idx=temp.getIndices(),source=idx.getArray();
  const target=Math.max(3,Math.floor(source.length*ratio/3)*3);let result=source;
  if(target<source.length){
-  const [reduced,actualError]=MeshoptSimplifier.simplify(new Uint32Array(source),p.getArray(),3,target,error,regularize?['LockBorder','Regularize']:['LockBorder']);
+  const [reduced,actualError]=MeshoptSimplifier.simplify(source instanceof Uint32Array?source:new Uint32Array(source),p.getArray(),3,target,error,regularize?['LockBorder','Regularize']:['LockBorder']);
   if(!reduced.length||reduced.length%3||!Number.isFinite(actualError)||actualError>error+1e-6)throw Error('Не удалось соблюсти погрешность формы');result=reduced;
  }
- temp.setIndices(idx.clone().setArray(result));compactPrimitive(temp);
+ // idx belongs only to the welded temporary primitive, never to the donor.
+ idx.setArray(result);compactPrimitive(temp);
  for(const semantic of prim.listSemantics())prim.setAttribute(semantic,null);
  prim.setAttribute('POSITION',temp.getAttribute('POSITION')).setIndices(temp.getIndices());temp.dispose();
 }
