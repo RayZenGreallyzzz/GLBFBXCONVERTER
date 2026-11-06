@@ -108,8 +108,8 @@ test('Mixamo with extra head/hips bones, weights and ear/tail clips retains samp
 test('a model below its target is byte-identical and not rebaked',async()=>{
  const {bytes}=await sphere(),result=await prepareBakeGlb(bytes,{...options,targetTriangles:50000});assert.equal(result.unchanged,true);assert.deepEqual(result.bytes,bytes);
 });
-test('morphs and memory limits fail without modifying source bytes',async()=>{
- const bytes=await compressionFixture({morph:true}),copy=bytes.slice();await assert.rejects(()=>prepareBakeGlb(bytes,{...options,targetTriangles:100}),/Morph/);assert.deepEqual(bytes,copy);
+test('fully protected morphs and memory limits fail without modifying source bytes',async()=>{
+ const bytes=await compressionFixture({morph:true}),copy=bytes.slice();await assert.rejects(()=>prepareBakeGlb(bytes,{...options,targetTriangles:100}),/уменьшения|упрощение|погрешности/);assert.deepEqual(bytes,copy);
  const {doc}=await sphere();assert.throws(()=>bakePlan(doc,1024*1024*1024,{...options,memoryBudgetMiB:64}),/память/);
 });
 test('projection misses fail instead of saving black stripes',()=>{
@@ -199,3 +199,4 @@ test('dense curved mesh keeps its budget and valid frames after an alternate don
  const validation=await validator.validateBytes(result.bytes,{maxIssues:100});assert.equal(validation.issues.numErrors,0,JSON.stringify(validation.issues));
  const h=geometryHistory(inspectGlb(result.bytes).json.extras);assert.equal(h.sourceTriangles,98304);assert.equal(h.error,.008);assert.equal(h.geometryPasses,1);
 });
+

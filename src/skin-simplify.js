@@ -10,6 +10,7 @@
 import { compactPrimitive, weldPrimitive } from '@gltf-transform/functions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import {attributeValues,uvScales} from './static-simplify.js';
+import {morphLocks} from './morph-policy.js';
 
 const MAX_VERTICES = 1_200_000;
 const TRIANGLES = 4;
@@ -39,8 +40,6 @@ function checkSkin(prim){
    'У модели со скелетом отсутствуют координаты, JOINTS_0 или WEIGHTS_0');
  if(prim.getMode()!==TRIANGLES)throw Error(
    'Скелетная сетка с режимом рисования не TRIANGLES пока не упрощается');
- if(prim.listTargets().length)throw Error(
-   'В модели есть Blend Shapes/Morph Targets. Упрощение отключено для защиты мимики');
  if(prim.getAttribute('JOINTS_1')||prim.getAttribute('WEIGHTS_1'))
    throw Error('Более четырёх костных влияний на вершину: упрощение пока недоступно');
  if(count>MAX_VERTICES)
@@ -89,6 +88,7 @@ function buildSignature(prim){
      .sort((a,b)=>b-a);
    if(sorted[2]>.15)locks[i]=1;
  }
+ if(prim.listTargets().length){const morph=morphLocks(prim);for(let i=0;i<count;i++)locks[i]|=morph[i]}
  return {positions,attrs,stride,attrWeights,locks,count};
 }
 /**

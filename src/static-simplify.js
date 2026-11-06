@@ -2,6 +2,7 @@
 // normals, UV scale and tangent discontinuities also influence collapse cost.
 import {compactPrimitive,weldPrimitive} from '@gltf-transform/functions';
 import {MeshoptSimplifier} from 'meshoptimizer';
+import {morphLocks} from './morph-policy.js';
 
 export function attributeValues(accessor){
  if(!accessor)return null;
@@ -25,14 +26,15 @@ export function uvScales(material,texCoord=0){
  }
  return scales;
 }
-export async function simplifyStaticMeshes(document,{ratio,error=.003}={}){
+export async function simplifyStaticMeshes(document,{ratio,error=.003,onlyPrimitive=null}={}){
  await MeshoptSimplifier.ready;
  const skinned=new Set(document.getRoot().listNodes().filter(n=>n.getSkin()).map(n=>n.getMesh()));
  const stats={reduced:0,skipped:0,error:0};
  for(const mesh of document.getRoot().listMeshes()){
   if(skinned.has(mesh))continue;
   for(const prim of mesh.listPrimitives()){
-   if(prim.getMode()!==4||prim.listTargets().length){stats.skipped++;continue;}
+   if(onlyPrimitive&&prim!==onlyPrimitive)continue;
+   if(prim.getMode()!==4){stats.skipped++;continue;}
    weldPrimitive(prim);
    const pos=prim.getAttribute('POSITION'),count=pos?.getCount();
    if(!count||!prim.getIndices())throw Error('Нет индексированной геометрии для упрощения');
@@ -52,7 +54,9 @@ export async function simplifyStaticMeshes(document,{ratio,error=.003}={}){
     }
     channels.push({values:attributeValues(a),size,weights});
    }
-   const stride=channels.reduce((n,c)=>n+c.size,0),weights=channels.flatMap(c=>c.weights);
+   let stride=channels.reduce((n,c)=>n+c.size,0),weights=channels.flatMap(c=>c.weights);
+   const locks=prim.listTargets().length?morphLocks(prim):new Uint8Array(count);
+   if(!stride&&prim.listTargets().length){stride=1;weights=[0]}
    const attrs=new Float32Array(count*stride);
    for(let i=0;i<count;i++){
     let offset=i*stride;
@@ -62,7 +66,7 @@ export async function simplifyStaticMeshes(document,{ratio,error=.003}={}){
    if(positions.some(x=>!Number.isFinite(x)))throw Error('Некорректные координаты вершин');
    const indices=source instanceof Uint32Array?source:new Uint32Array(source);
    const [result,actualError]=stride?MeshoptSimplifier.simplifyWithAttributes(
-    indices,positions,3,attrs,stride,weights,new Uint8Array(count),target,error,['LockBorder'])
+    indices,positions,3,attrs,stride,weights,locks,target,error,['LockBorder'])
     :MeshoptSimplifier.simplify(indices,positions,3,target,error,['LockBorder']);
    if(!result.length||result.length%3||result.length>source.length||
     !Number.isFinite(actualError)||actualError>error+1e-6)

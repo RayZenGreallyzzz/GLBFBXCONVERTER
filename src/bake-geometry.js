@@ -4,7 +4,8 @@ import {weldPrimitive,compactPrimitive} from '@gltf-transform/functions';
 import {MeshoptSimplifier} from 'meshoptimizer';
 import createXAtlas from 'xatlas-wasm';
 import * as Mikk from 'three/examples/jsm/libs/mikktspace.module.js';
-import {attributeValues} from './static-simplify.js';
+import {attributeValues,simplifyStaticMeshes} from './static-simplify.js';
+import {morphValue} from './morph-policy.js';
 import {simplifyBakeChunks} from './bake-chunks.js';
 import {packedValues,positionBounds} from './bake-packed.js';
 import {faceTangents} from './bake-frame.js';
@@ -13,8 +14,8 @@ export async function getBakeAtlasModule(){atlasModule ||= createXAtlas();return
 const finite=a=>{for(const x of a)if(!Number.isFinite(x))throw Error('В сетке есть нечисловые значения');return a};
 export function primitiveGeometry(prim){
  const p=prim.getAttribute('POSITION');
- if(!p||p.getType()!=='VEC3'||prim.getMode()!==4||prim.listTargets().length)
-  throw Error('Перенос поддерживает треугольные сетки без Morph Targets');
+ if(!p||p.getType()!=='VEC3'||prim.getMode()!==4)
+  throw Error('Перенос поддерживает треугольные сетки');
  const positions=finite(attributeValues(p));
  const indices=prim.getIndices()?.getArray()||Uint32Array.from({length:p.getCount()},(_,i)=>i);
  if(!indices.length||indices.length%3)throw Error('Неверные индексы сетки');
@@ -41,6 +42,7 @@ export function packedProjectionSource(prim){
   colors:prim.getAttribute('COLOR_0')?packedValues(prim.getAttribute('COLOR_0')):null,colorSize:prim.getAttribute('COLOR_0')?.getElementSize()||0};
 }
 export async function simplifyBakeStatic(document,prim,{ratio,error,regularize=false,onProgress=()=>{}}){
+ if(prim.listTargets().length)return simplifyStaticMeshes(document,{ratio,error,onlyPrimitive:prim});
  const triangles=(prim.getIndices()?.getCount()||prim.getAttribute('POSITION').getCount())/3;
  if(triangles>262144)return simplifyBakeChunks(document,prim,{ratio,error,regularize,onProgress});
  await MeshoptSimplifier.ready;
@@ -67,32 +69,14 @@ export function removeBakeDegenerates(prim){
   const ux=p[b]-p[a],uy=p[b+1]-p[a+1],uz=p[b+2]-p[a+2],vx=p[c]-p[a],vy=p[c+1]-p[a+1],vz=p[c+2]-p[a+2];
   const x=uy*vz-uz*vy,y=uz*vx-ux*vz,z=ux*vy-uy*vx;
   if(x*x+y*y+z*z>0)out.push(source[i],source[i+1],source[i+2]);
+  else if(prim.listTargets().some(t=>t.getAttribute('POSITION')&&[a,b,c].some(v=>[0,1,2].some(k=>morphValue(t.getAttribute('POSITION'),v+k)!==0))))throw Error('Нулевая грань основы участвует в Blend Shapes. Используй обычную оптимизацию без переноса деталей.');
  }
  if(!out.length)throw Error('После очистки вырожденных треугольников не осталось поверхности');
  if(out.length<source.length){prim.setIndices(prim.getIndices().clone().setArray(new Uint32Array(out)));compactPrimitive(prim);}
  return (source.length-out.length)/3;
 }
-// Both UV paths share corner reconstruction, cage normals and frame validation.
-export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVertices,uv){
- const buffer=document.getRoot().listBuffers()[0]||document.createBuffer(),count=oldVertices.length;
- const attributes=prim.listSemantics().filter(s=>!['NORMAL','TANGENT','COLOR_0'].includes(s)&&!s.startsWith('TEXCOORD_')).map(s=>({semantic:s,accessor:prim.getAttribute(s),size:prim.getAttribute(s).getElementSize()}));
- const margin=Math.max(4,Math.round(resolution/128));
- const n=new Float32Array(count*3),position=new Float32Array(count*3);
- for(let c=0;c<count;c++){
-  const old=oldVertices[c];if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');
-  for(let k=0;k<3;k++){position[c*3+k]=data.positions[old*3+k];n[c*3+k]=normals[old*3+k];}
- }
-  const projectionNormals=n.slice();
-  for(let i=0;i<count;i+=3){
-   const a=i*2,b=a+2,c=a+4,area=(uv[b]-uv[a])*(uv[c+1]-uv[a+1])-(uv[b+1]-uv[a+1])*(uv[c]-uv[a]);
-   if(!Number.isFinite(area)||Math.abs(area)<1e-16){const e=new Error('В UV-развёртке есть треугольник нулевой площади. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
-   const a3=i*3,b3=a3+3,c3=a3+6,ux=position[b3]-position[a3],uy=position[b3+1]-position[a3+1],uz=position[b3+2]-position[a3+2],vx=position[c3]-position[a3],vy=position[c3+1]-position[a3+1],vz=position[c3+2]-position[a3+2];
-   const face=[uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx],length=Math.hypot(...face);if(!(length>0))throw Error('В UV осталась вырожденная грань');
-   for(let k=0;k<3;k++)face[k]/=length;
-   // Sharp folds must not inherit a nearly perpendicular / cancelled smooth
-   // normal. Use that face's geometric normal; its lost smooth shading is baked.
-   for(let c=0;c<3;c++){const p=(i+c)*3;if(n[p]*face[0]+n[p+1]*face[1]+n[p+2]*face[2]<.25)n.set(face,p)}
-  }
+export async function bakeTangents(position,n,uv){
+ const count=position.length/3;
   await Mikk.ready;const tangents=Mikk.generateTangents(position,n,uv);
   const validFrame=(t,i)=>{const v=t.subarray(i*4,i*4+4);return v.every(Number.isFinite)&&Math.abs(Math.hypot(v[0],v[1],v[2])-1)<=1e-4&&Math.abs(v[3])===1};
   for(let i=0;i<count;i++){
@@ -111,6 +95,31 @@ export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVe
     tangents.set(face,first*4);i=first+2;
    }
   }
+ return tangents;
+}
+// Both UV paths share corner reconstruction, cage normals and frame validation.
+export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVertices,uv){
+ const buffer=document.getRoot().listBuffers()[0]||document.createBuffer(),count=oldVertices.length;
+ const morphs=prim.listTargets().map(t=>({name:t.getName(),extras:t.getExtras(),attributes:t.listSemantics().map(s=>({semantic:s,accessor:t.getAttribute(s)}))}));
+ const attributes=prim.listSemantics().filter(s=>!['NORMAL','TANGENT','COLOR_0'].includes(s)&&!s.startsWith('TEXCOORD_')).map(s=>({semantic:s,accessor:prim.getAttribute(s),size:prim.getAttribute(s).getElementSize()}));
+ const margin=Math.max(4,Math.round(resolution/128));
+ const n=new Float32Array(count*3),position=new Float32Array(count*3);
+ for(let c=0;c<count;c++){
+  const old=oldVertices[c];if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');
+  for(let k=0;k<3;k++){position[c*3+k]=data.positions[old*3+k];n[c*3+k]=normals[old*3+k];}
+ }
+  const projectionNormals=n.slice();
+  for(let i=0;i<count;i+=3){
+   const a=i*2,b=a+2,c=a+4,area=(uv[b]-uv[a])*(uv[c+1]-uv[a+1])-(uv[b+1]-uv[a+1])*(uv[c]-uv[a]);
+   if(!Number.isFinite(area)||Math.abs(area)<1e-16){const e=new Error('В UV-развёртке есть треугольник нулевой площади. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
+   const a3=i*3,b3=a3+3,c3=a3+6,ux=position[b3]-position[a3],uy=position[b3+1]-position[a3+1],uz=position[b3+2]-position[a3+2],vx=position[c3]-position[a3],vy=position[c3+1]-position[a3+1],vz=position[c3+2]-position[a3+2];
+   const face=[uy*vz-uz*vy,uz*vx-ux*vz,ux*vy-uy*vx],length=Math.hypot(...face);if(!(length>0))throw Error('В UV осталась вырожденная грань');
+   for(let k=0;k<3;k++)face[k]/=length;
+   // Sharp folds must not inherit a nearly perpendicular / cancelled smooth
+   // normal. Use that face's geometric normal; its lost smooth shading is baked.
+   for(let c=0;c<3;c++){const p=(i+c)*3;if(!morphs.length&&n[p]*face[0]+n[p+1]*face[1]+n[p+2]*face[2]<.25)n.set(face,p)}
+  }
+  const tangents=await bakeTangents(position,n,uv);
   const result={positions:position,normals:n,uv,tangents,indices:Uint32Array.from({length:count},(_,i)=>i),margin};
   for(const name of prim.listSemantics())prim.setAttribute(name,null);
   const set=(name,array,type)=>prim.setAttribute(name,document.createAccessor().setBuffer(buffer).setType(type).setArray(array));
@@ -119,17 +128,38 @@ export async function writeBakeAtlas(document,prim,resolution,data,normals,oldVe
    if(semantic==='POSITION')continue;const source=accessor.getArray(),array=new source.constructor(count*size);
    for(let i=0;i<count;i++)for(let k=0;k<size;k++)array[i*size+k]=source[oldVertices[i]*size+k];prim.setAttribute(semantic,accessor.clone().setArray(array));
   }
+  for(const target of prim.listTargets())prim.removeTarget(target);
+  for(const source of morphs){
+   const target=document.createPrimitiveTarget(source.name).setExtras(source.extras);
+   for(const {semantic,accessor}of source.attributes){
+    const array=new Float32Array(count*3);
+    for(let i=0;i<count;i++)for(let k=0;k<3;k++)array[i*3+k]=morphValue(accessor,oldVertices[i]*3+k);
+    target.setAttribute(semantic,document.createAccessor().setBuffer(buffer).setType(Accessor.Type.VEC3).setArray(array));
+   }
+   if(target.getAttribute('TANGENT')){
+    const dp=target.getAttribute('POSITION')?.getArray(),dn=target.getAttribute('NORMAL')?.getArray(),p=position.slice(),norm=n.slice();
+    for(let i=0;i<p.length;i++){p[i]+=dp?.[i]||0;norm[i]+=dn?.[i]||0}
+    for(let i=0;i<norm.length;i+=3){const len=Math.hypot(norm[i],norm[i+1],norm[i+2]);if(!(len>0))throw Error('Нулевая нормаль в Blend Shape '+source.name);for(let k=0;k<3;k++)norm[i+k]/=len}
+    const frame=await bakeTangents(p,norm,uv),delta=target.getAttribute('TANGENT').getArray();
+    for(let i=0;i<count;i++){
+     if(frame[i*4+3]!==tangents[i*4+3])throw Error('Blend Shape '+source.name+' меняет ориентацию касательных. Используй обычную оптимизацию без переноса деталей.');
+     for(let k=0;k<3;k++)delta[i*3+k]=frame[i*4+k]-tangents[i*4+k];
+    }
+   }
+   prim.addTarget(target);
+  }
   prim.setIndices(document.createAccessor().setBuffer(buffer).setType(Accessor.Type.SCALAR).setArray(result.indices));return result;
 }
 export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()=>{}){
  const module=await getBakeAtlasModule(),atlas=module.createAtlas();
  const data=primitiveGeometry(prim);
- const normalGeo=data.geometry;normalGeo.computeVertexNormals();const normals=normalGeo.attributes.normal.array;
+ const normalGeo=data.geometry;normalGeo.computeVertexNormals();const normals=prim.listTargets().length?data.normals:normalGeo.attributes.normal.array;
  normalGeo.computeBoundingBox();const bounds=normalGeo.boundingBox,extent=Math.max(bounds.max.x-bounds.min.x,bounds.max.y-bounds.min.y,bounds.max.z-bounds.min.z);
  const center=[(bounds.min.x+bounds.max.x)/2,(bounds.min.y+bounds.max.y)/2,(bounds.min.z+bounds.max.z)/2];
  // xatlas uses absolute geometric tolerances. A unit-sized donor with millions
  // of tiny boundary faces can otherwise lose valid triangles before packing.
- const atlasPositions=Float32Array.from(data.positions,(v,i)=>(v-center[i%3])*1000/extent);
+ const atlasScale=prim.listTargets().length?2**Math.round(Math.log2(1000/extent)):1000/extent;
+ const atlasPositions=Float32Array.from(data.positions,(v,i)=>(v-center[i%3])*atlasScale);
  const margin=Math.max(4,Math.round(resolution/128));
  try{
   atlas.setProgressCallback((category,percent)=>{onProgress(category,percent);return true});

@@ -5,6 +5,7 @@ import {primitiveGeometry,packedProjectionSource} from './bake-geometry.js';
 import {projectBakePixels,transformUV} from './bake-pixels.js';
 import {geometryTargetNote,optimizationHistory,HISTORY_KEY} from './geometry-policy.js';
 import {countTriangles,countAnimationKeys} from './glb-optimize.js';
+import {captureMorphs,assertMorphRows,morphMaps,resampleWithMorphs} from './morph-policy.js';
 export async function decodeBakeImage(texture,{maxSize=2048}={}){
  const mime=texture.getMimeType(),bytes=texture.getImage();
  if(mime==='image/ktx2'){
@@ -41,6 +42,7 @@ export async function projectBakeGlb(original,prepared,options={}){
  const progress=options.onProgress||(()=>{}),decode=options.decodeImage||decodeBakeImage,encode=options.encodeImage||encodeBakeImage;progress(2,'Строим проекцию деталей исходника…');
  const donor=await readBakeGlb(original,options),low=await readBakeGlb(prepared.bytes),plan=bakePlan(donor.document,original.byteLength,options);
  if(plan.unchanged)throw Error('Для переноса нужна уменьшенная сетка');assertBakeRigPreserved(donor.document,low.document);
+ const morph=captureMorphs(donor.document);if(morph.parts.length)assertMorphRows(morph,low.document,{baked:true});
  const from=bakePrimitives(donor.document),to=bakePrimitives(low.document),reports=[];if(from.length!==to.length)throw Error('Изменилось число частей модели');const root=low.document.getRoot();
  for(let i=0;i<from.length;i++){
   const source=(from[i].getIndices()?.getCount()||from[i].getAttribute('POSITION').getCount())>786432?packedProjectionSource(from[i]):primitiveGeometry(from[i]),target=primitiveGeometry(to[i]);target.uv=target.uv[0];target.margin=Math.max(4,Math.round(plan.resolution/128));
@@ -59,7 +61,8 @@ export async function projectBakeGlb(original,prepared,options={}){
   }
   to[i].setMaterial(result).setAttribute('_PHOENIX_PROJECTION_NORMAL',null);reports.push({coverage:baked.coverage,projected:baked.projected,misses:baked.misses});source.geometry?.dispose();target.geometry.dispose();
  }
- const sourceTriangles=countTriangles(donor.document),optimizedTriangles=countTriangles(low.document),keys=countAnimationKeys(low.document);if(options.animationKeys)await low.document.transform(resample());
+ const sourceTriangles=countTriangles(donor.document),optimizedTriangles=countTriangles(low.document),keys=countAnimationKeys(low.document);if(options.animationKeys)await resampleWithMorphs(low.document);
+ const morphMap=morph.parts.length?morphMaps(low.document,{remove:true}):null;
  const removedKeys=keys-countAnimationKeys(low.document),history=optimizationHistory(sourceTriangles,optimizedTriangles,plan.targetTriangles,plan.error);
  history.surfaceBake={version:1,resolution:plan.resolution,regularizedParts:prepared.regularizedParts||0,projectionMisses:reports.reduce((n,r)=>n+r.misses,0)};root.setExtras({...root.getExtras(),[HISTORY_KEY]:history});
  await low.document.transform(prune({propertyTypes:[PropertyType.ACCESSOR,PropertyType.MATERIAL,PropertyType.TEXTURE,PropertyType.BUFFER],keepAttributes:true,keepExtras:false,keepSolidTextures:true}));
@@ -70,6 +73,7 @@ export async function projectBakeGlb(original,prepared,options={}){
  }
  progress(90,'Проверяем кости, отдельные анимации и готовый GLB…');const bytes=await low.io.writeBinary(low.document),reopened=await low.io.readBinary(bytes);
  assertBakeRigPreserved(donor.document,reopened,{animationKeys:!!options.animationKeys});
+ if(morph.parts.length)assertMorphRows(morph,reopened,{maps:morphMap,baked:true});
  if(countTriangles(reopened)!==optimizedTriangles||!reopened.getRoot().listTextures().length)throw Error('Готовый GLB не прошёл проверку');
  return {bytes,beforeBytes:original.byteLength,afterBytes:bytes.byteLength,sourceTriangles,optimizedTriangles,targetTriangles:plan.targetTriangles,textureLimit:plan.resolution,skins:root.listSkins().length,animations:root.listAnimations().length,removedKeys,unchanged:false,bakeReports:reports,codecSuffix:'_baked',note:'Детали перенесены с оригинала на новые карты '+plan.resolution+' px. Все пиксели поверхности спроецированы. Кости, веса и привязки анимаций сохранены. '+geometryTargetNote(plan.targetTriangles,optimizedTriangles)};
 }
