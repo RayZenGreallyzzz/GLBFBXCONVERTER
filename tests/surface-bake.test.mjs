@@ -155,3 +155,15 @@ test('optional unsupported metadata is rejected before IO can discard it',async(
  out.set(bytes.subarray(0,12));view.setUint32(8,out.length,true);view.setUint32(12,length,true);view.setUint32(16,0x4e4f534a,true);out.fill(32,20,20+length);out.set(json,20);out.set(bytes.subarray(20+old),20+length);
  await assert.rejects(()=>readBakeGlb(out),/VRMC_vrm/);
 });
+test('dense curved mesh keeps its budget and valid frames after an alternate donor-based attempt',{timeout:120000},async()=>{
+ // Plain simplification of this mesh produced zero MikkTSpace tangents.
+ const d=new Document(),b=d.createBuffer(),g=new THREE.TorusKnotGeometry(1,.15,512,96),acc=(a,t)=>d.createAccessor().setBuffer(b).setType(t).setArray(a);
+ const p=d.createPrimitive().setAttribute('POSITION',acc(g.attributes.position.array,'VEC3')).setAttribute('NORMAL',acc(g.attributes.normal.array,'VEC3')).setAttribute('TEXCOORD_0',acc(g.attributes.uv.array,'VEC2')).setIndices(acc(g.index.array,'SCALAR'));
+ d.createScene().addChild(d.createNode().setMesh(d.createMesh().addPrimitive(p)));
+ const source=await io().writeBinary(d),copy=source.slice(),opts={...options,targetTriangles:50000,error:.008,resolution:512};
+ const prepared=await prepareBakeGlb(source,opts),result=await projectBakeGlb(source,prepared,opts);
+ assert.equal(prepared.sourceTriangles,98304);assert.equal(result.optimizedTriangles,50000,'a retry must use the donor, not compound the reduction ratio');
+ assert.ok(source.every((value,i)=>value===copy[i]));assert.ok(result.bakeReports.every(r=>r.misses===0&&r.coverage>0));
+ const validation=await validator.validateBytes(result.bytes,{maxIssues:100});assert.equal(validation.issues.numErrors,0,JSON.stringify(validation.issues));
+ const h=geometryHistory(inspectGlb(result.bytes).json.extras);assert.equal(h.sourceTriangles,98304);assert.equal(h.error,.008);assert.equal(h.geometryPasses,1);
+});

@@ -61,7 +61,7 @@ export async function projectBakeGlb(original,prepared,options={}){
  }
  const sourceTriangles=countTriangles(donor.document),optimizedTriangles=countTriangles(low.document),keys=countAnimationKeys(low.document);if(options.animationKeys)await low.document.transform(resample());
  const removedKeys=keys-countAnimationKeys(low.document),history=optimizationHistory(sourceTriangles,optimizedTriangles,plan.targetTriangles,plan.error);
- history.surfaceBake={version:1,resolution:plan.resolution,projectionMisses:reports.reduce((n,r)=>n+r.misses,0)};root.setExtras({...root.getExtras(),[HISTORY_KEY]:history});
+ history.surfaceBake={version:1,resolution:plan.resolution,regularizedParts:prepared.regularizedParts||0,projectionMisses:reports.reduce((n,r)=>n+r.misses,0)};root.setExtras({...root.getExtras(),[HISTORY_KEY]:history});
  await low.document.transform(prune({propertyTypes:[PropertyType.ACCESSOR,PropertyType.MATERIAL,PropertyType.TEXTURE,PropertyType.BUFFER],keepAttributes:true,keepExtras:false,keepSolidTextures:true}));
  for(const e of root.listExtensionsUsed()){
   if(e.extensionName==='EXT_texture_webp'&&!root.listTextures().some(t=>t.getMimeType()==='image/webp'))e.dispose();
@@ -71,5 +71,5 @@ export async function projectBakeGlb(original,prepared,options={}){
  progress(90,'Проверяем кости, отдельные анимации и готовый GLB…');const bytes=await low.io.writeBinary(low.document),reopened=await low.io.readBinary(bytes);
  assertBakeRigPreserved(donor.document,reopened,{animationKeys:!!options.animationKeys});
  if(countTriangles(reopened)!==optimizedTriangles||!reopened.getRoot().listTextures().length)throw Error('Готовый GLB не прошёл проверку');
- return {bytes,beforeBytes:original.byteLength,afterBytes:bytes.byteLength,sourceTriangles,optimizedTriangles,targetTriangles:plan.targetTriangles,skins:root.listSkins().length,animations:root.listAnimations().length,removedKeys,unchanged:false,bakeReports:reports,codecSuffix:'_baked',note:'Детали перенесены с оригинала на новые карты '+plan.resolution+' px. Все пиксели поверхности спроецированы. Кости, веса и привязки анимаций сохранены. '+geometryTargetNote(plan.targetTriangles,optimizedTriangles)};
+ return {bytes,beforeBytes:original.byteLength,afterBytes:bytes.byteLength,sourceTriangles,optimizedTriangles,targetTriangles:plan.targetTriangles,textureLimit:plan.resolution,skins:root.listSkins().length,animations:root.listAnimations().length,removedKeys,unchanged:false,bakeReports:reports,codecSuffix:'_baked',note:'Детали перенесены с оригинала на новые карты '+plan.resolution+' px. Все пиксели поверхности спроецированы. Кости, веса и привязки анимаций сохранены. '+geometryTargetNote(plan.targetTriangles,optimizedTriangles)};
 }

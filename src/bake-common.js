@@ -44,9 +44,9 @@ export function bakePlan(document,bytes,{targetTriangles=50000,ratio=.5,error=.0
  }
  // Peak estimate is a guard, not a guarantee of available device RAM.
  const estimate=Math.max(bytes*2+vertices*40+sourceTriangles*38,
-  bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+resolution*resolution*32+goal.targetTriangles*250);
+  bytes*2+vertices*40+sourceTriangles*22+decode+decoderPeak+resolution*resolution*(32+16*primitives.length)+goal.targetTriangles*250);
  if(estimate>memoryBudgetMiB*1048576)
-  throw Error('Расчётная память задачи — '+Math.ceil(estimate/1048576)+' МиБ, предел — '+memoryBudgetMiB+' МиБ. Уменьши исходную модель перед переносом.');
+  throw Error('Расчётная память задачи — '+Math.ceil(estimate/1048576)+' МиБ, предел — '+memoryBudgetMiB+' МиБ. Уменьши размер карт или исходную модель.');
  return {...goal,resolution,sourceTriangles,estimatedMiB:Math.ceil(estimate/1048576),unchanged:false};
 }
 function equalArray(a,b,label){

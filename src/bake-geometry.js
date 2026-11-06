@@ -24,7 +24,7 @@ export function primitiveGeometry(prim){
   tangents:prim.getAttribute('TANGENT')?attributeValues(prim.getAttribute('TANGENT')):null,
   colors:prim.getAttribute('COLOR_0')?attributeValues(prim.getAttribute('COLOR_0')):null,colorSize:prim.getAttribute('COLOR_0')?.getElementSize()||0};
 }
-export async function simplifyBakeStatic(document,prim,{ratio,error}){
+export async function simplifyBakeStatic(document,prim,{ratio,error,regularize=false}){
  await MeshoptSimplifier.ready;
  const buffer=document.getRoot().listBuffers()[0]||document.createBuffer();
  const temp=document.createPrimitive().setAttribute('POSITION',document.createAccessor().setBuffer(buffer).setType(Accessor.Type.VEC3).setArray(attributeValues(prim.getAttribute('POSITION'))));
@@ -32,7 +32,7 @@ export async function simplifyBakeStatic(document,prim,{ratio,error}){
  const p=temp.getAttribute('POSITION'),idx=temp.getIndices(),source=idx.getArray();
  const target=Math.max(3,Math.floor(source.length*ratio/3)*3);let result=source;
  if(target<source.length){
-  const [reduced,actualError]=MeshoptSimplifier.simplify(new Uint32Array(source),p.getArray(),3,target,error,['LockBorder']);
+  const [reduced,actualError]=MeshoptSimplifier.simplify(new Uint32Array(source),p.getArray(),3,target,error,regularize?['LockBorder','Regularize']:['LockBorder']);
   if(!reduced.length||reduced.length%3||!Number.isFinite(actualError)||actualError>error+1e-6)throw Error('Не удалось соблюсти погрешность формы');result=reduced;
  }
  temp.setIndices(idx.clone().setArray(result));compactPrimitive(temp);
@@ -70,12 +70,23 @@ export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()
   const uv=new Float32Array(count*2),n=new Float32Array(count*3),position=new Float32Array(count*3),oldVertices=new Uint32Array(count),scale=1-2*margin/resolution;
   for(let c=0;c<count;c++){
    const v=mesh.vertices[mesh.indices[c]],old=v.xref;
-   if(v.atlasIndex!==0||old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');oldVertices[c]=old;
+   if(v.atlasIndex!==0){const e=new Error('Не удалось развернуть часть поверхности. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
+   if(old>=data.positions.length/3)throw Error('Повреждена карта соответствия UV');oldVertices[c]=old;
    for(let k=0;k<3;k++){position[c*3+k]=data.positions[old*3+k];n[c*3+k]=normals[old*3+k];}
    uv[c*2]=margin/resolution+v.uv[0]/atlas.width*scale;uv[c*2+1]=margin/resolution+v.uv[1]/atlas.height*scale;
   }
+  for(let i=0;i<count;i+=3){
+   const a=i*2,b=a+2,c=a+4,area=(uv[b]-uv[a])*(uv[c+1]-uv[a+1])-(uv[b+1]-uv[a+1])*(uv[c]-uv[a]);
+   if(!Number.isFinite(area)||Math.abs(area)<1e-16){const e=new Error('В UV-развёртке есть треугольник нулевой площади. Выбери более точное сохранение формы.');e.code='BAKE_UV';throw e;}
+  }
   await Mikk.ready;const tangents=Mikk.generateTangents(position,n,uv);
-  for(let i=0;i<count;i++){tangents[i*4+3]*=-1;if(!Number.isFinite(tangents[i*4])||Math.hypot(...tangents.subarray(i*4,i*4+3))<.1)throw Error('В новой UV-развёртке есть вырожденный tangent');}
+  for(let i=0;i<count;i++){
+   tangents[i*4+3]*=-1;
+   const values=tangents.subarray(i*4,i*4+4),length=Math.hypot(values[0],values[1],values[2]);
+   if(!values.every(Number.isFinite)||Math.abs(length-1)>1e-4||Math.abs(values[3])!==1){
+    const e=new Error('Не удалось построить корректные касательные. Выбери более точное сохранение формы.');e.code='BAKE_FRAME';throw e;
+   }
+  }
   const result={positions:position,normals:n,uv,tangents,indices:Uint32Array.from({length:count},(_,i)=>i),margin};
   for(const name of prim.listSemantics())prim.setAttribute(name,null);
   const set=(name,array,type)=>prim.setAttribute(name,document.createAccessor().setBuffer(buffer).setType(type).setArray(array));

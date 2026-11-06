@@ -356,7 +356,7 @@ async function savePreview(){
  if(!state.preview||state.busy)return;
  state.busy=true;buttons();
  try{
-   const name=state.name+'_android_'+$('texture').value+'px'+
+   const name=state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
       (state.preview.codecSuffix||'')+'.glb';
    await save(state.preview.bytes,name,'model/gltf-binary');
  }catch(error){
