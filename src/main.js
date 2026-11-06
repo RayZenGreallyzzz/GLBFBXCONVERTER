@@ -66,7 +66,14 @@ function suspendGpu(root){
  for(const t of textures)t.dispose();
 }
 function suspendStaticBakeSource(){
- scene.remove(state.root);release(state.root);state.root=null;state.sourceBuffer=null;
+ const geometries=new Set(),images=new Set();
+ state.root.traverse(n=>{if(!n.isMesh)return;geometries.add(n.geometry);for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture&&typeof v.image?.close==='function')images.add(v.image)});
+ scene.remove(state.root);release(state.root);
+ for(const image of images)image.close();
+ // This discarded static graph is rebuilt from File. Clear CPU buffers even
+ // if renderer bookkeeping briefly retains the old mesh objects.
+ for(const geometry of geometries)if(geometry){geometry.attributes={};geometry.setIndex(null);geometry.morphAttributes={}}
+ state.root=null;state.sourceBuffer=null;
  renderer.renderLists.dispose();
 }
 async function restoreStaticBakeSource(){
