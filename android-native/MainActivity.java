@@ -6,6 +6,7 @@ public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState){
     registerPlugin(ModelSaverPlugin.class);
+    registerPlugin(DeviceMemoryPlugin.class);
     super.onCreate(savedInstanceState);
   }
 }

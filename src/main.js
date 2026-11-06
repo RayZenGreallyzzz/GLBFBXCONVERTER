@@ -4,6 +4,8 @@ import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
 import {configureGltfCodecs,createModelLoader,createModelExporter} from './gltf-codecs.js';
 import {asArrayBuffer} from './binary.js';
 import {compressGlbOffThread} from './compression-client.js';
+import {bakeGlbOffThread} from './surface-bake-client.js';
+import {resolveBakeMemoryBudget} from './bake-memory.js';
 import {geometryHistory,geometryPlan,optimizationHistory,geometryTargetNote,markGeometryGlb} from './geometry-policy.js';
 import {Capacitor,registerPlugin} from '@capacitor/core';
 import {inspectGlb,inspectFbx,modelStats,assertGlbPreserved} from './format.js';
@@ -21,6 +23,7 @@ import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
  SUPPORTED_INPUTS, STATIC_EXPORTS, validateImportFiles } from './model-formats.js';
 import './style.css';
 const $=id=>document.getElementById(id),saver=registerPlugin('ModelSaver');
+const deviceMemory=registerPlugin('DeviceMemory');
 const scene=new THREE.Scene();scene.background=new THREE.Color('#0a1423');
 scene.add(new THREE.HemisphereLight(0xe6f0ff,0x314256,2.6));
 const sunlight=new THREE.DirectionalLight(0xffffff,2.4);sunlight.position.set(5,9,7);scene.add(sunlight);
@@ -34,6 +37,7 @@ $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,busy:false,info:'',preview:null,previewRoot:null,viewProxyRoot:null,bvhOnly:false,mixer:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null};
+let activeBake=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
 function buttons(){
@@ -51,6 +55,15 @@ function buttons(){
  document.querySelectorAll('[data-quality]').forEach(b=>b.disabled=state.busy);
  $('view-original').disabled=!ready||!state.previewRoot;
  $('view-optimized').disabled=!ready||!state.previewRoot;
+ $('cancel-bake').hidden=!activeBake;
+ updateGeometryControls();
+}
+function suspendGpu(root){
+ const textures=new Set();
+ root.traverse(n=>{if(!n.isMesh)return;n.geometry?.dispose();
+  for(const m of Array.isArray(n.material)?n.material:[n.material])if(m)for(const v of Object.values(m))if(v?.isTexture)textures.add(v);
+ });
+ for(const t of textures)t.dispose();
 }
 function fit(){
   const bounds=new THREE.Box3().setFromObject(state.root);if(bounds.isEmpty())return;
@@ -231,7 +244,7 @@ async function preparePreview(){
  if(!state.root||state.busy)return;
  discardPreview();
  state.busy=true;buttons();progress(5);
- let loaded=null;
+ let loaded=null,baking=false;
  try{
    const preset=MOBILE_PRESETS[$('preset').value]||MOBILE_PRESETS.balanced;
    const value=$('geometry').value;
@@ -239,6 +252,7 @@ async function preparePreview(){
    const useGeometry=$('opt-geometry').checked&&!$('opt-geometry').disabled;
    const useTextures=$('opt-textures').checked;
    const useAnimation=$('opt-animation').checked&&!$('opt-animation').disabled;
+   const useBake=$('bake-details').checked;
    const targetTriangles=$('geometry-mode').value==='target'?Number($('geometry-target').value):null;
    const geometryError=Number($('geometry-error').value);
    const geometryCodec=$('geometry-codec').value;
@@ -246,7 +260,16 @@ async function preparePreview(){
    if(!useGeometry&&!useTextures&&!useAnimation&&geometryCodec==='keep')
      throw Error('Выбери, что оптимизировать: сетку, текстуры или анимационные ключи.');
    let optimized;
-   if(state.type==='3mf'){
+   if(useBake){
+     if(state.type!=='glb'||!state.sourceBuffer||!useGeometry||!useTextures)throw Error('Для переноса деталей загрузи исходный GLB и включи сетку и текстуры.');
+     baking=true;activeBake=new AbortController();buttons();state.root.visible=false;suspendGpu(state.root);
+     optimized=await bakeGlbOffThread(state.sourceBuffer,{
+       ratio,targetTriangles,error:geometryError,resolution:Math.min(2048,Number($('texture').value)),
+       animationKeys:useAnimation
+     },{signal:activeBake.signal,onProgress:(percent,message)=>{progress(percent);status(message)},
+       readMemoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()})});
+     activeBake=null;buttons();
+   }else if(state.type==='3mf'){
      // A 1.94M-face 3MF must not be exported to a full-size GLB, loaded
      // again by glTF-Transform, and then optimized: Android runs out of RAM.
      const stats=modelStats(state.root,state.clips);
@@ -300,7 +323,7 @@ async function preparePreview(){
          progress(percent);status(message);
        });
      optimized={...optimized,bytes:packed.bytes,afterBytes:packed.bytes.byteLength,
-       unchanged:false,codecSuffix:'_'+[geometryCodec,textureCodec].filter(x=>x!=='keep').join('_'),
+       unchanged:false,codecSuffix:(optimized.codecSuffix||'')+'_'+[geometryCodec,textureCodec].filter(x=>x!=='keep').join('_'),
        note:(optimized.note||'')+' '+packed.codecNote};
    }
    const parsed=inspectGlb(optimized.bytes);
@@ -323,8 +346,10 @@ async function preparePreview(){
    if(loaded){scene.remove(loaded);release(loaded)}
    console.error('Preview',error);
    discardPreview();
-   status('Ошибка предпросмотра: '+(error?.message||error));
+   status(error?.name==='AbortError'?error.message:'Ошибка предпросмотра: '+(error?.message||error));
  }finally{
+   activeBake=null;
+   if(baking&&!state.previewRoot)showComparison(false);
    state.busy=false;buttons();
    setTimeout(()=>progress(0),1000);
  }
@@ -334,7 +359,7 @@ async function savePreview(){
  if(!state.preview||state.busy)return;
  state.busy=true;buttons();
  try{
-   const name=state.name+'_android_'+$('texture').value+'px'+
+   const name=state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
       (state.preview.codecSuffix||'')+'.glb';
    await save(state.preview.bytes,name,'model/gltf-binary');
  }catch(error){
@@ -685,6 +710,9 @@ function updateGeometryControls(){
  $('geometry-ratio-field').hidden=target;
  $('geometry-target-field').hidden=!target;
  for(const id of ['geometry-mode','geometry-target','geometry-error','geometry'])$(id).disabled=!enabled;
+ const bakeAllowed=enabled&&$('opt-textures').checked&&state.type==='glb';
+ $('bake-details').disabled=!bakeAllowed||state.busy;
+ if(!bakeAllowed)$('bake-details').checked=false;
 }
 document.querySelectorAll('[data-quality]').forEach(b=>
  b.addEventListener('click',()=>changeQuality(b.dataset.quality)));
@@ -692,7 +720,7 @@ $('opt-textures').addEventListener('change',()=>{
   $('texture-codec').disabled=!$('opt-textures').checked;
   if(!$('opt-textures').checked)$('texture-codec').value='keep';
 });
-for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation','geometry-codec','texture-codec','geometry-mode','geometry-target','geometry-error'])
+for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animation','geometry-codec','texture-codec','geometry-mode','geometry-target','geometry-error','bake-details'])
  $(id).addEventListener('change',()=>{
  if(state.busy)return;
  updateGeometryControls();
@@ -701,6 +729,7 @@ for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animati
 $('view-original').addEventListener('click',()=>showComparison(false));
 $('view-optimized').addEventListener('click',()=>showComparison(true));
 $('preview-opt').addEventListener('click',preparePreview);
+$('cancel-bake').addEventListener('click',()=>activeBake?.abort());
 $('opt-export').addEventListener('click',savePreview);
 function updateExportWarnings(){
  const target=$('target').value;
