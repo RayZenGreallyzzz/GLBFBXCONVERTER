@@ -24,7 +24,7 @@ export async function unwrapPreparedBake(prepared,options={}){
  for(let i=0;i<parts.length;i++){
   const unwrap=prepared.geometryOnly&&parts[i].getIndices().getCount()/3>BAKE_UV_CHUNK_TRIANGLES?unwrapBakeChunks:unwrapBakePrimitive;
   await unwrap(document,parts[i],prepared.resolution,(_category,p)=>progress(5+85*(i+p/100)/parts.length,'UV-развёртка части '+(i+1)+'/'+parts.length+': '+Math.round(p)+'%'));
-  finishBakePrimitive(parts[i],unwrap===unwrapBakeChunks);
+  finishBakePrimitive(parts[i]);
  }
  if(countTriangles(document)!==prepared.optimizedTriangles)throw Error('UV-развёртка изменила число треугольников');
  await document.transform(prune({propertyTypes:[PropertyType.ACCESSOR],keepAttributes:true,keepExtras:true}));

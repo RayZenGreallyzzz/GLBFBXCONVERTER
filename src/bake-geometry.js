@@ -148,8 +148,4 @@ export async function unwrapBakePrimitive(document,prim,resolution,onProgress=()
   return await writeBakeAtlas(document,prim,resolution,data,normals,oldVertices,uv);
  }finally{atlas.destroy();normalGeo.dispose()}
 }
-export function finishBakePrimitive(prim,reweld=false){
- // xatlas output is already indexed, so the default weld skips it. Bounded UV
- // explicitly rewelds identical complete tuples, retaining UV/tangent seams.
- weldPrimitive(prim,{overwrite:reweld});if(!reweld)compactPrimitive(prim);
-}
+export function finishBakePrimitive(prim){weldPrimitive(prim);compactPrimitive(prim)}

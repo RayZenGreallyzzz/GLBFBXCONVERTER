@@ -14,7 +14,9 @@ export async function unwrapBakeChunks(document,prim,resolution,onProgress=()=>{
  try{
   geo.computeVertexNormals();const normals=geo.attributes.normal.array;
   const plan=triangleChunks(data.indices,data.positions,{maxTriangles:BAKE_UV_CHUNK_TRIANGLES}),{bounds}=plan;
-  const center=bounds.min.map((v,k)=>(v+bounds.max[k])/2),scale=1000/bounds.extent;
+  // Power-of-two scaling preserves Float32 significands. An arbitrary factor
+  // rounded valid near-collinear simplifier faces into zero-area triangles.
+  const center=bounds.min.map((v,k)=>(v+bounds.max[k])/2),scale=2**Math.round(Math.log2(1000/bounds.extent));
   const remap=new Uint32Array(data.positions.length/3),references=[];
   for(let part=0;part<plan.chunks.length;part++){
    const {start,end}=plan.chunks[part],capacity=(end-start)*3,indices=new Uint32Array(capacity),touched=new Uint32Array(capacity),positions=new Float32Array(capacity*3),n=new Float32Array(capacity*3);let count=0;

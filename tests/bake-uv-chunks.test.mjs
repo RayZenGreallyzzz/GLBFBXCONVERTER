@@ -6,6 +6,7 @@ import validator from 'gltf-validator';
 import {unwrapBakeChunks,BAKE_UV_CHUNK_TRIANGLES} from '../src/bake-uv-chunks.js';
 import {finishBakePrimitive} from '../src/bake-geometry.js';
 import {unwrapPreparedBake} from '../src/bake-unwrap.js';
+import {prepareBakeGlb} from '../src/bake-prepare.js';
 
 function fixture(g){
  const d=new Document(),b=d.createBuffer(),a=(array,type)=>d.createAccessor().setBuffer(b).setType(type).setArray(array);
@@ -40,7 +41,7 @@ test('bounded UV keeps every oriented triangle, one nonoverlapping atlas and com
  assert.ok(covered>10000);assert.ok(maximum/minimum<1.05,'all spatial patches retain equal world-space texel density: '+minimum+' / '+maximum);
  for(let i=0;i<out.normals.length;i+=3)assert.deepEqual(Array.from(out.normals.subarray(i,i+3)),[0,0,1]);
  for(let i=0;i<out.tangents.length;i+=4){assert.ok(Math.abs(Math.hypot(...out.tangents.subarray(i,i+3))-1)<1e-4);assert.equal(Math.abs(out.tangents[i+3]),1)}
- finishBakePrimitive(p,true);assert.ok(p.getAttribute('POSITION').getCount()<out.positions.length/3/2);assert.deepEqual(triangles(p),before);
+ finishBakePrimitive(p);assert.ok(p.getAttribute('POSITION').getCount()<out.positions.length/3/2);assert.deepEqual(triangles(p),before);
  const validation=await validator.validateBytes(await new WebIO().writeBinary(d),{maxIssues:20});assert.equal(validation.issues.numErrors,0,JSON.stringify(validation.issues));
 });
 
@@ -56,4 +57,15 @@ test('bounded UV retains smooth projection normals across spatial chart boundari
  const cage=result.getAttribute('_PHOENIX_PROJECTION_NORMAL').getArray();
  assert.equal(result.getIndices().getCount(),g.index.count);assert.equal(out.geometryOnly,false);
  for(let i=0;i<positions.length;i+=3){const n=reference.get(Array.from(positions.subarray(i,i+3)).join(','));for(let k=0;k<3;k++)assert.ok(Math.abs(cage[i+k]-n[k])<1e-6)}
+});
+
+test('planar simplifier slivers survive UV coordinate scaling without losing oriented faces',{timeout:120000},async()=>{
+ // Multiplying these Float32 positions by 1000 flattened valid skinny faces.
+ const {d}=fixture(new THREE.PlaneGeometry(1,1,400,400)),io=new WebIO();
+ const prepared=await prepareBakeGlb(await io.writeBinary(d),{lowMemory:true,geometryOnly:true,targetTriangles:30000,error:.008,resolution:512,memoryBudgetMiB:768});
+ const before=(await io.readBinary(prepared.bytes)).getRoot().listMeshes()[0].listPrimitives()[0],faces=triangles(before);
+ assert.equal(prepared.optimizedTriangles,30000);
+ const result=await unwrapPreparedBake(prepared,{memoryBudgetMiB:256}),after=(await io.readBinary(result.bytes)).getRoot().listMeshes()[0].listPrimitives()[0];
+ assert.deepEqual(triangles(after),faces);
+ const validation=await validator.validateBytes(result.bytes,{maxIssues:20});assert.equal(validation.issues.numErrors,0,JSON.stringify(validation.issues));
 });
