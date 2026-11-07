@@ -209,8 +209,14 @@
   </label>
   <label>Найти файл в пакете<input id="anim-source-filter" type="search" placeholder="Часть имени или папки" disabled></label>
   <small id="anim-source-count" class="tip" aria-live="polite"></small>
+  <button type="button" id="anim-browse" class="primary" disabled>▦ КАТАЛОГ С ЖИВЫМИ МИНИАТЮРАМИ</button>
   <label>Файл в пакете<select id="anim-source-file" disabled></select></label>
   <label>Движение в файле<select id="anim-source-clip" disabled></select></label>
+  <figure id="anim-source-visual" class="motion-inline" hidden>
+    <canvas id="anim-source-visual-canvas" width="320" height="224" role="img" aria-label="Схема выбранного движения"></canvas>
+    <figcaption id="anim-source-visual-caption"></figcaption>
+    <button type="button" id="anim-source-visual-toggle" aria-pressed="true" disabled>Ⅱ Пауза схемы</button>
+  </figure>
   <p id="anim-status" class="tip" aria-live="polite">Для переноса анимации загрузи персонажа со скелетом.</p>
   <div class="compare-report">
     <label>Название движения
@@ -249,6 +255,15 @@
   <div class="progress"><div id="progress"></div></div>
   <p id="status" role="status">Готово. Всё работает локально, без интернета.</p>
 </section>
-</main><script type="module" src="/src/main.js"></script></body></html>
+</main>
+<dialog id="motion-catalog" class="motion-catalog" aria-labelledby="motion-catalog-title">
+  <header class="motion-catalog-heading"><h2 id="motion-catalog-title">Выбери движение по миниатюре</h2><button type="button" id="motion-catalog-close">✕ Закрыть</button></header>
+  <p class="tip">Миниатюры показывают упрощённую схему источника, фрагмент до 8 секунд. «На персонаже» запускает проверку переноса на твоей модели. Если в файле несколько клипов, здесь показан первый; остальные выбираются после открытия файла.</p>
+  <label>Поиск по имени или папке<input id="motion-catalog-search" type="search" placeholder="Например: walk, jump, idle"></label>
+  <div class="motion-catalog-toolbar"><button type="button" id="motion-catalog-toggle" aria-pressed="true">Ⅱ Пауза миниатюр</button><small id="motion-catalog-state" role="status"></small></div>
+  <div id="motion-catalog-grid" class="motion-catalog-grid"></div>
+  <nav class="motion-catalog-nav" aria-label="Страницы каталога"><button type="button" id="motion-catalog-prev">← Назад</button><span id="motion-catalog-page"></span><button type="button" id="motion-catalog-next">Дальше →</button></nav>
+</dialog>
+<script type="module" src="/src/main.js"></script></body></html>
 
 

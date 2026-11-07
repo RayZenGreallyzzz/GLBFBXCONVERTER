@@ -6,6 +6,8 @@ import {makeRigPreview} from './rig-preview.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
+import {createMotionVisual,MotionCanvas} from './motion-visual.js';
+import {MotionCatalog} from './motion-catalog.js';
 import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -48,6 +50,7 @@ const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundl
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
 let guidedRigUi=null;
+let sourceVisual=null,motionCatalog=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
 function buttons(){
@@ -61,6 +64,8 @@ function buttons(){
  $('anim-source-file').disabled=!rig||!motion.pack.length;
  $('anim-source-filter').disabled=!rig||!motion.pack.length;
  $('anim-source-clip').disabled=!rig||!motion.bundle?.clips.length;
+ $('anim-browse').disabled=!rig||!motion.pack.length;
+ $('anim-source-visual-toggle').disabled=!rig||!sourceVisual?.data;
  $('anim-trim-calibration').disabled=!rig||motion.source?.kind!=='bvh';
  $('anim-preview').disabled=!rig||!motion.source;
  $('anim-stop').disabled=!rig||!state.mixer;
@@ -647,6 +652,7 @@ function resetMotionStudio(){
  motion.source=null;motion.rows=[];motion.preview=null;motion.extras=[];motion.pose=null;motion.pack=[];motion.bundle=null;
  $('anim-source-file').replaceChildren();$('anim-source-clip').replaceChildren();
  $('anim-source-filter').value='';$('anim-source-count').textContent='';
+ sourceVisual?.clear();$('anim-source-visual').hidden=true;motionCatalog?.setEntries([]);
  $('anim-map').replaceChildren();
  $('anim-map').textContent='Выбери источник анимаций для списка костей.';
  $('anim-library').textContent='Дополнительных анимаций пока нет.';
@@ -700,11 +706,12 @@ function chooseMotionClip(index){
  const base=source.kind==='bvh'?source.clip.name:source.clips.length>1?fileName+'_'+source.clip.name:fileName;
  const safeBase=base.replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,54)||'Motion',used=new Set([...state.clips,...motion.extras].map(c=>c.name));let title=safeBase,suffix=2;while(used.has(title))title=safeBase+'_'+suffix++;
  $('anim-clip-name').value=title;$('anim-trim-calibration').checked=source.kind==='bvh'&&detectCmuCalibration(source.skeleton,source.clip);
+ try{const entryIndex=Number($('anim-source-file').value),data=index===0?motionCatalog?.cached(entryIndex)?.data:null,visual=data||createMotionVisual(source);sourceVisual.set(visual);if(index===0)motionCatalog?.remember(entryIndex,visual);$('anim-source-visual').hidden=false;$('anim-source-visual-caption').textContent='Схема источника: '+visual.name+' · '+visual.fullDuration.toFixed(2)+' с'+(visual.fullDuration>visual.duration+.01?' · первые '+visual.duration.toFixed(0)+' с':'');$('anim-source-visual-toggle').textContent='Ⅱ Пауза схемы';$('anim-source-visual-toggle').setAttribute('aria-pressed','true')}catch(error){sourceVisual.clear();$('anim-source-visual').hidden=false;$('anim-source-visual-caption').textContent='Миниатюра недоступна: '+error.message}
  renderMotionMapping(mapping);const sizing=estimateRigScale(source.skeleton,state.root);
  motionStatus(source.kind.toUpperCase()+': «'+source.clip.name+'», '+source.clip.duration.toFixed(2)+' сек. Найдено '+mapping.matched+' из '+mapping.total+' соответствий. '+(source.kind==='bvh'&&sizing.measured?'Масштаб перемещения ≈ '+sizing.ratio.toFixed(4)+'×. ':'')+($('anim-trim-calibration').checked?'CMU T-поза распознана; первый кадр будет исключён. ':'')+(source.warnings||[]).join(' '));buttons();
 }
 async function chooseMotionFile(index){
- if(state.busy||!motion.pack[index])return;stopMotionPlayback();state.busy=true;motion.source=null;motion.bundle=null;motion.preview=null;motion.rows=[];$('anim-map').textContent='Читаем выбранный источник…';$('anim-source-clip').replaceChildren();buttons();
+ if(state.busy||!motion.pack[index])return;stopMotionPlayback();state.busy=true;sourceVisual.clear();$('anim-source-visual').hidden=true;motion.source=null;motion.bundle=null;motion.preview=null;motion.rows=[];$('anim-map').textContent='Читаем выбранный источник…';$('anim-source-clip').replaceChildren();buttons();
  try{motionStatus('Открываем '+motion.pack[index].label+'…');const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});motion.bundle=await loadMotionSource(motion.pack[index],{memoryBudgetMiB});
   motion.bundle.clips.forEach((clip,i)=>{const option=document.createElement('option');option.value=i;option.textContent=clip.name+' · '+clip.duration.toFixed(2)+' сек';$('anim-source-clip').append(option)});chooseMotionClip(0);
  }catch(error){motionStatus('Ошибка источника: '+error.message);$('anim-map').textContent='Выбери другой файл в пакете.'}
@@ -720,7 +727,7 @@ $('anim-bvh-file').addEventListener('change',async e=>{
  }
  state.busy=true;buttons();
  try{
-   const pack=await openMotionPack(files);stopMotionPlayback();motion.pack=pack;$('anim-source-filter').value='';renderMotionFiles(0);
+   const pack=await openMotionPack(files);stopMotionPlayback();motion.pack=pack;motionCatalog.setEntries(pack);$('anim-source-filter').value='';renderMotionFiles(0);
    state.busy=false;await chooseMotionFile(0);
  }catch(err){motionStatus('Ошибка пакета анимаций: '+(err.message||err))}
  finally{state.busy=false;buttons()}
@@ -896,6 +903,15 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 const playbackClock=new THREE.Clock();
+sourceVisual=new MotionCanvas($('anim-source-visual-canvas'));
+$('anim-source-visual-toggle').addEventListener('click',()=>{const playing=sourceVisual.toggle();$('anim-source-visual-toggle').textContent=playing?'Ⅱ Пауза схемы':'▶ Играть схему';$('anim-source-visual-toggle').setAttribute('aria-pressed',String(playing))});
+motionCatalog=new MotionCatalog({
+ busy:()=>state.busy,filter:()=>$('anim-source-filter').value,stop:stopMotionPlayback,setBusy:value=>{state.busy=value;buttons()},
+ current:index=>Number($('anim-source-file').value)===index?motion.bundle:null,
+ load:async(entry,signal)=>{const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});return loadMotionSource(entry,{memoryBudgetMiB,signal})},
+ select:async(index,query)=>{const previous=Number($('anim-source-file').value),reuse=previous===index&&motion.bundle;$('anim-source-filter').value=query;renderMotionFiles(index);if(reuse)chooseMotionClip(0);else await chooseMotionFile(index);if(!motion.source)return;const mapping=readMotionMapping(),matched=mapping.filter(r=>r.target).length;if(matched>=Math.min(5,mapping.length)&&matched>0)previewMotion();else motionStatus('Движение выбрано. Для просмотра на персонаже уточни соответствия костей и нажми «Адаптировать и посмотреть».');document.querySelector('.view').scrollIntoView({behavior:'smooth',block:'start'})},
+ error:message=>motionStatus('Ошибка визуального выбора: '+message)
+});
 guidedRigUi=new GuidedRigUI({
  scene,camera,orbit,canvas:renderer.domElement,model:()=>state,busy:()=>state.busy,
  setBusy:value=>{state.busy=value;buttons()},progress,stopPlayback:stopMotionPlayback,
@@ -915,7 +931,7 @@ guidedRigUi=new GuidedRigUI({
   document.querySelector('[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии. Исходный файл не изменялся.');buttons();
  }
 });
-function tick(){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);orbit.update();renderer.render(scene,camera)}tick();buttons();
+function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){
