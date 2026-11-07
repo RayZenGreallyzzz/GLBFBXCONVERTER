@@ -4,10 +4,12 @@ import {createModelLoader} from './gltf-codecs.js';
 import {inspectFbx,inspectGlb} from './format.js';
 
 const MiB=1048576;
+function checkSignal(signal){if(signal?.aborted)throw Object.assign(Error('Просмотр отменён'),{name:'AbortError'})}
 import {skeletonMotionSource} from './motion-skeleton.js';
 export {skeletonMotionSource} from './motion-skeleton.js';
 import {importFbxMotion} from './fbx-motion-client.js';
-async function gltfMotion(bytes,entry){
+async function gltfMotion(bytes,entry,signal){
+ checkSignal(signal);
  let json,bin;
  if(entry.format==='glb'){
   json=inspectGlb(bytes).json;const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.length);for(let at=12;at+8<=bytes.length;){const n=view.getUint32(at,true);if(at+8+n>bytes.length)throw Error('Повреждён блок GLB');if(view.getUint32(at+4,true)===0x004e4942)bin=bytes.subarray(at+8,at+8+n);at+=8+n}
@@ -24,19 +26,21 @@ async function gltfMotion(bytes,entry){
  let total=0;const urls=[];
  try{
   for(const index of usedBuffers){const buffer=json.buffers?.[index];if(!buffer||!Number.isSafeInteger(buffer.byteLength)||buffer.byteLength<0||buffer.byteLength>64*MiB)throw Error('Буфер анимации больше 64 МиБ');total+=buffer.byteLength;if(total>64*MiB)throw Error('Буферы выбранной анимации превышают 64 МиБ');
+   checkSignal(signal);
    if(buffer.uri?.startsWith('data:'))continue;
-   const data=index===0&&!buffer.uri&&bin?bin:await entry.resource(buffer.uri||'');if(data.length<buffer.byteLength)throw Error('BIN короче заявленного размера');
+   const data=index===0&&!buffer.uri&&bin?bin:await entry.resource(buffer.uri||'');checkSignal(signal);if(data.length<buffer.byteLength)throw Error('BIN короче заявленного размера');
    const url=URL.createObjectURL(new Blob([data]));urls.push(url);buffer.uri=url;
   }
   const manager=new THREE.LoadingManager();manager.setURLModifier(url=>{if(url.startsWith('blob:')||url.startsWith('data:'))return url;throw Error('Внешняя загрузка запрещена: '+url)});
-  const loader=createModelLoader(manager);try{const loaded=await loader.parseAsync(JSON.stringify(json),'');return skeletonMotionSource(loaded.scene,loaded.animations,entry.format)}finally{loader.disposeCodecs?.()}
+  const loader=createModelLoader(manager);try{const loaded=await loader.parseAsync(JSON.stringify(json),'');checkSignal(signal);return skeletonMotionSource(loaded.scene,loaded.animations,entry.format)}finally{loader.disposeCodecs?.()}
  }finally{for(const url of urls)URL.revokeObjectURL(url)}
 }
-export async function loadMotionSource(entry,{memoryBudgetMiB=384}={}){
+export async function loadMotionSource(entry,{memoryBudgetMiB=384,signal}={}){
+ checkSignal(signal);
  const estimate=Math.ceil(entry.size*(entry.format==='fbx'?8:4)/MiB+32);if(entry.size>64*MiB||!Number.isFinite(memoryBudgetMiB)||memoryBudgetMiB<64||estimate>memoryBudgetMiB)throw Error('Источник анимации требует примерно '+estimate+' МиБ. Выбери облегчённый файл со скелетом.');
- const bytes=await entry.read();if(bytes.length!==entry.size)throw Error('Размер файла анимации не совпал');
+ const bytes=await entry.read();checkSignal(signal);if(bytes.length!==entry.size)throw Error('Размер файла анимации не совпал');
  if(entry.format==='bvh'){const result=parseBvhForRetarget(new TextDecoder().decode(bytes),entry.path.replace(/^.*\//,'').replace(/\.bvh$/i,''));if(result.skeleton.bones.filter(b=>b.name!=='ENDSITE').length>200)throw Error('BVH содержит больше 200 костей');return {...result,kind:'bvh',clips:[result.clip],warnings:[]}}
- if(['glb','gltf'].includes(entry.format))return gltfMotion(bytes,entry);
+ if(['glb','gltf'].includes(entry.format))return gltfMotion(bytes,entry,signal);
  if(entry.format!=='fbx')throw Error('Неподдерживаемый источник анимации');
- inspectFbx(bytes);return importFbxMotion(bytes);
+ inspectFbx(bytes);return importFbxMotion(bytes,{signal});
 }
