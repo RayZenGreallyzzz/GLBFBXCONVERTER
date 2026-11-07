@@ -17,19 +17,19 @@ export function skeletonMotionSource(root,animations,kind){
  }
  const warnings=[],clips=[];let skipped=0,trackBytes=0;
  for(const original of animations){
-  const tracks=[],targets=new Set();let rotations=0,invalid=false;
+  const tracks=[],targets=new Set();let rotations=0,invalid='';
   for(const track of original.tracks){
    const target=binding(root,track),copy=target&&copies.get(target.node);if(!copy||!['quaternion','position','scale'].includes(target.property)){skipped++;continue}
-   if(track.times.length>18000||!track.times.length||!track.values.every(Number.isFinite)||track.times.some((v,i)=>!Number.isFinite(v)||v<0||i&&v<=track.times[i-1])){invalid=true;break}
+   if(track.times.length>18000||!track.times.length||!track.values.every(Number.isFinite)||track.times.some((v,i)=>!Number.isFinite(v)||v<0||i&&v<=track.times[i-1])){invalid='неподдерживаемые или повреждённые ключи';break}
    if(target.property==='scale'){
-    if(track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline||track.values.some((v,i)=>Math.abs(v-target.node.scale.getComponent(i%3))>1e-5)){invalid=true;break}continue;
+    if(track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline||track.values.some((v,i)=>Math.abs(v-target.node.scale.getComponent(i%3))>1e-5)){invalid='меняется масштаб скелета; такой перенос пока не поддерживается';break}continue;
    }
    const width=target.property==='quaternion'?4:3,multiplier=track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline?3:1,key=copy.name+'.'+target.property;
-   if(track.values.length!==track.times.length*width*multiplier||targets.has(key)){invalid=true;break}targets.add(key);
+   if(track.values.length!==track.times.length*width*multiplier||targets.has(key)){invalid='не совпал размер или повторяется дорожка кости';break}targets.add(key);
    trackBytes+=track.times.byteLength+track.values.byteLength;if(trackBytes>64*MiB)throw Error('Ключи движений в файле превышают 64 МиБ. Раздели набор на несколько файлов.');
    const clone=track.clone();clone.name=copy.name+'.'+target.property;tracks.push(clone);if(target.property==='quaternion')rotations++;
   }
-  if(invalid||!rotations||!Number.isFinite(original.duration)||original.duration<=0){warnings.push('Пропущено движение «'+(original.name||'без названия')+'»: нет поддерживаемых вращений, меняется масштаб или повреждены ключи.');continue}
+  if(invalid||!rotations||!Number.isFinite(original.duration)||original.duration<=0){warnings.push('Пропущено движение «'+(original.name||'без названия')+'»: '+(invalid||'нет поддерживаемых вращений или длительности')+'.');continue}
   const name=String(original.name||'Motion').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,60)||'Motion';
   const clip=new THREE.AnimationClip(name,original.duration,tracks);clips.push(clip);
  }

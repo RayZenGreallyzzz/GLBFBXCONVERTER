@@ -207,6 +207,8 @@
   <label class="load">＋ Выбрать анимации или ZIP
     <input hidden id="anim-bvh-file" type="file" accept=".zip,.bvh,.fbx,.glb,.gltf,.bin" multiple>
   </label>
+  <label>Найти файл в пакете<input id="anim-source-filter" type="search" placeholder="Часть имени или папки" disabled></label>
+  <small id="anim-source-count" class="tip" aria-live="polite"></small>
   <label>Файл в пакете<select id="anim-source-file" disabled></select></label>
   <label>Движение в файле<select id="anim-source-clip" disabled></select></label>
   <p id="anim-status" class="tip" aria-live="polite">Для переноса анимации загрузи персонажа со скелетом.</p>

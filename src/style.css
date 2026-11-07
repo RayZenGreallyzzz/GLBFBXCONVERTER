@@ -74,4 +74,6 @@
 
 
 #morph-weight{width:100%;accent-color:#24afd5}#morph-value{font-variant-numeric:tabular-nums;color:#8de6d8}
+#anim-source-filter{width:100%;min-width:0;padding:12px;border:1px solid #315772;border-radius:7px;background:#112239;color:#e9f4fc;font:inherit}
+#anim-source-count{display:block;margin-bottom:10px}
 

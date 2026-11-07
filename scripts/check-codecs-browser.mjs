@@ -22,6 +22,7 @@ import {rigFixture} from '../tests/helpers/rig-fixture.mjs';
 import {FBXExporter} from '@comfyorg/fbx-exporter-three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {appendGlbAnimations} from '../src/glb-add-animations.js';
+import {motionFixture} from '../tests/helpers/motion-fixture.mjs';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -224,6 +225,15 @@ try{
  const mixedOutput=await downloadBodyAnimation();assertOriginalContainer(adopted,mixedOutput);assert.equal(inspectGlb(mixedOutput).animations,4);await load(mixedOutput,'pack-result.glb');assert.equal(await page.locator('#model-clip option').count(),4);
  await page.locator('[data-tab="opt"]').click();
  console.log('Browser: lazy ZIP → BVH + multi-take GLB + FBX + external-BIN glTF → preview/add four clips → static-file error recovery → exact target export/reimport (no source texture requests)');
+ // Match a real library's directory/source counts without committing its assets.
+ const catalogFixture=await motionFixture(),catalogFiles={};for(let i=0;i<510;i++)catalogFiles['assets/library/clips/idle_'+String(i).padStart(4,'0')+'.glb']=catalogFixture.bytes;for(let i=0;i<4;i++)catalogFiles['assets/capture/static_'+i+'.glb']=adopted;for(let i=0;i<27;i++)catalogFiles['metadata/'+i+'.json']=new TextEncoder().encode('{}');
+ await page.locator('[data-tab="anim"]').click();await page.locator('#anim-bvh-file').setInputFiles({name:'large-library.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(catalogFiles))});await sourceReady();
+ assert.equal(await page.locator('#anim-source-file option').count(),514);const currentFile=await page.locator('#anim-source-file').inputValue();
+ await page.locator('#anim-source-filter').fill('idle_0509');assert.equal(await page.locator('#anim-source-file option').count(),2);assert.equal(await page.locator('#anim-source-file').inputValue(),currentFile);assert.ok((await page.locator('#anim-source-count').innerText()).includes('1 из 514'));
+ await selectSource('clips/idle_0509.glb');await sourceReady();assert.equal(await page.locator('#anim-source-file option').count(),1);const selectedFile=await page.locator('#anim-source-file').inputValue();
+ await page.locator('#anim-source-filter').fill('no-such-motion');assert.equal(await page.locator('#anim-source-file option').count(),1);assert.equal(await page.locator('#anim-source-file').inputValue(),selectedFile);assert.ok((await page.locator('#anim-source-count').innerText()).includes('0 из 514'));
+ await page.locator('#anim-source-filter').fill('');assert.equal(await page.locator('#anim-source-file option').count(),514);assert.equal(await page.locator('#anim-source-file').inputValue(),selectedFile);await page.locator('[data-tab="opt"]').click();
+ console.log('Browser: 541 ZIP entries → 514 lazy source options → clips-folder default → search without changing current source → select last clip → no-match search → restore full catalog');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});

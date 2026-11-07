@@ -22,7 +22,7 @@ export async function indexMotionZip(file){
  for(let i=tail.length-22;i>=0;i--)if(view.getUint32(i,true)===0x06054b50&&i+22+view.getUint16(i+20,true)===tail.length){end=i;break}
  if(end<0)throw Error('Не найден каталог ZIP');
  const count=view.getUint16(end+10,true),size=view.getUint32(end+12,true),offset=view.getUint32(end+16,true);
- if(view.getUint16(end+4,true)||view.getUint16(end+6,true)||view.getUint16(end+8,true)!==count||count>400||size>4*MiB||offset+size>file.size-tail.length+end)throw Error('ZIP64, многотомные ZIP или более 400 файлов не поддерживаются');
+ if(view.getUint16(end+4,true)||view.getUint16(end+6,true)||view.getUint16(end+8,true)!==count||count>4096||size>4*MiB||offset+size>file.size-tail.length+end)throw Error('ZIP64, многотомные ZIP или более 4096 записей не поддерживаются');
  const central=await slice(file,offset,size),cv=new DataView(central.buffer),entries=new Map();let at=0,total=0;
  for(let i=0;i<count;i++){
   if(at+46>central.length||cv.getUint32(at,true)!==0x02014b50)throw Error('Повреждён каталог ZIP');
@@ -52,6 +52,7 @@ export async function openMotionPack(files){
  }
  const loose=new Map();for(const file of files)if(ext(file.name)!=='zip'){const path=motionPath(file.webkitRelativePath||file.name),key=path.toLowerCase();if(loose.has(key))throw Error('Повторное имя файла: '+path);loose.set(key,{path,size:file.size,read:async()=>new Uint8Array(await file.arrayBuffer())})}
  for(const entry of loose.values())if(formats.has(ext(entry.path)))sources.push({...entry,label:entry.path,format:ext(entry.path),resource:uri=>{const path=resourcePath(entry.path,uri),item=loose.get(path.toLowerCase());if(!item||ext(path)!=='bin')throw Error('Выбери glTF вместе с BIN: '+path);return item.read()}});
- if(!sources.length)throw Error('В пакете нет анимаций BVH, FBX, GLB или glTF');if(sources.length>200)throw Error('За один раз можно выбрать до 200 файлов анимаций');
- return sources.sort((a,b)=>a.label.localeCompare(b.label));
+ if(!sources.length)throw Error('В пакете нет анимаций BVH, FBX, GLB или glTF');if(sources.length>2048)throw Error('В пакете можно открыть до 2048 файлов анимаций');
+ const clipFolder=entry=>/(?:^|\/)(?:clips|animations|motions)\//i.test(entry.path)?1:0;
+ return sources.sort((a,b)=>clipFolder(b)-clipFolder(a)||a.label.localeCompare(b.label));
 }

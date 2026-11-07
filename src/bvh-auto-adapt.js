@@ -9,7 +9,7 @@
  * bone animation, respecting unmapped parent bones.
  */
 import * as THREE from 'three';
-import { canonicalBone,characterBones,isRiggedCharacter } from './animation-retarget.js';
+import { canonicalBone,characterBones,isRiggedCharacter,findCanonicalBone,boneMatchPriority } from './animation-retarget.js';
 
 const EPS=1e-7;
 
@@ -100,7 +100,7 @@ function modelTimeline(clip){
  const sorted=[...values].sort((a,b)=>a-b),times=[];for(const t of sorted)if(!times.length||t-times.at(-1)>1e-5)times.push(t);if(times.length>18000)throw Error('В движении больше 18 тысяч моментов времени');return new Float32Array(times);
 }
 function bodyAlignment(source,target,skeleton,targetRoot){
- const basis=(ref,bones)=>{const find=id=>bones.find(b=>canonicalBone(b.name)===id),hips=find('hips'),top=find('head')||find('neck'),left=find('leftarm')||find('leftshoulder'),right=find('rightarm')||find('rightshoulder');if(![hips,top,left,right].every(Boolean))return null;
+ const basis=(ref,bones)=>{const find=id=>findCanonicalBone(bones,id),hips=find('hips'),top=find('head')||find('neck'),left=find('leftarm')||find('leftshoulder'),right=find('rightarm')||find('rightshoulder');if(![hips,top,left,right].every(Boolean))return null;
   const x=ref.positions.get(left).clone().sub(ref.positions.get(right)),y=ref.positions.get(top).clone().sub(ref.positions.get(hips));if(x.lengthSq()<EPS||y.lengthSq()<EPS)return null;x.normalize();y.addScaledVector(x,-y.dot(x));if(y.lengthSq()<EPS)return null;y.normalize();const z=x.clone().cross(y).normalize();return Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z))};
  const a=basis(source,skeleton.bones),b=basis(target,characterBones(targetRoot));return a&&b?b.multiply(a.invert()):Q();
 }
@@ -167,7 +167,7 @@ export function autoAdaptBvhClip({
  const outputs=new Map(pairs.map(({to})=>[to,new Float32Array(timeline.length*4)]));
  const animated=new Map();
  const tempInverse=Q(),delta=Q(),local=Q();
- const hipsPair=pairs.find(({from})=>canonicalBone(from.name)==='hips'),hipPositions=model&&rootMotion&&hipsPair?new Float32Array(timeline.length*3):null;
+ const hipsPair=pairs.filter(({from})=>canonicalBone(from.name)==='hips').sort((a,b)=>boneMatchPriority(a.from.name)-boneMatchPriority(b.from.name))[0],hipPositions=model&&rootMotion&&hipsPair?new Float32Array(timeline.length*3):null;
  for(let frame=0;frame<timeline.length;frame++){
    const sourceFrame=sampler(times[frame+first]);
    if(hipPositions)sourceFrame.positions.get(hipsPair.from).toArray(hipPositions,frame*3);
