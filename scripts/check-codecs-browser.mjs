@@ -19,6 +19,9 @@ import {assertBakeRigPreserved} from '../src/bake-common.js';
 import {morphFixture} from '../tests/helpers/morph-fixture.mjs';
 import {captureMorphs,assertMorphMetadata} from '../src/morph-policy.js';
 import {rigFixture} from '../tests/helpers/rig-fixture.mjs';
+import {FBXExporter} from '@comfyorg/fbx-exporter-three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {appendGlbAnimations} from '../src/glb-add-animations.js';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -200,6 +203,27 @@ try{
  await page.locator('[data-tab="opt"]').click();
  console.log('Browser: guided body points → cancel/retry → real worker → bend review → immutable export → edit invalidation → adoption → BVH retarget/export');
  console.log('Browser: WebP GLB → BVH append → exact original image/geometry bytes → reimport → second BVH preserves first clip');
+ // A mixed ZIP opens one source at a time, exposes takes, and retains the target.
+ const sourceIO=new WebIO().registerExtensions([EXTTextureWebP]),sourceDoc=await sourceIO.readBinary(animatedBytes);for(const m of sourceDoc.getRoot().listMaterials())m.dispose();for(const t of sourceDoc.getRoot().listTextures())t.dispose();const bare=await sourceIO.writeBinary(sourceDoc),sourceRuntime=await new GLTFLoader().parseAsync(bare.buffer.slice(bare.byteOffset,bare.byteOffset+bare.byteLength),'');
+ const extraTake=sourceRuntime.animations[0].clone();extraTake.name='Take 2';const twoTakes=appendGlbAnimations(animatedBytes,[extraTake]);
+ const fbxClips=sourceRuntime.animations.map(c=>{const copy=c.clone();for(const track of copy.tracks){const p=THREE.PropertyBinding.parseTrackName(track.name);track.name=sourceRuntime.scene.getObjectByName(p.nodeName).uuid+'.'+p.propertyName}return copy});
+ const fbx=await new FBXExporter().parseAsync(sourceRuntime.scene,{version:7400,preset:'threejs',fps:30,animations:fbxClips,embedTextures:false});
+ const looseDoc=await sourceIO.readBinary(animatedBytes),looseJSON=await sourceIO.writeJSON(looseDoc);for(const image of looseJSON.json.images||[])image.uri='https://example.invalid/never-load.webp';
+ const mixed=zipSync({'a/Idle.bvh':new TextEncoder().encode(bodyMotion),'b/Body.glb':twoTakes,'c/Sprint.fbx':new Uint8Array(fbx),'d/Move.gltf':new TextEncoder().encode(JSON.stringify(looseJSON.json)),...Object.fromEntries(Object.entries(looseJSON.resources).filter(([name])=>name.endsWith('.bin')).map(([name,data])=>['d/'+name,data])),'z/Static.glb':adopted});
+ await load(adopted,'pack-target.glb');await page.locator('[data-tab="anim"]').click();
+ await page.locator('#anim-bvh-file').setInputFiles({name:'motion-library.zip',mimeType:'application/zip',buffer:Buffer.from(mixed)});
+ async function sourceReady(){await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled||/Ошибка источника/.test(document.getElementById('anim-status').textContent),{},{timeout:60000});assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'),await page.locator('#anim-status').innerText())}
+ await sourceReady();assert.equal(await page.locator('#anim-source-file option').count(),5);
+ async function acceptMotion(){await page.locator('#anim-preview').click();assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'),await page.locator('#anim-status').innerText());assert.equal(await page.locator('#anim-add').isDisabled(),false);await page.locator('#anim-add').click()}
+ await acceptMotion();
+ async function selectSource(path){const options=await page.locator('#anim-source-file option').evaluateAll(items=>items.map(o=>({value:o.value,text:o.textContent})));const item=options.find(o=>o.text.endsWith(path));assert.ok(item,path);await page.locator('#anim-source-file').selectOption(item.value)}
+ await selectSource('b/Body.glb');await sourceReady();assert.equal(await page.locator('#anim-source-clip option').count(),2);assert.equal(await page.locator('#anim-trim-calibration').isDisabled(),true);await page.locator('#anim-source-clip').selectOption('1');await acceptMotion();
+ await selectSource('c/Sprint.fbx');await sourceReady();await acceptMotion();
+ await selectSource('d/Move.gltf');await sourceReady();await acceptMotion();
+ await selectSource('z/Static.glb');await page.waitForFunction(()=>document.getElementById('anim-status').textContent.includes('Ошибка источника'));assert.equal(await page.locator('#anim-preview').isDisabled(),true);assert.equal(await page.locator('#anim-export').isDisabled(),false);assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
+ const mixedOutput=await downloadBodyAnimation();assertOriginalContainer(adopted,mixedOutput);assert.equal(inspectGlb(mixedOutput).animations,4);await load(mixedOutput,'pack-result.glb');assert.equal(await page.locator('#model-clip option').count(),4);
+ await page.locator('[data-tab="opt"]').click();
+ console.log('Browser: lazy ZIP → BVH + multi-take GLB + FBX + external-BIN glTF → preview/add four clips → static-file error recovery → exact target export/reimport (no source texture requests)');
  // Hit the distinct ArrayBuffer-producing low-memory 3MF path, not just codec helpers.
  const root=new THREE.Group();root.add(new THREE.Mesh(new THREE.PlaneGeometry(1,1,100,100),new THREE.MeshStandardMaterial()));
  const print=await exportTextured3mf(root,{unitScale:1});

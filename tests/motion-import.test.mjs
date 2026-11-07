@@ -29,3 +29,14 @@ test('mixed pack keeps BVH usable and reports static, missing-resource and chang
  assert.equal((await loadMotionSource(pack[0])).kind,'bvh');await assert.rejects(loadMotionSource(pack[1]),/нет анимации/);
  const root=new THREE.Group(),hips=new THREE.Bone();hips.name='Hips';root.add(hips);assert.throws(()=>skeletonMotionSource(root,[new THREE.AnimationClip('Invalid',1,[new THREE.QuaternionKeyframeTrack('Hips.quaternion',[0,1],[0,0,0,1,0,0,0,1]),new THREE.VectorKeyframeTrack('Hips.scale',[0,1],[1,1,1,2,2,2])])],'glb'),/меняется масштаб/);
 });
+test('glTF cubic and stepped rotations are sampled without losing the first source pose',async()=>{
+ for(const interpolation of ['CUBICSPLINE','STEP']){const {doc}=await motionFixture(),sampler=doc.getRoot().listAnimations()[0].listSamplers()[0];sampler.setInterpolation(interpolation);
+  if(interpolation==='CUBICSPLINE'){const values=sampler.getOutput().getArray(),out=[];for(let i=0;i<values.length;i+=4)out.push(0,0,0,0,...values.slice(i,i+4),0,0,0,0);sampler.getOutput().setArray(new Float32Array(out))}
+  const bytes=await new WebIO().writeBinary(doc),[entry]=await openMotionPack([namedBlob('curve.glb',bytes)]),source=await loadMotionSource(entry),rig=target(),m=suggestBoneMappings(source.skeleton,rig.root),clip=autoAdaptBvhClip({targetRoot:rig.root,sourceSkeleton:source.skeleton,sourceClip:source.clip,mappings:m.mappings,referencePose:'rest',alignAxes:false}),track=clip.tracks.find(t=>t.name===rig.arm.name+'.quaternion'),ip=track.createInterpolant();
+  const expected=interpolation==='STEP'?.6:.7,time=interpolation==='STEP'?.36:.185,q=new THREE.Quaternion().fromArray(ip.evaluate(time));assert.ok(q.angleTo(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),expected))<.001);
+ }
+});
+test('oversized sparse animation declarations fail before fetching BIN resources',async()=>{
+ const {doc}=await motionFixture(),data=await new WebIO().writeJSON(doc),output=data.json.animations[0].samplers[0].output;data.json.accessors[output].count=1000000000;const bytes=new TextEncoder().encode(JSON.stringify(data.json));let reads=0;
+ await assert.rejects(loadMotionSource({path:'bad.gltf',format:'gltf',size:bytes.length,read:async()=>bytes,resource:async()=>{reads++;throw Error('unexpected resource')}}),/размер ключей/);assert.equal(reads,0);
+});

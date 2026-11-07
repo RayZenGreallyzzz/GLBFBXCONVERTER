@@ -43,6 +43,7 @@ export async function indexMotionZip(file){
  }return entries;
 }
 export async function openMotionPack(files){
+ if(files.length>400)throw Error('За один раз можно выбрать до 400 файлов');
  const sources=[];for(const file of files){
   let entries;
   if(ext(file.name)==='zip')entries=await indexMotionZip(file);

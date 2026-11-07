@@ -690,8 +690,8 @@ function chooseMotionClip(index){
  stopMotionPlayback();motion.source={...motion.bundle,clip:motion.bundle.clips[index]};motion.preview=null;
  const source=motion.source,mapping=suggestBoneMappings(source.skeleton,state.root),path=motion.pack[Number($('anim-source-file').value)]?.path||'Motion',fileName=path.replace(/^.*\//,'').replace(/\.[^.]+$/,'');
  const base=source.kind==='bvh'?source.clip.name:source.clips.length>1?fileName+'_'+source.clip.name:fileName;
- const used=new Set([...state.clips,...motion.extras].map(c=>c.name));let title=base,suffix=2;while(used.has(title))title=base+'_'+suffix++;
- $('anim-clip-name').value=title.slice(0,60);$('anim-trim-calibration').checked=source.kind==='bvh'&&detectCmuCalibration(source.skeleton,source.clip);
+ const safeBase=base.replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,54)||'Motion',used=new Set([...state.clips,...motion.extras].map(c=>c.name));let title=safeBase,suffix=2;while(used.has(title))title=safeBase+'_'+suffix++;
+ $('anim-clip-name').value=title;$('anim-trim-calibration').checked=source.kind==='bvh'&&detectCmuCalibration(source.skeleton,source.clip);
  renderMotionMapping(mapping);const sizing=estimateRigScale(source.skeleton,state.root);
  motionStatus(source.kind.toUpperCase()+': «'+source.clip.name+'», '+source.clip.duration.toFixed(2)+' сек. Найдено '+mapping.matched+' из '+mapping.total+' соответствий. '+(source.kind==='bvh'&&sizing.measured?'Масштаб перемещения ≈ '+sizing.ratio.toFixed(4)+'×. ':'')+($('anim-trim-calibration').checked?'CMU T-поза распознана; первый кадр будет исключён. ':'')+(source.warnings||[]).join(' '));buttons();
 }
