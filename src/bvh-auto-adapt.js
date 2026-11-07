@@ -51,24 +51,28 @@ export function estimateRigScale(sourceSkeleton,targetRoot){
  return {ratio,measured:true};
 }
 function sourceSamples(skeleton,clip){
- const tracks=new Map(clip.tracks.filter(t=>t.name.endsWith('.quaternion')).map(t=>[
+ const tracks=new Map((clip?.tracks||[]).filter(t=>t.name.endsWith('.quaternion')).map(t=>[
    t.name.slice(0,-'.quaternion'.length),t.createInterpolant()
  ]));
  const bones=skeleton.bones.filter(b=>b.isBone);
  const boneSet=new Set(bones);
- function at(time){
-   const global=new Map();
+ const positions=new Map((clip?.tracks||[]).filter(t=>t.name.endsWith('.position')).map(t=>[t.name.slice(0,-9),t.createInterpolant()]));
+ function at(time,rest=false){
+   const global=new Map();global.positions=new Map();global.scales=new Map();
    function rotation(b){
      if(global.has(b))return global.get(b);
      let local=b.quaternion.clone();
      const ip=tracks.get(b.name);
-     if(ip){
+     if(ip&&!rest){
        const sample=ip.evaluate(time);
        local.fromArray(sample).normalize();
        if(!Number.isFinite(local.x+local.y+local.z+local.w))
          throw Error('Повреждённые вращения BVH у кости '+b.name);
      }
-     if(boneSet.has(b.parent))local.premultiply(rotation(b.parent));
+     const p=b.position.clone(),position=positions.get(b.name);if(position&&!rest)p.fromArray(position.evaluate(time));
+     const s=b.scale.clone();
+     if(boneSet.has(b.parent)){const parent=rotation(b.parent);p.multiply(global.scales.get(b.parent)).applyQuaternion(parent).add(global.positions.get(b.parent));s.multiply(global.scales.get(b.parent));local.premultiply(parent)}
+     global.positions.set(b,p);global.scales.set(b,s);
      global.set(b,local);return local;
    }
    for(const bone of bones)rotation(bone);
@@ -78,15 +82,31 @@ function sourceSamples(skeleton,clip){
 }
 function targetReference(root){
  const world=new Map([[root,Q()]]);
+ world.positions=new Map([[root,new THREE.Vector3()]]);world.scales=new Map([[root,new THREE.Vector3(1,1,1)]]);
  const nodes=[];
  root.traverse(obj=>{
    if(obj===root)return;
    const parent=world.get(obj.parent);
    if(!parent)throw Error('Некорректная иерархия модели');
    world.set(obj,parent.clone().multiply(obj.quaternion));
+   world.positions.set(obj,obj.position.clone().multiply(world.scales.get(obj.parent)).applyQuaternion(parent).add(world.positions.get(obj.parent)));world.scales.set(obj,obj.scale.clone().multiply(world.scales.get(obj.parent)));
    nodes.push(obj);
  });
  return {world,nodes};
+}
+function modelTimeline(clip){
+ const values=new Set([0,clip.duration]);for(let t=1/60;t<clip.duration;t+=1/60){values.add(t);if(values.size>18000)throw Error('Движение слишком длинное: до 18 тысяч кадров переноса')}
+ for(const track of clip.tracks)for(const t of track.times){values.add(t);if(track.getInterpolation()===THREE.InterpolateDiscrete&&t>0)values.add(Math.max(0,t-.0001))}
+ const sorted=[...values].sort((a,b)=>a-b),times=[];for(const t of sorted)if(!times.length||t-times.at(-1)>1e-5)times.push(t);if(times.length>18000)throw Error('В движении больше 18 тысяч моментов времени');return new Float32Array(times);
+}
+function bodyAlignment(source,target,skeleton,targetRoot){
+ const basis=(ref,bones)=>{const find=id=>bones.find(b=>canonicalBone(b.name)===id),hips=find('hips'),top=find('head')||find('neck'),left=find('leftarm')||find('leftshoulder'),right=find('rightarm')||find('rightshoulder');if(![hips,top,left,right].every(Boolean))return null;
+  const x=ref.positions.get(left).clone().sub(ref.positions.get(right)),y=ref.positions.get(top).clone().sub(ref.positions.get(hips));if(x.lengthSq()<EPS||y.lengthSq()<EPS)return null;x.normalize();y.addScaledVector(x,-y.dot(x));if(y.lengthSq()<EPS)return null;y.normalize();const z=x.clone().cross(y).normalize();return Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z))};
+ const a=basis(source,skeleton.bones),b=basis(target,characterBones(targetRoot));return a&&b?b.multiply(a.invert()):Q();
+}
+function modelScale(source,target,skeleton,targetRoot){
+ const length=(ref,bones,side)=>{const ids=[side+'upleg',side+'leg',side+'foot'],points=ids.map(id=>bones.find(b=>canonicalBone(b.name)===id)).map(b=>b&&ref.positions.get(b));return points.every(Boolean)?points[0].distanceTo(points[1])+points[1].distanceTo(points[2]):null};
+ const ratios=['left','right'].map(s=>{const a=length(source,skeleton.bones,s),b=length(target,characterBones(targetRoot),s);return a&&b?b/a:null}).filter(r=>Number.isFinite(r)&&r>.00001&&r<10000);return ratios.length?{ratio:ratios.reduce((a,b)=>a+b,0)/ratios.length,measured:true}:{ratio:1,measured:false};
 }
 function direction(bone,ref){
  // Real joint direction, not the bone's arbitrary local Euler axes.
@@ -116,7 +136,7 @@ function mapPairs(sourceSkeleton,targetRoot,mappings){
 export function autoAdaptBvhClip({
  targetRoot,sourceSkeleton,sourceClip,mappings,name='BVH Motion',
  rootMotion=false,scale=1,autoScale=true,alignAxes=true,
- trimCalibration=true
+ trimCalibration=true,referencePose='first-frame'
 }){
  if(!Number.isFinite(scale)||scale<=0||scale>100)
    throw Error('Масштаб движения должен быть больше 0 и не более 100');
@@ -124,30 +144,33 @@ export function autoAdaptBvhClip({
  const sampler=sourceSamples(sourceSkeleton,sourceClip);
  const ref=targetReference(targetRoot);
  const quatTracks=sourceClip.tracks.filter(t=>t.name.endsWith('.quaternion'));
- const timeTrack=quatTracks[0];
- if(!timeTrack||timeTrack.times.length<2)throw Error('В BVH слишком мало кадров');
- const times=timeTrack.times;
+ const model=referencePose==='rest',timeTrack=quatTracks.find(t=>t.times.length>=2)||quatTracks[0];
+ if(!timeTrack||!model&&timeTrack.times.length<2)throw Error('В движении слишком мало кадров');
+ const times=model?modelTimeline(sourceClip):timeTrack.times;
  // CMU 2010 BVH's frame 0 is calibration; frame 1 is capture.
- const first=trimCalibration?1:0;
+ const first=!model&&trimCalibration?1:0;
  const origin=times[first];
  const timeline=new Float32Array(times.length-first);
  for(let i=first;i<times.length;i++)timeline[i-first]=times[i]-origin;
- const sourceRef=sampler(times[0]);
+ const sourceRef=sampler(times[0],model);
  const targetRef=ref.world;
  const fromForTarget=new Map(pairs.map(pair=>[pair.to,pair.from]));
  const corrections=new Map();
  const identity=Q();
+ const alignment=model&&alignAxes?bodyAlignment(sourceRef,targetRef,sourceSkeleton,targetRoot):Q();
  for(const {from,to} of pairs){
    const sDir=direction(from,sourceRef),tDir=direction(to,targetRef);
    const correct=(alignAxes&&sDir&&tDir)?
-     Q().setFromUnitVectors(sDir,tDir):identity.clone();
+     Q().setFromUnitVectors(sDir.applyQuaternion(alignment),tDir).multiply(alignment):alignment.clone();
    corrections.set(to,correct);
  }
  const outputs=new Map(pairs.map(({to})=>[to,new Float32Array(timeline.length*4)]));
  const animated=new Map();
  const tempInverse=Q(),delta=Q(),local=Q();
+ const hipsPair=pairs.find(({from})=>canonicalBone(from.name)==='hips'),hipPositions=model&&rootMotion&&hipsPair?new Float32Array(timeline.length*3):null;
  for(let frame=0;frame<timeline.length;frame++){
    const sourceFrame=sampler(times[frame+first]);
+   if(hipPositions)sourceFrame.positions.get(hipsPair.from).toArray(hipPositions,frame*3);
    animated.clear();animated.set(targetRoot,identity);
    for(const node of ref.nodes){
      const parent=animated.get(node.parent);
@@ -179,10 +202,12 @@ export function autoAdaptBvhClip({
      to.name+'.quaternion',timeline.slice(),vals
    ));
  }
- const sizing=autoScale?estimateRigScale(sourceSkeleton,targetRoot):{ratio:1,measured:false};
+ const sizing=autoScale?(model?modelScale(sourceRef,targetRef,sourceSkeleton,targetRoot):estimateRigScale(sourceSkeleton,targetRoot)):{ratio:1,measured:false};
  if(rootMotion){
-   const hips=pairs.find(({from})=>canonicalBone(from.name)==='hips');
+   const hips=hipsPair;
    if(hips){
+    if(model&&hipPositions){const values=new Float32Array(hipPositions.length),start=new THREE.Vector3().fromArray(hipPositions),parent=hips.to.parent,parentRotation=(targetRef.get(parent)||Q()).clone().invert(),parentScale=targetRef.scales.get(parent)||new THREE.Vector3(1,1,1);for(let i=0;i<timeline.length;i++){const v=new THREE.Vector3().fromArray(hipPositions,i*3).sub(start).applyQuaternion(alignment).multiplyScalar(scale*sizing.ratio).applyQuaternion(parentRotation).divide(parentScale).add(hips.to.position);v.toArray(values,i*3)}tracks.push(new THREE.VectorKeyframeTrack(hips.to.name+'.position',timeline.slice(),values));}
+    else{
      const p=sourceClip.tracks.find(t=>t.name===hips.from.name+'.position');
      if(p&&p.values.length===p.times.length*3){
        const interp=p.createInterpolant();
@@ -200,14 +225,16 @@ export function autoAdaptBvhClip({
          hips.to.name+'.position',timeline.slice(),values
        ));
      }
+    }
    }
  }
- const title=String(name||'BVH Motion').replace(/[^a-zA-Z0-9_ -]/g,'_').slice(0,60)||'BVH Motion';
+ const title=String(name||'Motion').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,60)||'Motion';
  const clip=new THREE.AnimationClip(title,-1,tracks);
  clip.userData={
-   poseAware:true,calibrationFrameRemoved:trimCalibration,
+   poseAware:true,calibrationFrameRemoved:first>0,referencePose,
    autoScaleRatio:sizing.ratio,autoScaleMeasured:sizing.measured,
    matchedBones:pairs.length
  };
  return clip;
 }
+
