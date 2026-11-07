@@ -10,7 +10,6 @@
  */
 import * as THREE from 'three';
 import { canonicalBone,characterBones,isRiggedCharacter,findCanonicalBone,boneMatchPriority } from './animation-retarget.js';
-import {anatomicalFrames,constrainAnatomicalJoint} from './anatomical-frames.js';
 
 const EPS=1e-7;
 
@@ -141,7 +140,7 @@ function mapPairs(sourceSkeleton,targetRoot,mappings){
 export function autoAdaptBvhClip({
  targetRoot,sourceSkeleton,sourceClip,mappings,name='BVH Motion',
  rootMotion=false,scale=1,autoScale=true,alignAxes=true,
- trimCalibration=true,referencePose='first-frame',jointLimits=true,matchLimbPose=false
+ trimCalibration=true,referencePose='first-frame'
 }){
  if(!Number.isFinite(scale)||scale<=0||scale>100)
    throw Error('Масштаб движения должен быть больше 0 и не более 100');
@@ -163,20 +162,11 @@ export function autoAdaptBvhClip({
  const corrections=new Map();
  const identity=Q();
  const alignment=model&&alignAxes?bodyAlignment(sourceRef,targetRef,sourceSkeleton,targetRoot):Q();
- const sourceAnatomy=alignAxes?anatomicalFrames(sourceSkeleton.bones,sourceRef):new Map();
- const targetAnatomy=alignAxes?anatomicalFrames(characterBones(targetRoot),targetRef):new Map();
- let anatomicalCount=0,limitedSamples=0;
- const poseOffsets=new Map();
  for(const to of ref.nodes){const from=fromForTarget.get(to);if(!from)continue;
    const sDir=direction(from,sourceRef,model),tDir=direction(to,targetRef,model);
    let inherited=alignment;for(let p=to.parent;p;p=p.parent)if(corrections.has(p)){inherited=corrections.get(p);break}
-   let correct=(alignAxes&&sDir&&tDir)?
+   const correct=(alignAxes&&sDir&&tDir)?
      Q().setFromUnitVectors(sDir.applyQuaternion(alignment),tDir).multiply(alignment):(model?inherited:alignment).clone();
-   const sourceFrame=sourceAnatomy.get(from)?.frame,targetFrame=targetAnatomy.get(to)?.frame;
-   if(alignAxes&&sourceFrame&&targetFrame){
-     correct=targetFrame.clone().multiply(sourceFrame.clone().invert());anatomicalCount++;
-     poseOffsets.set(to,sourceRef.get(from).clone().invert().multiply(sourceFrame).multiply(targetFrame.clone().invert()).multiply(targetRef.get(to)));
-   }
    corrections.set(to,correct);
  }
  const outputs=new Map(pairs.map(({to})=>[to,new Float32Array(timeline.length*4)]));
@@ -199,13 +189,7 @@ export function autoAdaptBvhClip({
      const from=fromForTarget.get(node);
      if(from){
        let desired;
-       if(model&&matchLimbPose&&poseOffsets.has(node)){
-         // Match the donor's actual limb pose in the aligned body frame. Merely
-         // adding a T-pose donor's -90 degree arm swing to an A-pose bind arm
-         // applies the bind-pose difference twice and can cross the hands.
-         desired=alignment.clone().multiply(sourceFrame.get(from)).multiply(poseOffsets.get(node)).normalize();
-       }
-       else if(model){const chain=chains.get(node);delta.copy(sourceFrame.get(from));if(chain.sourceAncestor)delta.premultiply(tempInverse.copy(sourceFrame.get(chain.sourceAncestor)).invert());delta.premultiply(chain.sourceRestInverse).premultiply(chain.axis).multiply(chain.axisInverse);desired=chain.targetRest.clone().multiply(delta);if(chain.ancestor)desired.premultiply(animated.get(chain.ancestor));desired.normalize();}
+       if(model){const chain=chains.get(node);delta.copy(sourceFrame.get(from));if(chain.sourceAncestor)delta.premultiply(tempInverse.copy(sourceFrame.get(chain.sourceAncestor)).invert());delta.premultiply(chain.sourceRestInverse).premultiply(chain.axis).multiply(chain.axisInverse);desired=chain.targetRest.clone().multiply(delta);if(chain.ancestor)desired.premultiply(animated.get(chain.ancestor));desired.normalize();}
        else{
        const correct=corrections.get(node);
        // Global delta of the source bone relative to its reference T pose.
@@ -217,12 +201,6 @@ export function autoAdaptBvhClip({
        desired=delta.multiply(targetRef.get(node));
        }
        local.copy(parent).invert().multiply(desired).normalize();
-       const hinge=jointLimits&&targetAnatomy.get(node)?.hinge;
-       if(hinge&&sourceAnatomy.get(from)?.hinge){
-         const constrained=constrainAnatomicalJoint(local,hinge);
-         if(constrained.angleTo(local)>1e-4)limitedSamples++;
-         local.copy(constrained);desired=parent.clone().multiply(local).normalize();
-       }
        if(!Number.isFinite(local.x+local.y+local.z+local.w))
          throw Error('Ошибка расчёта движения: '+node.name);
        local.toArray(outputs.get(node),frame*4);
@@ -271,7 +249,7 @@ export function autoAdaptBvhClip({
  clip.userData={
    poseAware:true,calibrationFrameRemoved:first>0,referencePose,
    autoScaleRatio:sizing.ratio,autoScaleMeasured:sizing.measured,
-   matchedBones:pairs.length,anatomicalFrames:anatomicalCount,jointLimits:jointLimits&&alignAxes,limitedJointSamples:limitedSamples,matchLimbPose:matchLimbPose&&model&&alignAxes
+   matchedBones:pairs.length
  };
  return clip;
 }

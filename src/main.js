@@ -746,8 +746,6 @@ function previewMotion(){
      scale:Number($('anim-root-scale').value),
      autoScale:$('anim-auto-scale').checked,
      alignAxes:$('anim-align-axes').checked,
-     jointLimits:$('anim-joint-limits').checked,
-     matchLimbPose:$('anim-match-limb-pose').checked,
      trimCalibration:$('anim-trim-calibration').checked,
      referencePose:motion.source.kind==='bvh'?'first-frame':'rest'
    });
@@ -763,12 +761,11 @@ function previewMotion(){
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
      ' дорожек. '+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
      (newClip.userData.autoScaleMeasured?'Масштаб Hips '+newClip.userData.autoScaleRatio.toFixed(4)+'×. ':'')+
-     (newClip.userData.anatomicalFrames?'Плоскости суставов адаптированы ('+newClip.userData.anatomicalFrames+' костей). ':'')+
      'Проверь плечи, колени, одежду и направление движения.');
  }catch(e){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка переноса: '+(e.message||e))}
  buttons();
 }
-for(const id of ['anim-clip-name','anim-root-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-joint-limits','anim-match-limb-pose','anim-trim-calibration']){
+for(const id of ['anim-clip-name','anim-root-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
  $(id).addEventListener('change',()=>{
    stopMotionPlayback();motion.preview=null;buttons();
    motionStatus('Настройки изменены. Нажми «Адаптировать и посмотреть» для пересчёта.');
