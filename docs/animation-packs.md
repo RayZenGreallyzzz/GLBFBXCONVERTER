@@ -70,6 +70,12 @@ Exact matches are reserved first; alias fallback prioritizes an actual pelvis
 over a helper root and an actual hand over an intermediate wrist. A root-only
 skeleton retains the existing pelvis fallback. Reference-body alignment and
 root-motion extraction use the same pelvis preference.
+Body directions use named anatomical descendants rather than the first child:
+for example, hips follow the spine even if a leg appears first in the file.
+Weapon sockets do not define the hand frame. Model motion is evaluated relative
+to the nearest corresponding source/target ancestor; this preserves static local
+arm and hand poses when torso movement is adapted between T and A reference
+poses, including unmapped intermediate joints.
 
 Saving appends accepted tracks to the original target GLB container through the
 existing byte-preserving animation exporter. Source characters never replace
