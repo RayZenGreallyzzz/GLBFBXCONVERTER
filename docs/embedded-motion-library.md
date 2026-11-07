@@ -1,68 +1,74 @@
-# Embedded motion library — implementation checkpoint
+# Embedded motion library
 
-The user requested all distinct uploaded movements inside the Android app,
-with Idle, Walk, Run, Attack and Other sections. This work starts from the
-exact MIXAMO TEST source commit `06a51bdb7c44d01de22634b8284ca75d3de8c1e4`
-(GitHub Actions run 42378708172), including the continuous weights and bounded
-Mixamo scale-rounding fixes.
+The Android app has two primary libraries: **Humanoids / Monsters**. Each has
+Idle, Walk, Run, Attack and Other categories, text search, and a six-card live
+catalog. Switching character groups clears the previous source selection;
+accepted target animations remain available. The catalog can be browsed before
+loading a target. Transfer requires a skinned target and should be previewed.
 
-## Current state (2026-11-08)
+The release includes 1,273 unique clips: 786 humanoid and 487 monster clips.
+All 656 original monster actions are represented after exact-data deduplication.
+Four humanoid effects that animate scale remain unsupported. Static source
+models without movements are excluded. The shipped build and Blender coverage
+reports contain the exact source provenance, duplicates and warnings.
 
-Source implementation and generated-fixture unit tests are prepared. All 199
-Node tests and the production web build passed. The new browser test could
-not run in this environment: Chromium 153 terminated at launch with SIGTRAP;
-it remains unverified. **The
-real animation assets have not been packaged, and there is no new APK.**
-The previously uploaded ZIP bytes disappeared when the conversation resumed.
-Do not claim that the earlier figure of 786 clips has been verified. Obtain
-the animation archives again before building the real library. The original
-APK does not need to be reuploaded because the exact source is restored.
+## Data and memory
 
-Expected inputs: Phoenix_Rigs_Animations_ALL / Humanoids / Monsters,
-Universal Animation Library 2 Standard, Mixamo Complete 156 and parties 1/2,
-Stefani_Anim and ToonMouse14. Some overlap; the builder keeps provenance.
+Startup loads only `/motions/index.json`. Only a selected clip and the visible
+six thumbnail sources are decoded. The cache contains small sampled visuals,
+not meshes, textures or original scenes. Each asset is a separate mesh-free
+skeletal GLB. Imported ZIP/BVH/FBX/GLB sources can be used alongside the built-in
+library without discarding accepted target clips.
 
-## Implemented behavior
+`motion-library/bundle.json` and its compressed binary parts are source assets.
+`npm run build` and `npm run dev` verify and unpack them into `public/motions`.
+The generated directory is not committed. APK packaging verifies every clip's
+size and SHA-256 and requires both character groups.
 
-- Startup reads only `/motions/index.json`. Clip GLBs load on demand.
-- Idle / Walk / Run / Attack / Other filters appear in the main picker and
-  the six-card live catalog. Search combines with the category.
-- The catalog can be browsed without loading a target character. Transfer
-  requires a skinned target. Imported files and the built-in library can be
-  switched without discarding accepted animations.
-- The offline builder stores one skeletal clip per GLB, without meshes,
-  images or materials. It preserves rest transforms, key data and STEP /
-  LINEAR / CUBICSPLINE interpolation. Root-motion variants remain distinct
-  whenever their keys differ.
-- Deduplication hashes hierarchy, rest transforms and key data, ignoring clip
-  names. It removes exact data duplicates, not similar-looking movements.
-- BLEND files are not parsed. Export them to GLB/FBX with animations first.
-  Files or clips rejected by the existing motion importer are reported.
-- APK packaging refuses a missing or corrupted library.
-
-## Resume after the archives are available
+## Rebuild from original archives
 
 ```sh
 npm ci --no-audit --no-fund
-npm run motions:build -- /path/to/animation-archive-directory
+npm run motions:build -- /path/to/animation-archive-directory /path/to/baked-monster-glbs
 npm run motions:verify
+npm run motions:bundle
 npm test
 npm run build
 npm run test:motions-browser
 npm run test:browser
 ```
 
-Inspect `public/motions/build-report.json`: counts, categories, duplicates and
-every warning. Audit names/categories against the actual clips. Include
-`public/motions/index.json` and all referenced `clips/*.glb` in the commit;
-generated test fixtures must never be shipped as the real library.
+The builder preserves rest transforms, key times/values and STEP / LINEAR /
+CUBICSPLINE interpolation. It removes only exact data duplicates within each
+character group. Source filenames and annotations are retained as provenance.
+Preserve included license files in `public/motions/licenses` before bundling.
 
-The targeted browser script serves eight generated fixtures through request
-routing, without creating `public/motions`. It tests startup without clip
-requests, six-card pagination, categories/search, mobile width, retarget/add
-and imported/built-in switching. It requires a functioning Chromium runtime.
+## Blender monster sources
 
-Once real assets and checks pass, add `feature/embedded-motion-library` to the
-workflow push branch list, give the new test APK its own applicationId and
-label, verify the packed catalog/clip count, and obtain the resulting APK
-artifact. Keep the old stable installations independent.
+`scripts/export-blend-motions.py` reads local BLEND files using the official
+Blender `bpy` module with embedded scripts disabled. It bakes evaluated
+armatures at their original frame rate into skeletal GLB files named
+`monster_<name>.glb`. Rest and sampled local transforms are reconstructed and
+compared against Blender's world matrices before output. Legacy unit-scale
+orthogonality noise up to 0.01% is normalized. The verified maximum world-matrix
+error in the supplied sources is below 0.0001. Actual non-unit scaling is kept.
+No target geometry, weights, skeletons or textures are changed.
+
+The supplied 61 monster files produced 656 supported source actions and 487
+unique clips. `verify-blend-library.mjs` independently checks that every
+supported baked action is represented in the final monster library.
+
+## Validation
+
+Unit tests cover group isolation, category/search filtering, exact duplicates,
+variant preservation, mesh stripping, interpolation, bundle checksums,
+corruption handling, lazy fetches and cancellation. The focused browser script
+serves ten generated fixtures through request routing; fixtures are never
+shipped. It checks both groups, mobile layout, six-card pages, retarget/add and
+imported/built-in switching. GitHub Actions runs it in a Chromium environment,
+then builds and verifies the isolated Forge ANIMATIONS APK.
+
+This work starts from the exact MIXAMO TEST commit
+`06a51bdb7c44d01de22634b8284ca75d3de8c1e4`, preserving the prior continuous skin
+weights and bounded Mixamo scale-rounding changes. The test applicationId is
+`com.phoenix.glbfbxconverter.rigtest.motions1`; stable apps remain independent.

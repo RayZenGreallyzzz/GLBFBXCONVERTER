@@ -203,9 +203,10 @@
   </section>
   <section id="tab-anim" class="tab-panel hidden">
   <h2>Перенос анимаций на персонажа</h2>
-  <p class="tip">Выбери встроенное движение в разделе Idle, Walk, Run, Attack или «Прочее». Миниатюры можно смотреть сразу. Для переноса загрузи персонажа со скелетом, выбери движение и проверь его на персонаже. Проверенные движения добавляй в набор.</p>
+  <p class="tip">Сначала выбери «Гуманоиды» или «Монстры», затем Idle, Walk, Run, Attack или «Прочее». Миниатюры можно смотреть сразу. Для переноса загрузи персонажа со скелетом и проверь движение на нём.</p>
   <label>Библиотека<select id="anim-library-source"><option value="embedded">Встроенные движения</option><option value="imported" disabled>Мои файлы</option></select></label>
   <small id="anim-embedded-status" class="tip" role="status">Читаем каталог встроенных движений…</small>
+  <div id="anim-family" class="motion-family-tabs" role="group" aria-label="Тип персонажа"><button type="button" data-family="humanoid" aria-pressed="true">Гуманоиды</button><button type="button" data-family="monster" aria-pressed="false">Монстры</button></div>
   <label class="load">＋ Выбрать анимации или ZIP
     <input hidden id="anim-bvh-file" type="file" accept=".zip,.bvh,.fbx,.glb,.gltf,.bin" multiple>
   </label>
@@ -261,6 +262,7 @@
 </main>
 <dialog id="motion-catalog" class="motion-catalog" aria-labelledby="motion-catalog-title">
   <header class="motion-catalog-heading"><h2 id="motion-catalog-title">Выбери движение по миниатюре</h2><button type="button" id="motion-catalog-close">✕ Закрыть</button></header>
+  <div id="motion-catalog-family" class="motion-family-tabs" role="group" aria-label="Тип персонажа"><button type="button" data-family="humanoid" aria-pressed="true">Гуманоиды</button><button type="button" data-family="monster" aria-pressed="false">Монстры</button></div>
   <label>Раздел<select id="motion-catalog-category"><option value="all">Все</option></select></label>
   <p class="tip">Миниатюры показывают упрощённую схему источника, фрагмент до 8 секунд. «На персонаже» запускает проверку переноса на твоей модели. Если в файле несколько клипов, здесь показан первый; остальные выбираются после открытия файла.</p>
   <label>Поиск по имени или папке<input id="motion-catalog-search" type="search" placeholder="Например: walk, jump, idle"></label>

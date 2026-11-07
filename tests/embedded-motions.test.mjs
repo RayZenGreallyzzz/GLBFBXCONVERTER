@@ -9,9 +9,10 @@ import * as THREE from 'three';
 import {motionFixture} from './helpers/motion-fixture.mjs';
 import {buildMotionLibrary,encodeMotionGlb} from '../scripts/build-motion-library.mjs';
 import {verifyMotionLibrary} from '../scripts/verify-motion-library.mjs';
+import {packMotionBundle,unpackMotionBundle} from '../scripts/motion-bundle.mjs';
 import {openEmbeddedMotions} from '../src/embedded-motions.js';
 import {loadMotionSource} from '../src/motion-import.js';
-import {classifyMotion,matchesMotion,categoryCounts} from '../src/motion-categories.js';
+import {classifyMotion,matchesMotion,categoryCounts,motionFamily} from '../src/motion-categories.js';
 import {inspectGlb} from '../src/format.js';
 import {validateBytes} from 'gltf-validator';
 
@@ -26,6 +27,7 @@ test('movement categories distinguish idle, walk, run, attacks and reactions in 
  const entries=[{label:'Backwards',title:'Ходьба назад',category:'walk',path:'Walk/Backwards.glb',aliases:['Mixamo / ходьба']},{label:'Sprint',category:'run',path:'Run/Sprint.glb'}];
  assert.equal(matchesMotion(entries[0],'ходьба mixamo','walk'),true);assert.equal(matchesMotion(entries[0],'','run'),false);assert.equal(matchesMotion(entries[0],'nothing'),false);
  assert.deepEqual(categoryCounts(entries),{all:2,idle:0,walk:1,run:1,attack:0,other:0});
+ assert.equal(matchesMotion({...entries[0],family:'monster'},'','walk','humanoid'),false);assert.equal(matchesMotion({...entries[0],family:'monster'},'','walk','monster'),true);assert.equal(motionFamily({path:'monster_Dragon.glb'}),'monster');
 });
 
 test('building strips all meshes and images, deduplicates copies and retains different keys',async()=>{
@@ -38,6 +40,8 @@ test('building strips all meshes and images, deduplicates copies and retains dif
   assert.equal(report.sourceClips,6);assert.equal(report.uniqueClips,3);assert.equal(report.duplicates,3);assert.equal(report.warnings.length,0);
   const manifest=JSON.parse(await readFile(join(out,'index.json'),'utf8'));assert.equal(manifest.clips.length,3);assert.equal((await readdir(join(out,'clips'))).length,3);
   assert.equal(await verifyMotionLibrary(out),3);
+  const bundleDir=join(temp,'bundle'),restored=join(temp,'restored'),bundle=await packMotionBundle(out,bundleDir,{partBytes:2048});assert.ok(bundle.parts.length>1);assert.equal(await unpackMotionBundle(bundleDir,restored),3);assert.equal(await verifyMotionLibrary(restored),3);
+  const part=join(bundleDir,bundle.parts[0].file),bad=await readFile(part);bad[0]^=1;await writeFile(part,bad);await assert.rejects(unpackMotionBundle(bundleDir,restored),/Corrupted/);assert.equal(await verifyMotionLibrary(restored),3);
   for(const entry of manifest.clips){
    const packed=new Uint8Array(await readFile(join(out,'clips',entry.id+'.glb'))),json=inspectGlb(packed).json;
    for(const key of ['meshes','materials','images','textures'])assert.equal(json[key],undefined);
@@ -59,6 +63,14 @@ test('packaged clips preserve rest transforms, stepped and cubic-spline samples'
   const arm=source.skeleton.bones.find(b=>b.name==='Arm'),copy=result.skeleton.bones.find(b=>b.name==='Arm');assert.ok(arm.quaternion.angleTo(copy.quaternion)<1e-6);assert.deepEqual(arm.position.toArray(),copy.position.toArray());
   const a=source.clip.tracks[0].createInterpolant(),b=result.clip.tracks[0].createInterpolant();for(const time of [0,.185,.36,.37,.8,1])assert.ok(new THREE.Quaternion().fromArray(a.evaluate(time)).angleTo(new THREE.Quaternion().fromArray(b.evaluate(time)))<.001,mode+' at '+time);
  }
+});
+
+test('identical key data in different character groups remains available in both libraries',async()=>{
+ const temp=await mkdtemp(join(tmpdir(),'forge-families-'));try{
+  const {bytes}=await motionFixture(),input=join(temp,'both.zip'),out=join(temp,'library');await writeFile(input,zipSync({'human.glb':bytes,'monster_Dragon.glb':bytes}));
+  const report=await buildMotionLibrary([input],out);assert.deepEqual(report.families,{humanoid:2,monster:2});assert.equal(report.uniqueClips,4);
+  const manifest=JSON.parse(await readFile(join(out,'index.json'),'utf8'));for(const family of ['humanoid','monster'])assert.equal(manifest.clips.filter(c=>c.family===family).length,2);
+ }finally{await rm(temp,{recursive:true,force:true})}
 });
 
 test('opening the embedded catalog fetches only metadata; reading one clip supports cancellation',async()=>{

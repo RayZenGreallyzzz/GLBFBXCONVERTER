@@ -9,7 +9,7 @@ import {loadMotionSource} from './motion-import.js';
 import {createMotionVisual,MotionCanvas} from './motion-visual.js';
 import {MotionCatalog} from './motion-catalog.js';
 import {openEmbeddedMotions} from './embedded-motions.js';
-import {matchesMotion,fillMotionCategories} from './motion-categories.js';
+import {matchesMotion,fillMotionCategories,fillMotionFamilies,motionFamily} from './motion-categories.js';
 import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -49,7 +49,7 @@ $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundle:null};
-let embeddedMotions=[],importedMotions=[];
+let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
 let guidedRigUi=null;
@@ -67,6 +67,7 @@ function buttons(){
  $('anim-source-file').disabled=!rig||!motion.pack.length;
  $('anim-source-filter').disabled=state.busy||!motion.pack.length;
  $('anim-category').disabled=state.busy||!motion.pack.length;
+ $('anim-family').querySelectorAll('button').forEach(button=>button.disabled=state.busy||!motion.pack.length);
  $('anim-library-source').disabled=state.busy;
  $('anim-source-clip').disabled=!rig||!motion.bundle?.clips.length;
  $('anim-browse').disabled=state.busy||!motion.pack.length;
@@ -659,11 +660,15 @@ function resetMotionStudio(){
  motionStatus('Выбери раздел и движение из встроенной библиотеки или своих файлов. Для переноса нужен персонаж со скелетом.');
  buttons();
 }
-function setMotionPack(pack){
- stopMotionPlayback();motion.source=null;motion.bundle=null;motion.preview=null;motion.rows=[];motion.pack=pack;
+function clearMotionSelection(){
+ stopMotionPlayback();motion.source=null;motion.bundle=null;motion.preview=null;motion.rows=[];
  sourceVisual?.clear();$('anim-source-visual').hidden=true;$('anim-source-clip').replaceChildren();$('anim-map').textContent='Выбери движение для списка костей.';
- $('anim-source-filter').value='';fillMotionCategories($('anim-category'),pack);motionCatalog?.setEntries(pack);renderMotionFiles(-1);buttons();
 }
+function setMotionPack(pack){
+ clearMotionSelection();motion.pack=pack;
+ $('anim-source-filter').value='';fillMotionFamilies($('anim-family'),pack,selectedMotionFamily);fillMotionCategories($('anim-category'),pack.filter(e=>motionFamily(e)===selectedMotionFamily));motionCatalog?.setEntries(pack);renderMotionFiles(-1);buttons();
+}
+$('anim-family').addEventListener('click',event=>{const family=event.target.closest('button')?.dataset.family;if(state.busy||!family||family===selectedMotionFamily)return;clearMotionSelection();selectedMotionFamily=family;fillMotionFamilies($('anim-family'),motion.pack,family);fillMotionCategories($('anim-category'),motion.pack.filter(e=>motionFamily(e)===family),$('anim-category').value);renderMotionFiles(-1);buttons()});
 async function initializeEmbeddedMotions(){
  try{embeddedMotions=await openEmbeddedMotions();$('anim-embedded-status').textContent='Встроено движений: '+embeddedMotions.length+'. Доступны без интернета.';if($('anim-library-source').value==='embedded')setMotionPack(embeddedMotions)}
  catch(error){$('anim-embedded-status').textContent='Встроенная библиотека недоступна: '+error.message+'. Можно открыть свои ZIP и файлы.'}
@@ -706,8 +711,8 @@ function renderMotionMapping(data){
 function renderMotionFiles(selected=Number($('anim-source-file').value||-1)){
  const query=$('anim-source-filter').value,category=$('anim-category').value||'all',list=$('anim-source-file');list.replaceChildren();let matches=0,kept=false;
  if(selected<0){const placeholder=document.createElement('option');placeholder.value='-1';placeholder.textContent='Выбери движение';placeholder.disabled=true;list.append(placeholder)}
- motion.pack.forEach((entry,i)=>{const match=matchesMotion(entry,query,category);if(match)matches++;if(!match&&i!==selected)return;if(!match)kept=true;const option=document.createElement('option');option.value=i;option.textContent=entry.label+(!match?' (выбрано ранее)':'');list.append(option)});
- list.value=String(selected);$('anim-source-count').textContent='Найдено '+matches+' из '+motion.pack.length+(kept?'. Текущий файл остаётся в списке.':'.');
+ motion.pack.forEach((entry,i)=>{const match=matchesMotion(entry,query,category,selectedMotionFamily);if(match)matches++;if(!match&&i!==selected)return;if(!match)kept=true;const option=document.createElement('option');option.value=i;option.textContent=entry.label+(!match?' (выбрано ранее)':'');list.append(option)});
+ list.value=String(selected);const familyCount=motion.pack.filter(e=>motionFamily(e)===selectedMotionFamily).length;$('anim-source-count').textContent=(selectedMotionFamily==='monster'?'Монстры':'Гуманоиды')+': найдено '+matches+' из '+familyCount+(kept?'. Текущий файл остаётся в списке.':'.');
 }
 $('anim-source-filter').addEventListener('input',()=>renderMotionFiles());
 $('anim-category').addEventListener('change',()=>renderMotionFiles());
@@ -740,7 +745,7 @@ $('anim-bvh-file').addEventListener('change',async e=>{
  }
  state.busy=true;buttons();
  try{
-   importedMotions=await openMotionPack(files);$('anim-library-source').querySelector('[value="imported"]').disabled=false;$('anim-library-source').value='imported';setMotionPack(importedMotions);renderMotionFiles(0);
+   importedMotions=await openMotionPack(files);selectedMotionFamily=motionFamily(importedMotions[0]);$('anim-library-source').querySelector('[value="imported"]').disabled=false;$('anim-library-source').value='imported';setMotionPack(importedMotions);renderMotionFiles(0);
    state.busy=false;await chooseMotionFile(0);
  }catch(err){motionStatus('Ошибка пакета анимаций: '+(err.message||err))}
  finally{state.busy=false;buttons()}
@@ -919,10 +924,10 @@ const playbackClock=new THREE.Clock();
 sourceVisual=new MotionCanvas($('anim-source-visual-canvas'));
 $('anim-source-visual-toggle').addEventListener('click',()=>{const playing=sourceVisual.toggle();$('anim-source-visual-toggle').textContent=playing?'Ⅱ Пауза схемы':'▶ Играть схему';$('anim-source-visual-toggle').setAttribute('aria-pressed',String(playing))});
 motionCatalog=new MotionCatalog({
- busy:()=>state.busy,filter:()=>$('anim-source-filter').value,category:()=>$('anim-category').value,canSelect:()=>!!state.root&&!state.bvhOnly&&isRiggedCharacter(state.root),stop:stopMotionPlayback,setBusy:value=>{state.busy=value;buttons()},
+ busy:()=>state.busy,filter:()=>$('anim-source-filter').value,category:()=>$('anim-category').value,family:()=>selectedMotionFamily,canSelect:()=>!!state.root&&!state.bvhOnly&&isRiggedCharacter(state.root),stop:stopMotionPlayback,setBusy:value=>{state.busy=value;buttons()},
  current:index=>Number($('anim-source-file').value)===index?motion.bundle:null,
  load:async(entry,signal)=>{const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});return loadMotionSource(entry,{memoryBudgetMiB,signal})},
- select:async(index,query,category)=>{const previous=Number($('anim-source-file').value),reuse=previous===index&&motion.bundle;$('anim-source-filter').value=query;$('anim-category').value=category;renderMotionFiles(index);if(reuse)chooseMotionClip(0);else await chooseMotionFile(index);if(!motion.source)return;const mapping=readMotionMapping(),matched=mapping.filter(r=>r.target).length;if(matched>=Math.min(5,mapping.length)&&matched>0)previewMotion();else motionStatus('Движение выбрано. Для просмотра на персонаже уточни соответствия костей и нажми «Адаптировать и посмотреть».');document.querySelector('.view').scrollIntoView({behavior:'smooth',block:'start'})},
+ select:async(index,query,category,family)=>{const previous=Number($('anim-source-file').value),reuse=previous===index&&motion.bundle;selectedMotionFamily=family;fillMotionFamilies($('anim-family'),motion.pack,family);fillMotionCategories($('anim-category'),motion.pack.filter(e=>motionFamily(e)===family),category);$('anim-source-filter').value=query;renderMotionFiles(index);if(reuse)chooseMotionClip(0);else await chooseMotionFile(index);if(!motion.source)return;const mapping=readMotionMapping(),matched=mapping.filter(r=>r.target).length;if(matched>=Math.min(5,mapping.length)&&matched>0)previewMotion();else motionStatus('Движение выбрано. Для просмотра на персонаже уточни соответствия костей и нажми «Адаптировать и посмотреть».');document.querySelector('.view').scrollIntoView({behavior:'smooth',block:'start'})},
  error:message=>motionStatus('Ошибка визуального выбора: '+message)
 });
 initializeEmbeddedMotions();

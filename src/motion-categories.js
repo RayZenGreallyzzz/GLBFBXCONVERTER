@@ -4,22 +4,28 @@ export const MOTION_CATEGORIES=Object.freeze([
  {id:'attack',label:'Attack · Атаки'}, {id:'other',label:'Прочее'}
 ]);
 const ids=new Set(MOTION_CATEGORIES.map(c=>c.id));
+export const MOTION_FAMILIES=[{id:'humanoid',label:'Гуманоиды'},{id:'monster',label:'Монстры'}];
+export function motionFamily(entry){return entry.family==='monster'||!entry.family&&/(?:monster_|monsters|монстр)/i.test(entry.path||'')?'monster':'humanoid'}
+export function fillMotionFamilies(container,entries,family='humanoid'){
+ container.replaceChildren();for(const item of MOTION_FAMILIES){const button=document.createElement('button');button.type='button';button.dataset.family=item.id;button.textContent=item.label+' ('+entries.filter(e=>motionFamily(e)===item.id).length+')';button.setAttribute('aria-pressed',String(item.id===family));container.append(button)}
+}
 export function motionCategory(value){return ids.has(value)?value:'other'}
 function classify(text){
  const s=String(text).replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase().replace(/[_\d./\\-]+/g,' ');
  // A hit reaction is not an attack. Keep falls, death and damage in Other.
  if(/\b(death|die|dead|hurt|damage|hit react\w*|get hit|take hit|knock\w*)\b|смерт|поражен|ранени|получ.*удар|падени/.test(s))return 'other';
  if(/\b(attack\w*|punch\w*|kick\w*|slash\w*|shoot\w*|strike\w*|stab\w*|thrust\w*|melee\w*|bite\w*|cast\w*|fire|swing\w*)\b|атак|удар|стрельб|выстрел|укус/.test(s))return 'attack';
- if(/\b(run\w*|running|jog\w*|sprint\w*)\b|бег|беж/.test(s))return 'run';
+ if(/\b(run\w*|running|jog\w*|sprint\w*|gallop\w*|trot\w*)\b|бег|беж/.test(s))return 'run';
  if(/\b(walk\w*|walking)\b|ходьб|ходить|шага/.test(s))return 'walk';
  if(/\b(idle\w*|stand\w*|breath\w*|rest|t pose|a pose)\b|стойк|ожидани|дыхани|покой/.test(s))return 'idle';
  return null;
 }
 export function classifyMotion(name,path=''){
  // A named take is more specific than its folder (e.g. Sword/Idle).
- return classify(name)??classify(path.split('/').at(-1))??classify(path)??'other';
+ return classify(name)??classify(path.split('/').at(-1))??classify(path)??(/repos_et_attentes/.test(path)?'idle':/combat|attaque/.test(path)?'attack':'other');
 }
-export function matchesMotion(entry,query='',category='all'){
+export function matchesMotion(entry,query='',category='all',family='all'){
+ if(family!=='all'&&motionFamily(entry)!==family)return false;
  if(category!=='all'&&(entry.category||classifyMotion(entry.title||'',entry.path))!==category)return false;
  const haystack=[entry.label,entry.title,entry.path,entry.source,...(entry.aliases||[])].filter(Boolean).join(' ').toLocaleLowerCase();
  return query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean).every(w=>haystack.includes(w));

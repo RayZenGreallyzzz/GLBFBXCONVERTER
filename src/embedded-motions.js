@@ -12,7 +12,7 @@ export async function openEmbeddedMotions({fetcher=globalThis.fetch,signal}={}){
  return manifest.clips.map(clip=>{
   if(!/^[a-f0-9]{64}$/.test(clip.id)||ids.has(clip.id)||typeof clip.title!=='string'||!clip.title||clip.title.length>240||!['idle','walk','run','attack','other'].includes(clip.category)||!Number.isSafeInteger(clip.bytes)||clip.bytes<20||clip.bytes>8*MiB||!Number.isFinite(clip.duration)||clip.duration<=0)throw Error('Повреждена запись встроенного движения');
   ids.add(clip.id);
-  return {id:clip.id,title:clip.title,category:clip.category,path:clip.category+'/'+clip.title+'.glb',label:clip.title,source:String(clip.source||''),aliases:Array.isArray(clip.aliases)?clip.aliases.filter(a=>typeof a==='string'):[],format:'glb',size:clip.bytes,embedded:true,
+  return {id:clip.id,title:clip.title,family:clip.family==='monster'?'monster':'humanoid',category:clip.category,path:(clip.family||'humanoid')+'/'+clip.category+'/'+clip.title+'.glb',label:clip.title,source:String(clip.source||''),aliases:Array.isArray(clip.aliases)?clip.aliases.filter(a=>typeof a==='string'):[],format:'glb',size:clip.bytes,embedded:true,
    async read({signal}={}){
     const result=await fetcher('/motions/clips/'+clip.id+'.glb',{signal});
     if(!result.ok)throw Error('Не удалось открыть встроенное движение ('+result.status+')');

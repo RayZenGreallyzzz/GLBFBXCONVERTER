@@ -1,4 +1,4 @@
-// Production UI checks with generated test fixtures. These eight clips are
+// Production UI checks with generated test fixtures. These ten clips are
 // served only by Playwright routing and never written to public/motions.
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
@@ -15,9 +15,9 @@ const origin='http://127.0.0.1:4180',temp=await mkdtemp(join(tmpdir(),'forge-emb
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4180','--strictPort'],{stdio:'ignore'});
 let browser;
 try{
- const files={},names=['Idle One','Idle Two','Walk Forward','Walk Backward','Run Forward','Run Fast','Attack Punch','Jump'];
+ const files={},names=['Idle One','Idle Two','Walk Forward','Walk Backward','Run Forward','Run Fast','Attack Punch','Jump','monster_Dragon','monster_Orc'];
  for(let i=0;i<names.length;i++){
-  const {doc}=await motionFixture();doc.getRoot().listAnimations()[1].dispose();const animation=doc.getRoot().listAnimations()[0];animation.setName(names[i]);animation.listSamplers()[0].getOutput().getArray()[0]+=(i+1)*.002;
+  const {doc}=await motionFixture();doc.getRoot().listAnimations()[1].dispose();const animation=doc.getRoot().listAnimations()[0];animation.setName(i===8?'Run':i===9?'Idle':names[i]);animation.listSamplers()[0].getOutput().getArray()[0]+=(i+1)*.002;
   files[names[i]+'.glb']=await new WebIO().writeBinary(doc);
  }
  const input=join(temp,'fixtures.zip'),output=join(temp,'motions');await writeFile(input,zipSync(files));await buildMotionLibrary([input],output);
@@ -29,7 +29,7 @@ try{
   if(url.origin===origin||['blob:','data:'].includes(url.protocol))return route.continue();return route.abort();
  });
  const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));await page.goto(origin);await page.locator('#brand-splash').waitFor({state:'detached'});
- await page.waitForFunction(()=>document.getElementById('anim-embedded-status').textContent.includes('Встроено движений: 8'));
+ await page.waitForFunction(()=>document.getElementById('anim-embedded-status').textContent.includes('Встроено движений: 10'));
  assert.deepEqual(requests,['/motions/index.json'],'startup must fetch no animation data');
  await page.locator('[data-tab="anim"]').click();await page.locator('#anim-browse').click();
  const ready=async count=>{await page.waitForFunction(count=>document.querySelectorAll('.motion-card[data-ready="true"]').length===count,count);assert.equal(await page.locator('.motion-card-error').count(),0)};
@@ -38,12 +38,14 @@ try{
  await page.locator('#motion-catalog-search').fill('fast');await ready(1);assert.equal(await page.locator('.motion-card strong').innerText(),'Run Fast');
  await page.locator('#motion-catalog-search').fill('');await page.locator('#motion-catalog-category').selectOption('all');await ready(6);await page.locator('#motion-catalog-next').click();await ready(2);
  assert.ok(new Set(requests.filter(r=>r.endsWith('.glb'))).size<=8);
+ await page.locator('#motion-catalog-family [data-family="monster"]').click();await ready(2);assert.ok((await page.locator('.motion-card strong').allInnerTexts()).every(name=>/Dragon|Orc/.test(name)));
+ await page.locator('#motion-catalog-category').selectOption('run');await ready(1);assert.ok((await page.locator('.motion-card strong').innerText()).includes('Dragon'));
  assert.equal(await page.locator('#motion-catalog').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'mobile dialog must fit the viewport');
  if(process.env.MOTION_TEST_SCREENSHOT)await page.screenshot({path:process.env.MOTION_TEST_SCREENSHOT});
  await page.locator('#motion-catalog-close').click();assert.equal(await page.locator('#anim-browse').isEnabled(),true,'closing must release the busy state');
  const target=(await motionFixture()).bytes;await page.locator('#model-file').setInputFiles({name:'target.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(target)});
  await page.waitForFunction(()=>/Загружено|загружен|Ошибка загрузки/.test(document.getElementById('status').textContent));assert.ok(!(await page.locator('#status').innerText()).includes('Ошибка'));
- await page.locator('#anim-category').selectOption('run');await page.locator('#anim-browse').click();await ready(2);await page.locator('.motion-card button').first().click();
+ await page.locator('#anim-family [data-family="monster"]').click();await page.locator('#anim-category').selectOption('run');await page.locator('#anim-browse').click();await ready(1);await page.locator('.motion-card button').first().click();
  await page.waitForFunction(()=>!document.getElementById('anim-add').disabled);assert.equal(await page.locator('#anim-category').inputValue(),'run');await page.locator('#anim-add').click();assert.equal(await page.locator('#anim-export').isEnabled(),true);
  await page.locator('#anim-bvh-file').setInputFiles({name:'my.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(target)});await page.waitForFunction(()=>document.getElementById('anim-library-source').value==='imported'&&!document.getElementById('anim-source-clip').disabled);
  await page.locator('#anim-library-source').selectOption('embedded');assert.equal(await page.locator('#anim-export').isEnabled(),true,'switching libraries must preserve accepted motions');
