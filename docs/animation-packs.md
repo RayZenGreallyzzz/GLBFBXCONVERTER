@@ -18,9 +18,14 @@ against their local ZIP headers and CRC before parsing.
 
 ## Memory and supported channels
 
-Limits: compressed ZIP 128 MiB, 400 directory entries, 200 selectable source
-files, 64 MiB per source/BIN, 256 MiB declared relevant unpacked data, and 100
+Limits: compressed ZIP 128 MiB, 4096 directory entries, 2048 selectable source
+files (up to 400 loose files per picker operation), 64 MiB per source/BIN,
+256 MiB declared relevant unpacked data, and 100
 clips per source. Source-task estimates use the existing Android memory query.
+Increasing catalog counts does not inflate more entries: the current source
+still opens alone. Common `clips`, `animations` and `motions` folders sort
+before donor/demo models. Search filters source names/folders while retaining
+the currently loaded file; typing a query does not parse another source.
 Skeletons are limited to 200 nodes (BVH end sites are excluded from that count).
 Animation accessor/track budgets and the 18,000-sample retargeting limit are
 checked before large allocations.
@@ -36,6 +41,10 @@ and geometry. The target character's geometry and textures stay in the viewport.
 Supported retargeting channels are bone rotations and optional pelvis motion.
 Morph/material tracks and translations of individual joints are not copied.
 Changing source scale is unsupported; a clip requiring it is reported/skipped.
+The error identifies changing scale explicitly rather than suggesting that the
+archive is corrupt. In the 514-GLB private library check, all 506 ordinary
+skeletal clips opened and produced finite retargeted tracks. Four clips with
+changing scale were rejected, and four GLBs had no animation.
 Source hierarchy scales must be positive and uniform. FBX remains subject to
 the existing Three.js loader's version and feature compatibility.
 
@@ -54,6 +63,19 @@ The result remains an experimental body retarget: preview shoulders, elbows,
 knees and facing direction before accepting. Unusual rigs and constraints can
 require manual work. This does not create weights, transfer clothes or retarget
 facial expressions.
+
+Name mapping recognizes Blender/KayKit side suffixes, Unreal/Mesh2Motion body
+names and common finger chains. Spine, Spine1 and Spine2 remain separate.
+Exact matches are reserved first; alias fallback prioritizes an actual pelvis
+over a helper root and an actual hand over an intermediate wrist. A root-only
+skeleton retains the existing pelvis fallback. Reference-body alignment and
+root-motion extraction use the same pelvis preference.
+Body directions use named anatomical descendants rather than the first child:
+for example, hips follow the spine even if a leg appears first in the file.
+Weapon sockets do not define the hand frame. Model motion is evaluated relative
+to the nearest corresponding source/target ancestor; this preserves static local
+arm and hand poses when torso movement is adapted between T and A reference
+poses, including unmapped intermediate joints.
 
 Saving appends accepted tracks to the original target GLB container through the
 existing byte-preserving animation exporter. Source characters never replace

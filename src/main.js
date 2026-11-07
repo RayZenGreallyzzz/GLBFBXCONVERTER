@@ -59,6 +59,7 @@ function buttons(){
  const rig=ready&&!state.bvhOnly&&isRiggedCharacter(state.root);
  $('anim-bvh-file').disabled=!rig;
  $('anim-source-file').disabled=!rig||!motion.pack.length;
+ $('anim-source-filter').disabled=!rig||!motion.pack.length;
  $('anim-source-clip').disabled=!rig||!motion.bundle?.clips.length;
  $('anim-trim-calibration').disabled=!rig||motion.source?.kind!=='bvh';
  $('anim-preview').disabled=!rig||!motion.source;
@@ -645,6 +646,7 @@ function stopMotionPlayback(){
 function resetMotionStudio(){
  motion.source=null;motion.rows=[];motion.preview=null;motion.extras=[];motion.pose=null;motion.pack=[];motion.bundle=null;
  $('anim-source-file').replaceChildren();$('anim-source-clip').replaceChildren();
+ $('anim-source-filter').value='';$('anim-source-count').textContent='';
  $('anim-map').replaceChildren();
  $('anim-map').textContent='Выбери источник анимаций для списка костей.';
  $('anim-library').textContent='Дополнительных анимаций пока нет.';
@@ -685,6 +687,12 @@ function renderMotionMapping(data){
    motion.rows.push({source:match.source,select});
  }
 }
+function renderMotionFiles(selected=Number($('anim-source-file').value||0)){
+ const words=$('anim-source-filter').value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean),list=$('anim-source-file');list.replaceChildren();let matches=0,kept=false;
+ motion.pack.forEach((entry,i)=>{const match=words.every(word=>entry.label.toLocaleLowerCase().includes(word));if(match)matches++;if(!match&&i!==selected)return;if(!match)kept=true;const option=document.createElement('option');option.value=i;option.textContent=entry.label;list.append(option)});
+ list.value=String(selected);$('anim-source-count').textContent='Найдено '+matches+' из '+motion.pack.length+(kept?'. Текущий файл остаётся в списке.':'.');
+}
+$('anim-source-filter').addEventListener('input',()=>renderMotionFiles());
 function chooseMotionClip(index){
  if(!motion.bundle?.clips[index])return;
  stopMotionPlayback();motion.source={...motion.bundle,clip:motion.bundle.clips[index]};motion.preview=null;
@@ -702,7 +710,7 @@ async function chooseMotionFile(index){
  }catch(error){motionStatus('Ошибка источника: '+error.message);$('anim-map').textContent='Выбери другой файл в пакете.'}
  finally{state.busy=false;buttons()}
 }
-$('anim-source-file').addEventListener('change',()=>chooseMotionFile(Number($('anim-source-file').value)));
+$('anim-source-file').addEventListener('change',()=>{const index=Number($('anim-source-file').value);renderMotionFiles(index);chooseMotionFile(index)});
 $('anim-source-clip').addEventListener('change',()=>{if(!state.busy)chooseMotionClip(Number($('anim-source-clip').value))});
 $('anim-bvh-file').addEventListener('change',async e=>{
  const files=Array.from(e.target.files||[]);e.target.value='';
@@ -712,7 +720,7 @@ $('anim-bvh-file').addEventListener('change',async e=>{
  }
  state.busy=true;buttons();
  try{
-   const pack=await openMotionPack(files);stopMotionPlayback();motion.pack=pack;$('anim-source-file').replaceChildren();pack.forEach((entry,i)=>{const option=document.createElement('option');option.value=i;option.textContent=entry.label;$('anim-source-file').append(option)});
+   const pack=await openMotionPack(files);stopMotionPlayback();motion.pack=pack;$('anim-source-filter').value='';renderMotionFiles(0);
    state.busy=false;await chooseMotionFile(0);
  }catch(err){motionStatus('Ошибка пакета анимаций: '+(err.message||err))}
  finally{state.busy=false;buttons()}

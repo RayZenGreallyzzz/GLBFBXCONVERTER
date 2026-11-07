@@ -13,3 +13,11 @@ test('glTF resolves its own BIN relative to its archive folder and blocks remote
  const pack=await openMotionPack([namedBlob('pack.zip',zipSync({'folder/a.gltf':strToU8('{}'),'shared/a.bin':new Uint8Array([1,2,3]),'other/a.bin':new Uint8Array([9])}))]);assert.deepEqual(await pack[0].resource('../shared/a.bin'),new Uint8Array([1,2,3]));await assert.rejects(async()=>pack[0].resource('https://example.invalid/a.bin'),/Внешний/);await assert.rejects(async()=>pack[0].resource('missing.bin'),/BIN/);
  const loose=await openMotionPack([namedBlob('a.gltf','{}'),namedBlob('a.bin',new Uint8Array([4]))]);assert.deepEqual(await loose[0].resource('a.bin'),new Uint8Array([4]));
 });
+test('a 541-entry library indexes 514 sources lazily and starts with a clips folder',async()=>{
+ const files={};for(let i=0;i<510;i++)files['assets/library/clips/clip_'+String(i).padStart(4,'0')+'.bvh']=strToU8(motionBvh);
+ for(let i=0;i<4;i++)files['assets/capture/static_'+i+'.glb']=new Uint8Array([1,2,3]);for(let i=0;i<27;i++)files['metadata/info_'+i+'.json']=strToU8('{}');
+ const file=namedBlob('large.zip',zipSync(files));file.arrayBuffer=()=>{throw Error('No eager archive read')};const pack=await openMotionPack([file]);assert.equal(pack.length,514);assert.ok(pack[0].path.includes('/clips/'));assert.equal(new TextDecoder().decode(await pack[0].read()),motionBvh);
+});
+test('large-library indexing retains a bounded central-directory entry count',async()=>{
+ const files=Object.fromEntries(Array.from({length:4097},(_,i)=>['meta/'+i+'.txt',new Uint8Array()]));await assert.rejects(indexMotionZip(namedBlob('too-many.zip',zipSync(files))),/4096/);
+});

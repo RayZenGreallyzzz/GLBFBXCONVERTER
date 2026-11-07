@@ -19,9 +19,10 @@ function tidy(name){
 }
 const ALIASES={
  hips:['hips','hip','pelvis','root'],
- spine:['spine','spine1','lowerback','abdomen'],
- spine2:['spine2','chest','upperchest','spine3','upperback'],
- neck:['neck','neck1'],head:['head'],
+ spine:['spine','spine01','lowerback','abdomen'],
+ spine1:['spine1','spine02'],
+ spine2:['spine2','chest','upperchest','spine3','spine03','upperback'],
+ neck:['neck','neck1','neck01'],head:['head'],
  leftshoulder:['leftshoulder','leftclavicle','lclavicle'],
  rightshoulder:['rightshoulder','rightclavicle','rclavicle'],
  leftarm:['leftarm','leftupperarm','leftuparm','lupperarm'],
@@ -38,8 +39,14 @@ const ALIASES={
  lefttoebase:['lefttoebase','lefttoe','ltoe'],
  righttoebase:['righttoebase','righttoe','rtoe']
 };
+// Blender suffixes (.l/.r), Unreal/Mesh2Motion suffixes (_l/_r), and
+// Mixamo names describe the same body joints without changing the actual rig.
+for(const [side,suffix]of [['left','l'],['right','r']])for(const [part,names]of Object.entries({shoulder:['shoulder','clavicle'],arm:['arm','upperarm','uparm'],forearm:['forearm','lowerarm','elbow'],hand:['hand','wrist'],upleg:['upleg','thigh','upperleg'],leg:['leg','calf','lowerleg','shin'],foot:['foot','ankle'],toebase:['toebase','toe','toes','ball']}))ALIASES[side+part].push(...names.map(name=>name+suffix));
+for(const [side,suffix]of [['left','l'],['right','r']])for(const finger of ['thumb','index','middle','ring','pinky'])for(let i=1;i<=3;i++)ALIASES[side+'hand'+finger+i]=[side+'hand'+finger+i,finger+'0'+i+suffix,finger+i+suffix];
 const REVERSE=new Map(Object.entries(ALIASES).flatMap(([key,names])=>names.map(n=>[n,key])));
 export function canonicalBone(name){const n=tidy(name);return REVERSE.get(n)||n;}
+export function boneMatchPriority(name){const n=tidy(name);return n==='root'?2:/^(?:leftwrist|rightwrist|wrist[lr])$/.test(n)?1:0;}
+export function findCanonicalBone(bones,id){return bones.filter(b=>canonicalBone(b.name)===id).sort((a,b)=>boneMatchPriority(a.name)-boneMatchPriority(b.name))[0];}
 export function characterBones(root){
   const bones=[];
   root?.traverse(obj=>{if(obj.isBone)bones.push(obj)});
@@ -72,6 +79,7 @@ export function suggestBoneMappings(sourceSkeleton,targetRoot){
     const id=canonicalBone(bone.name),group=canonicalGroups.get(id)||[];
     group.push(bone);canonicalGroups.set(id,group);
   }
+  for(const group of canonicalGroups.values())group.sort((a,b)=>boneMatchPriority(a.name)-boneMatchPriority(b.name));
   const exact=new Map();
   for(const bone of targets){
     const name=tidy(bone.name),group=exact.get(name)||[];
@@ -86,7 +94,7 @@ export function suggestBoneMappings(sourceSkeleton,targetRoot){
     const candidate=(exact.get(tidy(source.name))||[]).find(t=>!assigned.has(t.name));
     if(candidate){assigned.add(candidate.name);destinations.set(source.name,candidate.name)}
   }
-  for(const source of sources){
+  for(const source of [...sources].sort((a,b)=>boneMatchPriority(a.name)-boneMatchPriority(b.name))){
     if(destinations.has(source.name))continue;
     const candidate=(canonicalGroups.get(canonicalBone(source.name))||[]).find(t=>!assigned.has(t.name));
     if(candidate){assigned.add(candidate.name);destinations.set(source.name,candidate.name)}
