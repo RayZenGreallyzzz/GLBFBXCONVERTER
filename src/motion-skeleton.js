@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import {canonicalBone} from './animation-retarget.js';
 const MiB=1048576;
+// Export/decomposition noise can leave a nominal unit scale at 1.0000156.
+// Accept at most 0.005% relative error, then use a uniform private copy.
+// A relative check matters for centimeter armatures and very small rigs too.
+const SCALE_ROUNDING=5e-5;
+const sameScale=(a,b)=>Number.isFinite(a)&&a>0&&Number.isFinite(b)&&b>0&&Math.abs(a-b)<=SCALE_ROUNDING*Math.max(a,b);
 function binding(root,track){const p=THREE.PropertyBinding.parseTrackName(track.name);let node=THREE.PropertyBinding.findNode(root,p.nodeName);if(p.objectName==='bones')node=node?.skeleton?.bones.find(b=>b.name===p.objectIndex)||root.getObjectByName(p.objectIndex);else if(p.objectName)return null;return node&&p.propertyIndex===undefined?{node,property:p.propertyName}:null}
 export function skeletonMotionSource(root,animations,kind){
  const nodes=[],actual=[];root.traverse(n=>{nodes.push(n);if(n.isBone)actual.push(n)});
@@ -12,7 +17,9 @@ export function skeletonMotionSource(root,animations,kind){
  for(const node of nodes)if(needed.has(node)){
   const b=new THREE.Bone();let name=THREE.PropertyBinding.sanitizeNodeName(node.name||'MotionNode'),suffix=1;while(names.has(name))name=THREE.PropertyBinding.sanitizeNodeName(node.name||'MotionNode')+'_'+suffix++;names.add(name);b.name=name;
   b.position.copy(node.position);b.quaternion.copy(node.quaternion);b.scale.copy(node.scale);
-  if(![...b.position.toArray(),...b.quaternion.toArray(),...b.scale.toArray()].every(Number.isFinite)||b.scale.x<=0||Math.abs(b.scale.y-b.scale.x)>Math.max(1,b.scale.x)*1e-5||Math.abs(b.scale.z-b.scale.x)>Math.max(1,b.scale.x)*1e-5)throw Error('Для переноса нужен положительный равномерный масштаб скелета');
+  const meanScale=(b.scale.x+b.scale.y+b.scale.z)/3;
+  if(![...b.position.toArray(),...b.quaternion.toArray()].every(Number.isFinite)||!b.scale.toArray().every(s=>sameScale(s,meanScale)))throw Error('Для переноса нужен положительный равномерный масштаб скелета. Узел «'+b.name+'»: '+b.scale.toArray().map(v=>Number(v.toPrecision(7))).join(', '));
+  b.scale.setScalar(meanScale);
   (copies.get(node.parent)||graph).add(b);copies.set(node,b);
  }
  const warnings=[],clips=[];let skipped=0,trackBytes=0;
@@ -22,7 +29,7 @@ export function skeletonMotionSource(root,animations,kind){
    const target=binding(root,track),copy=target&&copies.get(target.node);if(!copy||!['quaternion','position','scale'].includes(target.property)){skipped++;continue}
    if(track.times.length>18000||!track.times.length||!track.values.every(Number.isFinite)||track.times.some((v,i)=>!Number.isFinite(v)||v<0||i&&v<=track.times[i-1])){invalid='неподдерживаемые или повреждённые ключи';break}
    if(target.property==='scale'){
-    if(track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline||track.values.some((v,i)=>Math.abs(v-target.node.scale.getComponent(i%3))>1e-5)){invalid='меняется масштаб скелета; такой перенос пока не поддерживается';break}continue;
+    if(track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline||track.values.some((v,i)=>!sameScale(v,copy.scale.getComponent(i%3)))){invalid='меняется масштаб скелета; такой перенос пока не поддерживается';break}continue;
    }
    const width=target.property==='quaternion'?4:3,multiplier=track.createInterpolant?.isInterpolantFactoryMethodGLTFCubicSpline?3:1,key=copy.name+'.'+target.property;
    if(track.values.length!==track.times.length*width*multiplier||targets.has(key)){invalid='не совпал размер или повторяется дорожка кости';break}targets.add(key);
