@@ -35,10 +35,10 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - name: Check production codecs with external requests blocked
-        run: npm run test:browser
       - name: Check embedded library UI and both character groups
         run: npm run test:motions-browser
+      - name: Check production codecs with external requests blocked
+        run: npm run test:browser
       - name: Create Android project
         run: |
           npm run motions:verify

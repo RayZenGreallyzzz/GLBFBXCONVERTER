@@ -8,7 +8,7 @@ import {join} from 'node:path';
 import {chromium} from 'playwright';
 import {zipSync} from 'fflate';
 import {WebIO} from '@gltf-transform/core';
-import {motionFixture} from '../tests/helpers/motion-fixture.mjs';
+import {catalogFixture} from '../tests/helpers/catalog-fixture.mjs';
 import {buildMotionLibrary} from './build-motion-library.mjs';
 
 const origin='http://127.0.0.1:4180',temp=await mkdtemp(join(tmpdir(),'forge-embedded-ui-'));
@@ -17,7 +17,7 @@ let browser;
 try{
  const files={},names=['Idle One','Idle Two','Walk Forward','Walk Backward','Run Forward','Run Fast','Attack Punch','Jump','monster_Dragon','monster_Orc'];
  for(let i=0;i<names.length;i++){
-  const {doc}=await motionFixture();doc.getRoot().listAnimations()[1].dispose();const animation=doc.getRoot().listAnimations()[0];animation.setName(i===8?'Run':i===9?'Idle':names[i]);animation.listSamplers()[0].getOutput().getArray()[0]+=(i+1)*.002;
+  const {doc}=await catalogFixture();doc.getRoot().listAnimations()[1].dispose();const animation=doc.getRoot().listAnimations()[0];animation.setName(i===8?'Run':i===9?'Idle':names[i]);animation.listSamplers()[0].getOutput().getArray()[0]+=(i+1)*.002;
   files[names[i]+'.glb']=await new WebIO().writeBinary(doc);
  }
  const input=join(temp,'fixtures.zip'),output=join(temp,'motions');await writeFile(input,zipSync(files));await buildMotionLibrary([input],output);
@@ -43,7 +43,7 @@ try{
  assert.equal(await page.locator('#motion-catalog').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true,'mobile dialog must fit the viewport');
  if(process.env.MOTION_TEST_SCREENSHOT)await page.screenshot({path:process.env.MOTION_TEST_SCREENSHOT});
  await page.locator('#motion-catalog-close').click();assert.equal(await page.locator('#anim-browse').isEnabled(),true,'closing must release the busy state');
- const target=(await motionFixture()).bytes;await page.locator('#model-file').setInputFiles({name:'target.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(target)});
+ const target=(await catalogFixture()).bytes;await page.locator('#model-file').setInputFiles({name:'target.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(target)});
  await page.waitForFunction(()=>/Загружено|загружен|Ошибка загрузки/.test(document.getElementById('status').textContent));assert.ok(!(await page.locator('#status').innerText()).includes('Ошибка'));
  await page.locator('#anim-family [data-family="monster"]').click();await page.locator('#anim-category').selectOption('run');await page.locator('#anim-browse').click();await ready(1);await page.locator('.motion-card button').first().click();
  await page.waitForFunction(()=>!document.getElementById('anim-add').disabled);assert.equal(await page.locator('#anim-category').inputValue(),'run');await page.locator('#anim-add').click();assert.equal(await page.locator('#anim-export').isEnabled(),true);
