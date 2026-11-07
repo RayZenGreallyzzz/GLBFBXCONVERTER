@@ -67,6 +67,25 @@ The adapter normalizes the model height before voxelization and restricts
 resolution and bone count. The solver builds a voxel shell, fills the interior,
 computes per-segment geodesic distance fields and extracts four influences.
 
+### Continuous weight transitions (version 2)
+
+The local extractor now interpolates distances between voxel centers instead
+of assigning each vertex a single containing-cell distance. The interpolation
+stencil follows solid face-connected cells and never admits a bone unreachable
+from the containing cell. This removes steps at grid boundaries without
+increasing grid resolution or building a dense vertex-by-bone matrix.
+
+The four-influence cutoff also fades weights to zero at the fifth candidate's
+raw weight. Swapping the fourth and fifth bones therefore does not abruptly
+replace a nonzero influence. Fully coincident ties retain normalized weights;
+unreachable vertices remain unweighted and trigger the existing export guard.
+
+New rigs record `phoenixRig.version: 2` and
+`weightSampling: connected-trilinear-compact`. Existing imported rigs are not
+reweighted automatically. Geometry, normals, UVs, materials and animation
+transfer behavior remain unchanged. This improves weight continuity; linear
+skinning can still lose volume on large bends and every rig needs motion review.
+
 ## Validation
 
 Node tests cover mirrored and differently scaled instances, the rest-pose
