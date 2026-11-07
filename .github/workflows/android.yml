@@ -38,7 +38,12 @@ jobs:
       - name: Check production codecs with external requests blocked
         run: npm run test:browser
       - name: Create Android project
-        run: npx cap add android
+        # Refuse to publish an APK whose UI promises a missing library.
+        # This branch is not added to the push-build list until assets land.
+        # Existing branch workflows are unchanged until this change is merged.
+        run: |
+          npm run motions:verify
+          npx cap add android
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

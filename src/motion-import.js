@@ -38,9 +38,9 @@ async function gltfMotion(bytes,entry,signal){
 export async function loadMotionSource(entry,{memoryBudgetMiB=384,signal}={}){
  checkSignal(signal);
  const estimate=Math.ceil(entry.size*(entry.format==='fbx'?8:4)/MiB+32);if(entry.size>64*MiB||!Number.isFinite(memoryBudgetMiB)||memoryBudgetMiB<64||estimate>memoryBudgetMiB)throw Error('Источник анимации требует примерно '+estimate+' МиБ. Выбери облегчённый файл со скелетом.');
- const bytes=await entry.read();checkSignal(signal);if(bytes.length!==entry.size)throw Error('Размер файла анимации не совпал');
+ const bytes=await entry.read({signal});checkSignal(signal);if(bytes.length!==entry.size)throw Error('Размер файла анимации не совпал');
  if(entry.format==='bvh'){const result=parseBvhForRetarget(new TextDecoder().decode(bytes),entry.path.replace(/^.*\//,'').replace(/\.bvh$/i,''));if(result.skeleton.bones.filter(b=>b.name!=='ENDSITE').length>200)throw Error('BVH содержит больше 200 костей');return {...result,kind:'bvh',clips:[result.clip],warnings:[]}}
- if(['glb','gltf'].includes(entry.format))return gltfMotion(bytes,entry,signal);
+ if(['glb','gltf'].includes(entry.format)){const source=await gltfMotion(bytes,entry,signal);if(entry.embedded&&entry.title)source.clip.name=entry.title;return source}
  if(entry.format!=='fbx')throw Error('Неподдерживаемый источник анимации');
  inspectFbx(bytes);return importFbxMotion(bytes,{signal});
 }
