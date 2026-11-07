@@ -16,7 +16,7 @@ function resourcePath(base,uri){
 const table=Uint32Array.from({length:256},(_,i)=>{let c=i;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0});
 function crc32(bytes){let crc=0xffffffff;for(const b of bytes)crc=table[(crc^b)&255]^(crc>>>8);return (crc^0xffffffff)>>>0}
 async function slice(file,start,length){if(start<0||length<0||start+length>file.size)throw Error('Повреждён размер ZIP');return new Uint8Array(await file.slice(start,start+length).arrayBuffer())}
-export async function indexMotionZip(file){
+export async function indexMotionZip(file,{metadata=false}={}){
  if(file.size<22||file.size>MAX_ZIP)throw Error('ZIP анимаций: до 128 МиБ');
  const tail=await slice(file,Math.max(0,file.size-65557),Math.min(file.size,65557)),view=new DataView(tail.buffer);let end=-1;
  for(let i=tail.length-22;i>=0;i--)if(view.getUint32(i,true)===0x06054b50&&i+22+view.getUint16(i+20,true)===tail.length){end=i;break}
@@ -29,7 +29,7 @@ export async function indexMotionZip(file){
   const flags=cv.getUint16(at+8,true),method=cv.getUint16(at+10,true),crc=cv.getUint32(at+16,true),compressed=cv.getUint32(at+20,true),length=cv.getUint32(at+24,true),nameLength=cv.getUint16(at+28,true),extra=cv.getUint16(at+30,true),comment=cv.getUint16(at+32,true),local=cv.getUint32(at+42,true);
   if(at+46+nameLength+extra+comment>central.length||cv.getUint16(at+34,true))throw Error('Повреждена запись ZIP');
   const name=motionPath(decoder.decode(central.subarray(at+46,at+46+nameLength)));at+=46+nameLength+extra+comment;
-  if(name.endsWith('/')||name.startsWith('__MACOSX/')||!(formats.has(ext(name))||ext(name)==='bin'))continue;
+  if(name.endsWith('/')||name.startsWith('__MACOSX/')||!(formats.has(ext(name))||ext(name)==='bin'||metadata&&ext(name)==='json'))continue;
   if(flags&1||![0,8].includes(method))throw Error('Зашифрованный или неподдерживаемый файл ZIP: '+name);
   if(length>MAX_FILE||local+30+compressed>offset)throw Error('Слишком большой или повреждённый файл ZIP: '+name);
   total+=length;if(total>MAX_TOTAL)throw Error('Пакет анимаций распаковывается более чем в 256 МиБ');

@@ -1,0 +1,258 @@
+{
+  "version": 1,
+  "clipCount": 1273,
+  "archiveBytes": 51599773,
+  "archiveSha256": "6cb50f6b5128ae5c7676e3e8e363d8d49da9aaf19d497b7a57cd91b42ecd00ba",
+  "parts": [
+    {
+      "file": "motion-data-001.bin",
+      "bytes": 1048576,
+      "sha256": "64d60734357b8e1d7eb1002d7a393787ce17e13d9ab6229e04b63ab0380e854f"
+    },
+    {
+      "file": "motion-data-002.bin",
+      "bytes": 1048576,
+      "sha256": "738a62684d17d4f3b3042ef8d19255c459d793746d04ff0bc58323c820ac6252"
+    },
+    {
+      "file": "motion-data-003.bin",
+      "bytes": 1048576,
+      "sha256": "b74fc9b58c40fa399a178bf4800ec86ad98b851c6eb21dc8ec303fc55e4dd5e5"
+    },
+    {
+      "file": "motion-data-004.bin",
+      "bytes": 1048576,
+      "sha256": "a811304e580e73253221da7fbde073eb9f48c38b1ec8db8b760385055388ebab"
+    },
+    {
+      "file": "motion-data-005.bin",
+      "bytes": 1048576,
+      "sha256": "b0fb016e35ceaf6c20eea41e2d1b6fd510b60ec82f2147e0ae5db60ce22cd906"
+    },
+    {
+      "file": "motion-data-006.bin",
+      "bytes": 1048576,
+      "sha256": "6a09a1f6323d49a7ed436038eb47391ec489a2bd40f08c55e6e69986375722b0"
+    },
+    {
+      "file": "motion-data-007.bin",
+      "bytes": 1048576,
+      "sha256": "ff599554eef914a16f175e83d01566174e8cfb17ca39403a7655a16b4d5b174e"
+    },
+    {
+      "file": "motion-data-008.bin",
+      "bytes": 1048576,
+      "sha256": "444a01723080e4cebbe1d7cd66b543754465c0dcc544913387751dc649795dda"
+    },
+    {
+      "file": "motion-data-009.bin",
+      "bytes": 1048576,
+      "sha256": "e83dc0cc69990968c1acee04dfd910ff3ceb4403454aa866f4def948d9f01291"
+    },
+    {
+      "file": "motion-data-010.bin",
+      "bytes": 1048576,
+      "sha256": "69c5d333f674e3419d5f389cf8857684674768f7a2cabfbd639501096f2970be"
+    },
+    {
+      "file": "motion-data-011.bin",
+      "bytes": 1048576,
+      "sha256": "4cb6eaa061e53aab23fc85eb3d2eaf8663e35bf5a61e4cc139695105fce20587"
+    },
+    {
+      "file": "motion-data-012.bin",
+      "bytes": 1048576,
+      "sha256": "3d5cf8be103f142749e3fe25dab300f967dac010eee8606c52027c6632240247"
+    },
+    {
+      "file": "motion-data-013.bin",
+      "bytes": 1048576,
+      "sha256": "c3234e3e10a2bf7c8d06f5423bfe628a9333b157c7d06ff880a0145f578e6ae4"
+    },
+    {
+      "file": "motion-data-014.bin",
+      "bytes": 1048576,
+      "sha256": "b9a0061ed5b7ffca8b260c02dee7c0e353a6eef6ca7654c1bed58ee659b9b379"
+    },
+    {
+      "file": "motion-data-015.bin",
+      "bytes": 1048576,
+      "sha256": "2c11808bbc94b59a8b1d9bc0524659a777557896f0916d1dad13ad915480dad1"
+    },
+    {
+      "file": "motion-data-016.bin",
+      "bytes": 1048576,
+      "sha256": "4bd2c9d55fb0358421c695c114ce25163c9143102c10b5974bb133e8b09a88da"
+    },
+    {
+      "file": "motion-data-017.bin",
+      "bytes": 1048576,
+      "sha256": "8b0e9f3157f07749774a22e839a7ba469f4ce5f64286e4345f03a612e8b912a5"
+    },
+    {
+      "file": "motion-data-018.bin",
+      "bytes": 1048576,
+      "sha256": "083a50c629071f112153b79a9f0adaf33dc2d6749e528572d265a4e45795a731"
+    },
+    {
+      "file": "motion-data-019.bin",
+      "bytes": 1048576,
+      "sha256": "f19dc02b1da76ccb0a27effb776b59fc26f63df392bb74eb7b3179af77cd92b6"
+    },
+    {
+      "file": "motion-data-020.bin",
+      "bytes": 1048576,
+      "sha256": "b52d0636a6600608fa69ef1afcbe5f003b52bb341603cbfa01e92f75c8b414ef"
+    },
+    {
+      "file": "motion-data-021.bin",
+      "bytes": 1048576,
+      "sha256": "89e2b60334bbf68abd06349186ddf40f83933f7187152cea06add40786551685"
+    },
+    {
+      "file": "motion-data-022.bin",
+      "bytes": 1048576,
+      "sha256": "efad71cba537ce292261ab978e1e56660b11bf6f861f86dcbc914f2383e3dad8"
+    },
+    {
+      "file": "motion-data-023.bin",
+      "bytes": 1048576,
+      "sha256": "aab70689829c29344b2a8edebe83a3fa35090198063ebf365b2e963b5cdfdc9b"
+    },
+    {
+      "file": "motion-data-024.bin",
+      "bytes": 1048576,
+      "sha256": "4152f07681e26e0f2b4928d34baaf96b668d2ddaca30f1bbe1dbd29409fcc573"
+    },
+    {
+      "file": "motion-data-025.bin",
+      "bytes": 1048576,
+      "sha256": "41e349847e8b8211fcdd73dc58d23edca0cda952e8e73f1f9bfcc41d2391185b"
+    },
+    {
+      "file": "motion-data-026.bin",
+      "bytes": 1048576,
+      "sha256": "14494ccdf45c911cad733161b135b87099a33a665accbba8a76a258ad985910d"
+    },
+    {
+      "file": "motion-data-027.bin",
+      "bytes": 1048576,
+      "sha256": "c72bf7f29bd7a55227f25a6b3b2c863cf56894bd0deecec5242215841c668c17"
+    },
+    {
+      "file": "motion-data-028.bin",
+      "bytes": 1048576,
+      "sha256": "fec3e55e383e055e098b4000608720ea99faaa23d3bf23182ba54e144de19dd9"
+    },
+    {
+      "file": "motion-data-029.bin",
+      "bytes": 1048576,
+      "sha256": "6a2e0ab394ffe3927de48e883d26f323a700a6300b1d652979fffeff6ba50d6e"
+    },
+    {
+      "file": "motion-data-030.bin",
+      "bytes": 1048576,
+      "sha256": "28669a05cda7d1bd44bd89d3d2083a6a417b3d9453fcb9494e9c242fef73b50f"
+    },
+    {
+      "file": "motion-data-031.bin",
+      "bytes": 1048576,
+      "sha256": "6afac304b4bcb354e5e4c1e7c09804e4a7ddbe8ecb0cc3c5ead3fe29f0dfd965"
+    },
+    {
+      "file": "motion-data-032.bin",
+      "bytes": 1048576,
+      "sha256": "996edf3554b8869f87c2d73f73b26d624b40b5c374c4b00caca6be740c5a9e3a"
+    },
+    {
+      "file": "motion-data-033.bin",
+      "bytes": 1048576,
+      "sha256": "101fd540b04265d43f853a334d2834b7a4b359b8f8a6ba869b2322884e9b64f0"
+    },
+    {
+      "file": "motion-data-034.bin",
+      "bytes": 1048576,
+      "sha256": "a51f9c6f4175e386ef8666182354adc85f341393bd305eb1e469e3a7daa518f1"
+    },
+    {
+      "file": "motion-data-035.bin",
+      "bytes": 1048576,
+      "sha256": "f130223c3d27741d5242baa9c566cf879337c9cbe8a2dfb2f0d0cc06a1f18d71"
+    },
+    {
+      "file": "motion-data-036.bin",
+      "bytes": 1048576,
+      "sha256": "1c5eb47bcb6f3514005c5bfc98b21af0bb20ddb13a19eacbaefc85443047c21c"
+    },
+    {
+      "file": "motion-data-037.bin",
+      "bytes": 1048576,
+      "sha256": "54f7d1e917fa195744e5a9b6b7678aceb8e5f714765ac237f59da89f64f321cc"
+    },
+    {
+      "file": "motion-data-038.bin",
+      "bytes": 1048576,
+      "sha256": "5bb880ba4f7423641498bced6999fa046cab5d6ec58f9ce782ae269b847574e4"
+    },
+    {
+      "file": "motion-data-039.bin",
+      "bytes": 1048576,
+      "sha256": "4fe92fa4c02eaa9b2226bda0629b25e6b90ba9e097a3a09da3ec43f88a03cd99"
+    },
+    {
+      "file": "motion-data-040.bin",
+      "bytes": 1048576,
+      "sha256": "e85ceed3b9f38c93d588e1cb7da1d31e62f69fcc31f98388ad3a3022d55d300f"
+    },
+    {
+      "file": "motion-data-041.bin",
+      "bytes": 1048576,
+      "sha256": "82d1b06ca116ddd7f19f53a2c4083f8c53392ed421c65af27691b1d78e2f6580"
+    },
+    {
+      "file": "motion-data-042.bin",
+      "bytes": 1048576,
+      "sha256": "15e040ac93f4cfaf613596de7e0a74763214e396c9768ec991d3d115a9278419"
+    },
+    {
+      "file": "motion-data-043.bin",
+      "bytes": 1048576,
+      "sha256": "b7caddade37feba77d2142b3fb720190494f6d3e6cb4c096a1c927eecaabb563"
+    },
+    {
+      "file": "motion-data-044.bin",
+      "bytes": 1048576,
+      "sha256": "ab060513ad3318b66a277f9420c0d1d49067a6ce2c37a8b3bcc96f4c0703d810"
+    },
+    {
+      "file": "motion-data-045.bin",
+      "bytes": 1048576,
+      "sha256": "12cfd37e8b2b217abde531d24c28a847687910e671543fd802d6aa147139fac6"
+    },
+    {
+      "file": "motion-data-046.bin",
+      "bytes": 1048576,
+      "sha256": "19782151cb1b8cbef5f2e71740c5b616ffb85e69d8f896f7b43550f33518abae"
+    },
+    {
+      "file": "motion-data-047.bin",
+      "bytes": 1048576,
+      "sha256": "e70f5ea04eea3ab1cebe09ee1599b0d6f9d2c536d5285c2b8ea42c2b1e5ea8f8"
+    },
+    {
+      "file": "motion-data-048.bin",
+      "bytes": 1048576,
+      "sha256": "86ffd5093fa69a4030c765bc4e621f308fb82cf197c7b1dbe38136584a38b608"
+    },
+    {
+      "file": "motion-data-049.bin",
+      "bytes": 1048576,
+      "sha256": "72934b9ea1018ef1c79f05f15f3029dfef7e923dcace4b006be194b3b48fd66c"
+    },
+    {
+      "file": "motion-data-050.bin",
+      "bytes": 219549,
+      "sha256": "c0500d0be4471b94c06ed26de3d69e0d2c63033a16446a684a7520d0f3860fc7"
+    }
+  ]
+}

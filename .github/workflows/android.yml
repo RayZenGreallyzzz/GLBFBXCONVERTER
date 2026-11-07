@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -35,10 +35,14 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
+      - name: Check embedded library UI and both character groups
+        run: npm run test:motions-browser
       - name: Check production codecs with external requests blocked
         run: npm run test:browser
       - name: Create Android project
-        run: npx cap add android
+        run: |
+          npm run motions:verify
+          npx cap add android
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -61,9 +65,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.mixamo1"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.mixamo1"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge MIXAMO TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.motions1"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.motions1"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge ANIMATIONS/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -101,12 +105,23 @@ jobs:
           assert Path('dist/branding/splash.png').stat().st_size>100000
           print('Verified new 192px launcher and full-screen 720x1280 splash in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-MIXAMO-TEST.apk
+          python - <<'PY'
+          import zipfile,json,hashlib
+          with zipfile.ZipFile('android/app/build/outputs/apk/debug/app-debug.apk') as z:
+              manifest=json.loads(z.read('assets/public/motions/index.json'))
+              groups={c['family'] for c in manifest['clips']}
+              assert groups=={'humanoid','monster'},groups
+              for clip in manifest['clips']:
+                  data=z.read('assets/public/motions/clips/'+clip['id']+'.glb')
+                  assert len(data)==clip['bytes'] and hashlib.sha256(data).hexdigest()==clip['id']
+              print('Verified',len(manifest['clips']),'embedded animations and both character groups in APK')
+          PY
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-ANIMATIONS.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-MIXAMO-TEST-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-MIXAMO-TEST.apk
+          name: Phoenix-Forge-ANIMATIONS-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-ANIMATIONS.apk
           if-no-files-found: error
 
 

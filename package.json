@@ -8,10 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
-    "predev": "node scripts/prepare-codecs.mjs",
-    "prebuild": "node scripts/prepare-codecs.mjs",
+    "predev": "node scripts/motion-bundle.mjs unpack && node scripts/prepare-codecs.mjs",
+    "prebuild": "node scripts/motion-bundle.mjs unpack && node scripts/prepare-codecs.mjs",
     "pretest": "node scripts/prepare-codecs.mjs",
-    "test:browser": "node scripts/check-codecs-browser.mjs"
+    "test:browser": "node scripts/check-codecs-browser.mjs",
+    "motions:build": "node scripts/build-motion-library.mjs",
+    "test:motions-browser": "node scripts/check-embedded-motions-browser.mjs",
+    "motions:verify": "node scripts/verify-motion-library.mjs",
+    "motions:bundle": "node scripts/motion-bundle.mjs pack"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",

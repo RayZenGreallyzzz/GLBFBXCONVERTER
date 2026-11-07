@@ -5,3 +5,7 @@ android/
 *.apk
 .DS_Store
 public/codecs/
+public/motions/
+public/motions.building/
+public/motions.previous/
+public/motions.unpacking/
