@@ -192,7 +192,7 @@ export function extractWeights(grid, distanceFields, positions, options = {}) {
         weightSum += skinWeights[baseIdx + i];
       }
     }
-    if (weightSum > 0 && Math.abs(weightSum - 1.0) > 1e-6) {
+    if (weightSum > 0) {
       for (let i = 0; i < maxInfluences; i++) {
         skinWeights[baseIdx + i] /= weightSum;
       }

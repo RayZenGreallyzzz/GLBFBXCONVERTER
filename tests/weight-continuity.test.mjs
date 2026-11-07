@@ -33,3 +33,9 @@ test('coincident bone ties remain finite and isolated components are not assigne
  const result=extractWeights(grid,fields,points);assertValid(result);assert.equal(result.skinWeights.length,4);
  for(const f of fields)f.fill(Infinity);assert.equal(extractWeights(grid,fields,points).skinWeights.reduce((a,b)=>a+b),0,'unweighted vertices must reach the existing rejection guard');
 });
+
+test('dropping a tiny influence still renormalizes within the GLB validator tolerance',()=>{
+ const grid=new VoxelGrid({min:[0,0,0],max:[3,3,3]},3);grid.state.fill(2);
+ const fields=[new Float64Array(grid.totalVoxels).fill(1),new Float64Array(grid.totalVoxels).fill(100)];
+ const result=extractWeights(grid,fields,new Float32Array([1,1,1]));assert.equal(boneWeight(result,0,0),1);assert.equal(boneWeight(result,0,1),0);
+});
