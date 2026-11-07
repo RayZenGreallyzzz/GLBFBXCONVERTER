@@ -60,7 +60,7 @@ export function parseBvhForRetarget(text,name='BVH Motion'){
   const data=new BVHLoader().parse(text);
   if(!data.skeleton?.bones?.length||!data.clip?.tracks?.length||data.clip.duration<=0)
     throw Error('В BVH не найдено движения скелета');
-  data.clip.name=String(name||'BVH Motion').replace(/[^a-zA-Z0-9_ -]/g,'_').slice(0,60);
+  data.clip.name=String(name||'BVH Motion').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,60);
   return data;
 }
 export function suggestBoneMappings(sourceSkeleton,targetRoot){
@@ -163,3 +163,4 @@ export function retargetBvhClip({
  const finalName=String(name).replace(/[^a-zA-Z0-9_ -]/g,'_').slice(0,60)||'BVH Motion';
  return new THREE.AnimationClip(finalName,-1,out);
 }
+

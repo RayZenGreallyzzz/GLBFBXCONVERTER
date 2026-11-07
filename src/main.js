@@ -4,6 +4,8 @@ import {MorphPreview} from './morph-preview.js';
 import {GuidedRigUI} from './guided-rig-ui.js';
 import {makeRigPreview} from './rig-preview.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
+import {openMotionPack} from './motion-pack.js';
+import {loadMotionSource} from './motion-import.js';
 import {inspectMorphJson} from './morph-policy.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
@@ -22,7 +24,7 @@ import {inspectVRChatAvatar,assertVRChatReady} from './vrchat-preflight.js';
 import {extractModelZip} from './model-archive.js';
 import {make3mfLightPreview,dispose3mfLightPreview} from './3mf-preview.js';
 import {simplify3mfScene,release3mfSimplifiedGeometry} from './3mf-optimize.js';
-import {parseBvhForRetarget,suggestBoneMappings,isRiggedCharacter,characterBones}
+import {suggestBoneMappings,isRiggedCharacter,characterBones}
  from './animation-retarget.js';
 import {autoAdaptBvhClip,estimateRigScale,detectCmuCalibration} from './bvh-auto-adapt.js';
 import { importAdditional, exportAdditional, getExportWarnings, outputNameExt,
@@ -42,7 +44,7 @@ configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null};
-const motion={source:null,rows:[],preview:null,extras:[],pose:null};
+const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundle:null};
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
 let guidedRigUi=null;
@@ -56,6 +58,9 @@ function buttons(){
  $('convert-export').disabled=!hasMesh;
  const rig=ready&&!state.bvhOnly&&isRiggedCharacter(state.root);
  $('anim-bvh-file').disabled=!rig;
+ $('anim-source-file').disabled=!rig||!motion.pack.length;
+ $('anim-source-clip').disabled=!rig||!motion.bundle?.clips.length;
+ $('anim-trim-calibration').disabled=!rig||motion.source?.kind!=='bvh';
  $('anim-preview').disabled=!rig||!motion.source;
  $('anim-stop').disabled=!rig||!state.mixer;
  $('anim-add').disabled=!rig||!motion.preview;
@@ -638,11 +643,12 @@ function stopMotionPlayback(){
  buttons();
 }
 function resetMotionStudio(){
- motion.source=null;motion.rows=[];motion.preview=null;motion.extras=[];motion.pose=null;
+ motion.source=null;motion.rows=[];motion.preview=null;motion.extras=[];motion.pose=null;motion.pack=[];motion.bundle=null;
+ $('anim-source-file').replaceChildren();$('anim-source-clip').replaceChildren();
  $('anim-map').replaceChildren();
- $('anim-map').textContent='Загрузи BVH для списка костей.';
+ $('anim-map').textContent='Выбери источник анимаций для списка костей.';
  $('anim-library').textContent='Дополнительных анимаций пока нет.';
- motionStatus('Загрузи персонажа со скелетом, затем BVH для переноса.');
+ motionStatus('Загрузи персонажа со скелетом, затем ZIP, BVH, FBX или GLB/glTF с движениями.');
  buttons();
 }
 function readMotionMapping(){
@@ -679,29 +685,36 @@ function renderMotionMapping(data){
    motion.rows.push({source:match.source,select});
  }
 }
+function chooseMotionClip(index){
+ if(!motion.bundle?.clips[index])return;
+ stopMotionPlayback();motion.source={...motion.bundle,clip:motion.bundle.clips[index]};motion.preview=null;
+ const source=motion.source,mapping=suggestBoneMappings(source.skeleton,state.root),path=motion.pack[Number($('anim-source-file').value)]?.path||'Motion',fileName=path.replace(/^.*\//,'').replace(/\.[^.]+$/,'');
+ const base=source.kind==='bvh'?source.clip.name:source.clips.length>1?fileName+'_'+source.clip.name:fileName;
+ const used=new Set([...state.clips,...motion.extras].map(c=>c.name));let title=base,suffix=2;while(used.has(title))title=base+'_'+suffix++;
+ $('anim-clip-name').value=title.slice(0,60);$('anim-trim-calibration').checked=source.kind==='bvh'&&detectCmuCalibration(source.skeleton,source.clip);
+ renderMotionMapping(mapping);const sizing=estimateRigScale(source.skeleton,state.root);
+ motionStatus(source.kind.toUpperCase()+': «'+source.clip.name+'», '+source.clip.duration.toFixed(2)+' сек. Найдено '+mapping.matched+' из '+mapping.total+' соответствий. '+(source.kind==='bvh'&&sizing.measured?'Масштаб перемещения ≈ '+sizing.ratio.toFixed(4)+'×. ':'')+($('anim-trim-calibration').checked?'CMU T-поза распознана; первый кадр будет исключён. ':'')+(source.warnings||[]).join(' '));buttons();
+}
+async function chooseMotionFile(index){
+ if(state.busy||!motion.pack[index])return;stopMotionPlayback();state.busy=true;motion.source=null;motion.bundle=null;motion.preview=null;motion.rows=[];$('anim-map').textContent='Читаем выбранный источник…';$('anim-source-clip').replaceChildren();buttons();
+ try{motionStatus('Открываем '+motion.pack[index].label+'…');const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});motion.bundle=await loadMotionSource(motion.pack[index],{memoryBudgetMiB});
+  motion.bundle.clips.forEach((clip,i)=>{const option=document.createElement('option');option.value=i;option.textContent=clip.name+' · '+clip.duration.toFixed(2)+' сек';$('anim-source-clip').append(option)});chooseMotionClip(0);
+ }catch(error){motionStatus('Ошибка источника: '+error.message);$('anim-map').textContent='Выбери другой файл в пакете.'}
+ finally{state.busy=false;buttons()}
+}
+$('anim-source-file').addEventListener('change',()=>chooseMotionFile(Number($('anim-source-file').value)));
+$('anim-source-clip').addEventListener('change',()=>{if(!state.busy)chooseMotionClip(Number($('anim-source-clip').value))});
 $('anim-bvh-file').addEventListener('change',async e=>{
- const file=e.target.files?.[0];e.target.value='';
- if(!file||state.busy)return;
+ const files=Array.from(e.target.files||[]);e.target.value='';
+ if(!files.length||state.busy)return;
  if(!state.root||!isRiggedCharacter(state.root)){
-   motionStatus('Для переноса BVH сначала загрузи GLB/FBX/VRM со скелетом.');return;
+   motionStatus('Для переноса сначала загрузи GLB/FBX/VRM со скелетом.');return;
  }
  state.busy=true;buttons();
  try{
-   if(file.size>20*1048576)throw Error('BVH больше 20 МБ');
-   const source=parseBvhForRetarget(await file.text(),file.name.replace(/\.bvh$/i,''));
-   const mapping=suggestBoneMappings(source.skeleton,state.root);
-   if(mapping.total>200)throw Error('BVH содержит больше 200 костей');
-   stopMotionPlayback();
-   motion.source=source;motion.preview=null;
-   $('anim-clip-name').value=source.clip.name;
-   $('anim-trim-calibration').checked=detectCmuCalibration(source.skeleton,source.clip);
-   renderMotionMapping(mapping);
-   const sizing=estimateRigScale(source.skeleton,state.root);
-   motionStatus('BVH загружен: '+source.skeleton.bones.length+' костей, '+
-     source.clip.duration.toFixed(2)+' сек. Найдено '+mapping.matched+' из '+mapping.total+
-     ' соответствий. '+(sizing.measured?'Масштаб перемещения ≈ '+sizing.ratio.toFixed(4)+'×. ':'')+
-     ($('anim-trim-calibration').checked?'CMU T-поза распознана; первый кадр будет исключён.':'Проверь, есть ли в первом кадре отдельная T-поза.'));
- }catch(err){motionStatus('Ошибка BVH: '+(err.message||err))}
+   const pack=await openMotionPack(files);stopMotionPlayback();motion.pack=pack;$('anim-source-file').replaceChildren();pack.forEach((entry,i)=>{const option=document.createElement('option');option.value=i;option.textContent=entry.label;$('anim-source-file').append(option)});
+   state.busy=false;await chooseMotionFile(0);
+ }catch(err){motionStatus('Ошибка пакета анимаций: '+(err.message||err))}
  finally{state.busy=false;buttons()}
 });
 function previewMotion(){
@@ -717,7 +730,8 @@ function previewMotion(){
      scale:Number($('anim-root-scale').value),
      autoScale:$('anim-auto-scale').checked,
      alignAxes:$('anim-align-axes').checked,
-     trimCalibration:$('anim-trim-calibration').checked
+     trimCalibration:$('anim-trim-calibration').checked,
+     referencePose:motion.source.kind==='bvh'?'first-frame':'rest'
    });
    const mapped=mapping.filter(row=>row.target).length;
    if(mapped<Math.min(5,mapping.length)&&
@@ -752,7 +766,7 @@ $('anim-add').addEventListener('click',()=>{
    motionStatus('Анимация с названием '+motion.preview.name+' уже есть. Переименуй её перед добавлением.');return;
  }
  motion.extras.push(motion.preview.clone());
- motionStatus('Добавлено в набор: '+motion.preview.name+'. Можно загрузить следующий BVH.');
+ motionStatus('Добавлено в набор: '+motion.preview.name+'. Выбери следующее движение или файл.');
  $('anim-library').textContent='Добавленные движения ('+motion.extras.length+'): '+
    motion.extras.map(clip=>clip.name).join(', ');
  buttons();
@@ -781,10 +795,10 @@ $('anim-export').addEventListener('click',async()=>{
    if(checked.animations!==clips.length)
      throw Error('Часть анимаций не была сохранена');
    progress(70);
-   await save(content,state.name+'_with_bvh_animations.glb','model/gltf-binary');
+   await save(content,state.name+'_with_animations.glb','model/gltf-binary');
    motionStatus('✓ GLB сохранён: '+clips.length+' анимаций, '+checked.skins+' скелетов. '+
-     'Проверь движения в Godot — корректность A/T-поз зависит от исходного BVH.');
- }catch(e){motionStatus('Ошибка экспорта BVH: '+(e.message||e))}
+     'Проверь движения и A/T-позы в Godot.');
+ }catch(e){motionStatus('Ошибка экспорта анимаций: '+(e.message||e))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
 });
 function changeQuality(id){
@@ -890,7 +904,7 @@ guidedRigUi=new GuidedRigUI({
   stopMotionPlayback();modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;
   state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.clips=[];state.name=(state.name+'_rig').slice(0,60);state.bytes=result.bytes.length;state.type='glb';state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=null;state.hasMorphs=false;state.bvhOnly=false;state.info='GLB 2.0. Создан скелет тела: '+result.bones+' костей. Перед игрой проверь деформации.';
   resetMotionStudio();refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();
-  document.querySelector('[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери BVH-анимацию для переноса.');status('Скелет применён к рабочей копии. Исходный файл не изменялся.');buttons();
+  document.querySelector('[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии. Исходный файл не изменялся.');buttons();
  }
 });
 function tick(){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);orbit.update();renderer.render(scene,camera)}tick();buttons();
