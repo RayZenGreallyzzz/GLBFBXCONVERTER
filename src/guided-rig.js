@@ -80,7 +80,7 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
  }
  const used=new Set(root.listNodes().map(n=>n.getMesh()).filter(Boolean));for(const mesh of root.listMeshes())if(!used.has(mesh)){for(const p of mesh.listPrimitives())p.dispose();mesh.dispose()}
  for(const ext of root.listExtensionsUsed())if(ext.extensionName==='KHR_mesh_quantization')ext.dispose();
- root.setExtras({...root.getExtras(),phoenixRig:{version:1,profile:'humanoid-body',method:'voxel-geodesic',resolution,joints:nodes.length,requiresMotionReview:true}});
+ root.setExtras({...root.getExtras(),phoenixRig:{version:2,profile:'humanoid-body',method:'voxel-geodesic',weightSampling:'connected-trilinear-compact',resolution,joints:nodes.length,requiresMotionReview:true}});
  await document.transform(prune({propertyTypes:[PropertyType.ACCESSOR],keepAttributes:true,keepExtras:true}));
  const output=await io.writeBinary(document),verify=await io.readBinary(output);
  if(verify.getRoot().listSkins()[0]?.listJoints().length!==nodes.length||verify.getRoot().listTextures().length!==originalImages.length)throw Error('Проверка GLB обнаружила потерю данных');
