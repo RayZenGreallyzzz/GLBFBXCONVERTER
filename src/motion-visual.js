@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {findCanonicalBone,canonicalBone} from './animation-retarget.js';
+import {findCanonicalBone} from './animation-retarget.js';
 import {detectCmuCalibration} from './bvh-auto-adapt.js';
 
 const yaw=.48,pitch=.12;

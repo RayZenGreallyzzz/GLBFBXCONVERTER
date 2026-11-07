@@ -701,6 +701,7 @@ function renderMotionFiles(selected=Number($('anim-source-file').value||0)){
 $('anim-source-filter').addEventListener('input',()=>renderMotionFiles());
 function chooseMotionClip(index){
  if(!motion.bundle?.clips[index])return;
+ $('anim-source-clip').value=String(index);
  stopMotionPlayback();motion.source={...motion.bundle,clip:motion.bundle.clips[index]};motion.preview=null;
  const source=motion.source,mapping=suggestBoneMappings(source.skeleton,state.root),path=motion.pack[Number($('anim-source-file').value)]?.path||'Motion',fileName=path.replace(/^.*\//,'').replace(/\.[^.]+$/,'');
  const base=source.kind==='bvh'?source.clip.name:source.clips.length>1?fileName+'_'+source.clip.name:fileName;
