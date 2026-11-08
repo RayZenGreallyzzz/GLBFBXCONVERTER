@@ -1,0 +1,21 @@
+import * as THREE from 'three';
+import {clone as cloneSkeleton} from 'three/addons/utils/SkeletonUtils.js';
+import {MeshBVH,acceleratedRaycast} from 'three-mesh-bvh';
+export function makeSkinEditPreview(source,associations,doc){
+ const root=cloneSkeleton(source),originals=[],copies=[],lookup=new Map(),mapped=new WeakMap(),materials=new Map();source.traverse(o=>originals.push(o));root.traverse(o=>copies.push(o));root.userData.phoenixSharedTextures=true;const meshes=[];
+ try{
+  for(let i=0;i<originals.length;i++){const a=originals[i],b=copies[i],entry=associations?.get(a);if(entry)mapped.set(b,entry);if(!a.isMesh)continue;b.geometry=a.geometry.clone();const mat=m=>{if(!materials.has(m))materials.set(m,m.clone());return materials.get(m)};b.material=Array.isArray(a.material)?a.material.map(mat):mat(a.material);let n=a,node;while(n&&node===undefined){node=associations?.get(n)?.nodes;n=n.parent}meshes.push(b);if(node!==undefined)lookup.set(node+':'+(entry?.primitives??0),b)}
+  const used=new Set(),parts=doc.parts.map(part=>{let mesh=lookup.get(part.node+':'+part.primitive);if(!mesh){const candidates=meshes.filter(m=>{const p=m.geometry.attributes.position;if(used.has(m)||p.count!==part.local.length/3)return false;for(const n of [0,Math.floor(p.count/2),p.count-1])for(let k=0;k<3;k++)if(Math.abs(p.getComponent(n,k)-part.local[n*3+k])>1e-6*doc.height)return false;return m.matrixWorld.elements.every((v,i)=>Math.abs(v-part.world.elements[i])<1e-5)});if(candidates.length===1)mesh=candidates[0]}if(!mesh?.isSkinnedMesh||used.has(mesh))throw Error('Открой сохранённый GLB заново: части скелета для редактора не совпали.');used.add(mesh);mapped.set(mesh,{...(mapped.get(mesh)||{}),nodes:part.node,primitives:part.primitive});mesh.geometry.setAttribute('skinIndex',new THREE.BufferAttribute(part.indices,4));mesh.geometry.setAttribute('skinWeight',new THREE.BufferAttribute(part.weights,4));mesh.frustumCulled=false;return mesh});
+  const boneNodes=new Map();for(const mesh of parts)for(let i=0;i<mesh.skeleton.bones.length;i++){const bone=mesh.skeleton.bones[i],info=doc.bones[i];if(!info)throw Error('Кости просмотра не совпали');boneNodes.set(info.node,bone);mapped.set(bone,{nodes:info.node})}
+  root.updateMatrixWorld(true);return {root,parts,boneNodes,associations:mapped};
+ }catch(e){root.traverse(o=>{if(o.isMesh&&o.geometry!==originals[copies.indexOf(o)]?.geometry)o.geometry.dispose()});for(const m of materials.values())m.dispose();const skeletons=new Set();root.traverse(o=>{if(o.skeleton)skeletons.add(o.skeleton)});for(const s of skeletons)s.dispose();throw e}
+}
+export function syncSkinEditPreview(preview,doc){
+ for(const [node,bone]of preview.boneNodes)bone.position.fromArray(doc.j.nodes[node].translation||[0,0,0]);const inverses=doc.currentIbm||doc.ibm,skeletons=new Set();for(const mesh of preview.parts){mesh.geometry.attributes.skinIndex.needsUpdate=true;mesh.geometry.attributes.skinWeight.needsUpdate=true;skeletons.add(mesh.skeleton)}for(const s of skeletons)for(let i=0;i<s.boneInverses.length;i++)s.boneInverses[i].fromArray(inverses,i*16);preview.root.updateMatrixWorld(true);for(const s of skeletons)s.update();
+}
+export class SkinPickSurface{
+ constructor(preview,doc){this.doc=doc;const all=[];preview.root.traverse(m=>{if(m.isMesh)all.push(m)});this.meshes=all.map(mesh=>{const i=preview.parts.indexOf(mesh);mesh.geometry.boundsTree=new MeshBVH(mesh.geometry,{indirect:true,targetLeafSize:12});const p=new THREE.Mesh(mesh.geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));p.matrixAutoUpdate=false;p.matrixWorld.copy(mesh.matrixWorld);p.raycast=acceleratedRaycast;p.userData.part=i;return p});this.ray=new THREE.Raycaster();this.ray.firstHitOnly=true}
+ hit(ndc,camera){this.ray.setFromCamera(ndc,camera);return this.ray.intersectObjects(this.meshes,false)[0]||null}
+ visible(point,camera){const position=new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld),direction=point.clone().sub(position),distance=direction.length();this.ray.set(position,direction.normalize());const hit=this.ray.intersectObjects(this.meshes,false)[0];return !!hit&&hit.distance>=distance-this.doc.height*2e-5}
+ dispose(){for(const m of this.meshes){m.geometry.boundsTree=null;m.material.dispose()}this.meshes=[]}
+}
