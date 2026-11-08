@@ -95,3 +95,5 @@
 #skin-tools input[type=number]{width:100%;min-width:0;background:#112239;color:#e9f4fc;border:1px solid #315772;border-radius:6px;padding:9px}
 .skin-coordinates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 #skin-tools output{color:#81e2f4}
+
+.joint-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.joint-choices label{display:flex!important;flex-direction:row!important;align-items:center}.joint-choices input{width:auto}#tab-joints input[type=range]{width:100%;min-height:32px}#joints-cancel[hidden]{display:none}#tab-joints button{min-height:42px}#tab-joints output{color:#81e2f4}

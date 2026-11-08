@@ -1,0 +1,2 @@
+import {buildJointCorrectives} from './joint-correctives.js';
+self.onmessage=async({data})=>{try{const result=await buildJointCorrectives(data.bytes,{...data.options,onProgress:(percent,message)=>self.postMessage({progress:true,percent,message})}),buffers=new Set();const visit=v=>{if(ArrayBuffer.isView(v)){buffers.add(v.buffer);return}if(v&&typeof v==='object')for(const x of Object.values(v))visit(x)};visit(result);self.postMessage({result},[...buffers])}catch(e){self.postMessage({error:e.message||String(e)})}};

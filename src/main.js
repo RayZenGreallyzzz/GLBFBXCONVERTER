@@ -5,6 +5,9 @@ import {GuidedRigUI} from './guided-rig-ui.js';
 import {makeRigPreview,makeArmWeightsPreview} from './rig-preview.js';
 import {ArmWeightsUI} from './arm-weights-ui.js';
 import {SkinEditorUI} from './skin-editor-ui.js';
+import {JointCorrectionUI} from './joint-ui.js';
+import {makeJointPreview} from './joint-preview.js';
+import {withJointFormTracks} from './joint-form-animation.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
@@ -49,12 +52,12 @@ renderer.outputColorSpace=THREE.SRGBColorSpace;
 configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
-const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null};
+const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null,jointConfig:null};
 const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundle:null};
 let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
-let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null;
+let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null,jointUi=null;
 let sourceVisual=null,motionCatalog=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -89,6 +92,7 @@ function buttons(){
  guidedRigUi?.refresh();
  armWeightsUi?.refresh();
  skinEditorUi?.refresh();
+ jointUi?.refresh();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -133,7 +137,7 @@ function showComparison(optimized=false){
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
- $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Ручные веса и плечи':'После оптимизации'):'Исходная модель';
+ $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Ручные веса и плечи':state.preview?.kind==='joint-forms'?'Коррекция суставов':'После оптимизации'):'Исходная модель';
  displayMetrics();
 }
 function clear3mfViewport(){
@@ -160,6 +164,7 @@ function set3mfViewQuality(percent){
  showComparison(false);
 }
 function discardPreview(){
+ jointUi?.clear();
  skinEditorUi?.cleanup();
  guidedRigUi?.clearResult();
  armWeightsUi?.clearResult();
@@ -280,9 +285,9 @@ async function load(file,attachments=[file]){
      ext=archive.format;data=await source.arrayBuffer();
      status('ZIP распакован: '+archive.entryCount+' ресурсов. Основной файл: '+source.name);
    }
-   let clips=[],info='',hasMorphs=false,rigLookup=null;
+   let clips=[],info='',hasMorphs=false,rigLookup=null,jointConfig=null;
    if(ext==='glb'){
-     const check=inspectGlb(data);hasMorphs=inspectMorphJson(check.json).targets>0;const loaded=await createModelLoader().parseAsync(data,'');
+     const check=inspectGlb(data);jointConfig=check.json.extras?.phoenixJointForms||null;hasMorphs=inspectMorphJson(check.json).targets>0;const loaded=await createModelLoader().parseAsync(data,'');
      root=loaded.scene;clips=loaded.animations||[];rigLookup=new WeakMap(loaded.parser.associations);
      info='GLB 2.0. Мешей: '+check.meshes+'. Анимаций: '+check.animations+'. Доп. расширения: '+(check.required.join(', ')||'нет')+'.';
    }else if(ext==='fbx'){
@@ -311,7 +316,7 @@ async function load(file,attachments=[file]){
      state.mixer.clipAction(clips[0]).play();
    }
    state.name=source.name.replace(/\.[^.]+$/,'').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,55);
-   state.bytes=source.size;state.type=ext;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.sourceFile=ext==='glb'&&source===file?source:null;state.info=info;
+   state.bytes=source.size;state.type=ext;state.jointConfig=jointConfig;state.sourceBuffer=['glb','vrm'].includes(ext)?data:null;state.sourceFile=ext==='glb'&&source===file?source:null;state.info=info;
    refreshModelPlayback();
    updateExportWarnings();
    const faces=modelStats(state.root).triangles;
@@ -472,7 +477,7 @@ async function savePreview(){
  try{
    const name=state.preview.kind==='rig'?state.name+'_rig.glb':state.preview.kind==='arm-weights'?state.name+'_arms_fixed.glb':state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
       (state.preview.codecSuffix||'')+'.glb';
-   await save(state.preview.getBytes?.()||state.preview.bytes,state.preview.kind==='skin-editor'?state.name+'_weights.glb':name,'model/gltf-binary');
+   await save(state.preview.getBytes?.()||state.preview.bytes,state.preview.kind==='skin-editor'?state.name+'_weights.glb':state.preview.kind==='joint-forms'?state.name+'_joints.glb':name,'model/gltf-binary');
  }catch(error){
    console.error('Save preview',error);
    status('Ошибка сохранения: '+(error?.message||error));
@@ -643,6 +648,7 @@ $('model-file').addEventListener('change',e=>{
 });
 function motionStatus(message){$('anim-status').textContent=message}
 function stopMotionPlayback(){
+ jointUi?.stopPose();
  guidedRigUi?.stop();
  modelPlayback.stop();morphPreview.reset();updateMorphValue();
  if(state.mixer){
@@ -779,7 +785,7 @@ function previewMotion(){
      position:b.position.clone(),quaternion:b.quaternion.clone(),scale:b.scale.clone()
    }]));
    state.mixer=new THREE.AnimationMixer(state.root);
-   state.mixer.clipAction(newClip).play();
+   state.mixer.clipAction(withJointFormTracks(state.root,newClip,state.jointConfig)).play();
    motion.preview=newClip;
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
      ' дорожек. '+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
@@ -882,6 +888,7 @@ $('morph-weight').addEventListener('input',()=>{
 });
 $('morph-reset').addEventListener('click',()=>{stopMotionPlayback();updateMorphValue();buttons()});
 $('model-play').addEventListener('click',()=>{
+ jointUi?.stopPose();
  skinEditorUi?.setMode('view');
  if(state.busy||!state.root)return;
  try{
@@ -972,6 +979,12 @@ skinEditorUi=new SkinEditorUI({
  memoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),
  result:(result,root)=>{discardPreview();state.preview=result;state.previewRoot=root;state.previewClips=state.clips;state.previewMetrics=modelStats(root,state.clips);scene.add(root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия редактора больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_weights').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Ручные веса применены. Анимации сохранены.');buttons()}
+});
+jointUi=new JointCorrectionUI({
+ model:()=>state,busy:()=>state.busy,setBusy:value=>{state.busy=value;buttons()},progress,stop:stopMotionPlayback,discard:discardPreview,previewRoot:()=>state.previewRoot,showResult:()=>showComparison(true),
+ memoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),
+ result:result=>{const preview=makeJointPreview(state.root,state.rigLookup,result.preview),clips=state.clips.map(c=>withJointFormTracks(preview.root,c,result.config));discardPreview();result.associations=preview.associations;state.preview=result;state.previewRoot=preview.root;state.previewClips=clips;state.previewMetrics=modelStats(preview.root,clips);scene.add(preview.root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
+ use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия суставов больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.clips=state.previewClips;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_joints').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.jointConfig=result.config;state.hasMorphs=true;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Коррекции применены. Новые анимации будут экспортированы вместе с формами сгиба.');buttons()}
 });
 function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 

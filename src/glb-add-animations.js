@@ -1,6 +1,7 @@
 import {PropertyBinding,InterpolateDiscrete,InterpolateLinear} from 'three';
 import {asBytes} from './binary.js';
 import {inspectGlb} from './format.js';
+import {bakeJointFormAnimations} from './joint-form-animation.js';
 
 // Append BVH tracks to the original container. Existing BIN bytes, textures,
 // compressed geometry, materials, extensions, bind pose and clips stay intact.
@@ -8,7 +9,7 @@ export function appendGlbAnimations(input,clips,{nodeIndices=new Map(),memoryBud
  const bytes=asBytes(input),json=inspectGlb(bytes).json;
  if(!clips.length)return bytes;
  if(!Number.isFinite(memoryBudgetMiB)||memoryBudgetMiB<64||memoryBudgetMiB>768)throw Error('Неверный предел памяти экспорта');
- const chunks=[];let bin=null;
+ const originalAnimationCount=json.animations?.length||0;const chunks=[];let bin=null;
  for(let offset=12;offset<bytes.length;){
   if(offset+8>bytes.length)throw Error('Повреждён блок GLB');
   const view=new DataView(bytes.buffer,bytes.byteOffset+offset,8),length=view.getUint32(0,true),type=view.getUint32(4,true);
@@ -63,5 +64,5 @@ export function appendGlbAnimations(input,clips,{nodeIndices=new Map(),memoryBud
   if(chunk.type===0x4e4f534a){output.fill(32,offset,offset+length);output.set(encoded,offset)}
   else{output.set(chunk.data,offset);if(chunk.type===0x004e4942)for(const part of arrays)output.set(new Uint8Array(part.array.buffer,part.array.byteOffset,part.array.byteLength),offset+part.offset)}offset+=length;
  }
- return output;
+ return json.extras?.phoenixJointForms?bakeJointFormAnimations(output,{from:originalAnimationCount,memoryBudgetMiB}):output;
 }
