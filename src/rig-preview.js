@@ -1,4 +1,15 @@
 import * as THREE from 'three';
+import {clone as cloneSkeleton} from 'three/addons/utils/SkeletonUtils.js';
+
+export function makeArmWeightsPreview(source,associations,payload){
+ const root=cloneSkeleton(source),originals=[],copies=[],lookup=new Map(),materials=new Map();source.traverse(o=>originals.push(o));root.traverse(o=>copies.push(o));root.userData.phoenixSharedTextures=true;
+ try{for(let i=0;i<originals.length;i++){const original=originals[i],copy=copies[i];if(!original.isMesh)continue;copy.geometry=original.geometry.clone();const material=m=>{if(!materials.has(m))materials.set(m,m.clone());return materials.get(m)};copy.material=Array.isArray(original.material)?original.material.map(material):material(original.material);
+   let node=original,nodeIndex;while(node&&nodeIndex===undefined){nodeIndex=associations?.get(node)?.nodes;node=node.parent}if(nodeIndex!==undefined)lookup.set(nodeIndex+':'+(associations?.get(original)?.primitives??0),copy);
+  }
+  for(const part of payload.parts){const mesh=lookup.get(part.node+':'+part.primitive);if(!mesh?.isSkinnedMesh||mesh.geometry.attributes.position.count!==part.skinWeights.length/4)throw Error('Не совпали части модели для просмотра весов');mesh.geometry.setAttribute('skinIndex',new THREE.BufferAttribute(part.skinIndices,4));mesh.geometry.setAttribute('skinWeight',new THREE.BufferAttribute(part.skinWeights,4));mesh.frustumCulled=false}
+  root.updateMatrixWorld(true);return root;
+ }catch(error){const skeletons=new Set();root.traverse(o=>{if(o.isMesh&&o.geometry!==originals[copies.indexOf(o)]?.geometry)o.geometry.dispose();if(o.skeleton)skeletons.add(o.skeleton)});for(const m of materials.values())m.dispose();for(const s of skeletons)s.dispose();throw error}
+}
 
 // Reuse source textures: decoding a second 8K set just for comparison would
 // multiply the Android CPU/GPU peak. Prepared GLB bytes remain independent.

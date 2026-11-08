@@ -15,7 +15,8 @@
     "motions:build": "node scripts/build-motion-library.mjs",
     "test:motions-browser": "node scripts/check-embedded-motions-browser.mjs",
     "motions:verify": "node scripts/verify-motion-library.mjs",
-    "motions:bundle": "node scripts/motion-bundle.mjs pack"
+    "motions:bundle": "node scripts/motion-bundle.mjs pack",
+    "test:arms-browser": "node scripts/check-arm-weights-browser.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",
