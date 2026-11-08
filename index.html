@@ -49,7 +49,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <p class="tip">Кнопки ниже задают размер текстур. Цель сетки и сохранение формы настраиваются отдельно. Каждый предпросмотр создаётся из загруженного исходника.</p>
@@ -209,6 +209,36 @@
     <button type="button" id="rig-export" class="primary save-btn" disabled>▣ СОХРАНИТЬ GLB СО СКЕЛЕТОМ</button>
     <button type="button" id="rig-use" class="primary" disabled>ИСПОЛЬЗОВАТЬ ЭТОТ СКЕЛЕТ ДЛЯ АНИМАЦИЙ</button>
     <p class="tip">Скелет тела: 27 костей, до 4 влияний на вершину. Движение пальцев, ушей и хвоста требует дополнительных костей и весов. Автоматические веса — начальная привязка: проверь плечи, локти, таз и колени. Ошибку посадки точек исправляй на исходнике. До 650 тысяч вершин и 1 млн треугольников; доступная память может ограничить задачу раньше.</p>
+  </section>
+  <section id="tab-skin" class="tab-panel hidden">
+    <h2>Ручные веса и плечи</h2>
+    <p class="tip">Открой копию для правок. Кисть работает в исходной позе; затем включи анимацию и сравни «Исходник / Результат».</p>
+    <button id="skin-open" class="primary" disabled>ОТКРЫТЬ РЕДАКТОР ВЕСОВ</button>
+    <div id="skin-tools" hidden>
+      <label>Управление<select id="skin-mode"><option value="view">Вращать модель</option><option value="brush">Рисовать кистью</option><option value="joint">Расставлять плечи касанием</option></select></label>
+      <div class="row-buttons"><button id="skin-front">Спереди</button><button id="skin-side">Сбоку</button></div>
+      <label>Кость<select id="skin-bone"></select></label>
+      <label><input id="skin-heat" type="checkbox"> Показать вес цветом: синий — 0, красный — 1</label>
+      <label>Действие кисти<select id="skin-operation"><option value="add">Добавить влияние</option><option value="remove">Убрать влияние</option><option value="smooth">Сгладить влияние</option></select></label>
+      <label>Размер / толщина кисти <output id="skin-radius-value">3% роста</output><input id="skin-radius" type="range" min="0.5" max="8" step="0.5" value="3"></label>
+      <label>Сила кисти <output id="skin-strength-value">25%</output><input id="skin-strength" type="range" min="1" max="100" value="25"></label>
+      <p class="tip">Кисть затрагивает видимую поверхность выбранного меша. Для обратной стороны поверни модель. Отпускай палец между мазками для отдельных шагов отмены.</p>
+      <div class="row-buttons"><button id="skin-undo" disabled>↶ Отменить</button><button id="skin-redo" disabled>↷ Вернуть</button></div>
+      <button id="skin-reset">Сбросить все правки</button>
+      <details id="skin-shoulder-tools" class="advanced">
+        <summary>Положение плеч и влияние на корпус · Forge</summary>
+        <button id="skin-suggest">Предложить точки по форме модели</button>
+        <p class="tip">Черновик требует проверки спереди и сбоку. Рукава и волосы могут мешать определению сустава. Точки можно задать касанием в режиме «Расставлять плечи» или координатами.</p>
+        <label>Плечо<select id="skin-shoulder-side"><option value="Left">Левое плечо персонажа</option><option value="Right">Правое плечо персонажа</option></select></label>
+        <div class="skin-coordinates"><label>X<input id="skin-shoulder-x" type="number" step="0.001"></label><label>Y<input id="skin-shoulder-y" type="number" step="0.001"></label><label>Z<input id="skin-shoulder-z" type="number" step="0.001"></label></div>
+        <label>Ослабить влияние плеч на корпус <output id="skin-protect-value">60%</output><input id="skin-protect" type="range" min="0" max="100" value="60"></label>
+        <button id="skin-shoulder-apply" class="primary">ПРИМЕНИТЬ ПЛЕЧИ К КОПИИ</button>
+      </details>
+    </div>
+    <p id="skin-status" class="compare-report" role="status">Открой GLB со скелетом.</p>
+    <button id="skin-save" class="primary save-btn" disabled>СОХРАНИТЬ GLB С ПРАВКАМИ</button>
+    <button id="skin-use" disabled>Применить правки к рабочей модели</button>
+    <button id="skin-close" disabled>Отклонить копию и закрыть редактор</button>
   </section>
   <section id="tab-anim" class="tab-panel hidden">
   <h2>Перенос анимаций на персонажа</h2>

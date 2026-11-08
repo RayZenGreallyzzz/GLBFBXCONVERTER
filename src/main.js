@@ -4,6 +4,7 @@ import {MorphPreview} from './morph-preview.js';
 import {GuidedRigUI} from './guided-rig-ui.js';
 import {makeRigPreview,makeArmWeightsPreview} from './rig-preview.js';
 import {ArmWeightsUI} from './arm-weights-ui.js';
+import {SkinEditorUI} from './skin-editor-ui.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
@@ -53,7 +54,7 @@ const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundl
 let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
-let guidedRigUi=null,armWeightsUi=null;
+let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null;
 let sourceVisual=null,motionCatalog=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -87,6 +88,7 @@ function buttons(){
  updateMorphButtons();
  guidedRigUi?.refresh();
  armWeightsUi?.refresh();
+ skinEditorUi?.refresh();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -131,7 +133,7 @@ function showComparison(optimized=false){
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
- $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':'После оптимизации'):'Исходная модель';
+ $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Ручные веса и плечи':'После оптимизации'):'Исходная модель';
  displayMetrics();
 }
 function clear3mfViewport(){
@@ -158,6 +160,7 @@ function set3mfViewQuality(percent){
  showComparison(false);
 }
 function discardPreview(){
+ skinEditorUi?.cleanup();
  guidedRigUi?.clearResult();
  armWeightsUi?.clearResult();
  modelPlayback.stop();
@@ -469,7 +472,7 @@ async function savePreview(){
  try{
    const name=state.preview.kind==='rig'?state.name+'_rig.glb':state.preview.kind==='arm-weights'?state.name+'_arms_fixed.glb':state.name+'_android_'+(state.preview.textureLimit||$('texture').value)+'px'+
       (state.preview.codecSuffix||'')+'.glb';
-   await save(state.preview.bytes,name,'model/gltf-binary');
+   await save(state.preview.getBytes?.()||state.preview.bytes,state.preview.kind==='skin-editor'?state.name+'_weights.glb':name,'model/gltf-binary');
  }catch(error){
    console.error('Save preview',error);
    status('Ошибка сохранения: '+(error?.message||error));
@@ -879,6 +882,7 @@ $('morph-weight').addEventListener('input',()=>{
 });
 $('morph-reset').addEventListener('click',()=>{stopMotionPlayback();updateMorphValue();buttons()});
 $('model-play').addEventListener('click',()=>{
+ skinEditorUi?.setMode('view');
  if(state.busy||!state.root)return;
  try{
   if(modelPlayback.playing)modelPlayback.pause();
@@ -917,6 +921,7 @@ for(const button of document.querySelectorAll('[data-tab]'))button.addEventListe
  for(const b of document.querySelectorAll('[data-tab]'))b.classList.toggle('active',b===button);
  for(const panel of document.querySelectorAll('.tab-panel'))panel.classList.toggle('hidden',panel.id!=='tab-'+button.dataset.tab);
  guidedRigUi?.setTab(button.dataset.tab==='rig');
+ skinEditorUi?.setTab(button.dataset.tab==='skin');
 });
 new ResizeObserver(()=>{
  const area=$('viewport');if(area.clientWidth<5||area.clientHeight<5)return;
@@ -960,6 +965,13 @@ armWeightsUi=new ArmWeightsUI({
  save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),
  result:result=>{const root=makeArmWeightsPreview(state.root,state.rigLookup,result.preview);discardPreview();state.preview=result;state.previewRoot=root;state.previewClips=state.clips;state.previewMetrics=modelStats(root,state.clips);scene.add(root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Результат больше не относится к текущей модели');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_arms_fixed').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=null;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Веса рук применены. Анимации сохранены.');buttons()}
+});
+skinEditorUi=new SkinEditorUI({
+ scene,camera,orbit,canvas:renderer.domElement,model:()=>state,busy:()=>state.busy,setBusy:value=>{state.busy=value;buttons()},
+ stop:()=>{stopMotionPlayback();modelPlayback.stop();morphPreview.reset();guidedRigUi.stop();updatePlaybackButtons()},showResult:()=>showComparison(true),discard:discardPreview,release,
+ memoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),
+ result:(result,root)=>{discardPreview();state.preview=result;state.previewRoot=root;state.previewClips=state.clips;state.previewMetrics=modelStats(root,state.clips);scene.add(root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
+ use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия редактора больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_weights').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Ручные веса применены. Анимации сохранены.');buttons()}
 });
 function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 

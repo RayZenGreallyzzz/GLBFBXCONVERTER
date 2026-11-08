@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights, feature/skin-weight-brush]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -39,6 +39,8 @@ jobs:
         run: npm run test:motions-browser
       - name: Check arm weight repair, animated comparison and saved GLB
         run: npm run test:arms-browser
+      - name: Check manual weights, shoulder binding and undo
+        run: npm run test:skin-browser
       - name: Check production codecs with external requests blocked
         run: npm run test:browser
       - name: Create Android project
@@ -67,14 +69,14 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.arms1"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.arms1"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge ARM FIX/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.skin1"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.skin1"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge WEIGHT BRUSH/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
           cd android
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace || ./gradlew assembleDebug --no-daemon --stacktrace
       - name: Verify icon and splash packed inside Android APK
         run: |
           set -e
@@ -118,12 +120,12 @@ jobs:
                   assert len(data)==clip['bytes'] and hashlib.sha256(data).hexdigest()==clip['id']
               print('Verified',len(manifest['clips']),'embedded animations and both character groups in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-ARM-FIX.apk
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-WEIGHT-BRUSH.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-ARM-FIX-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-ARM-FIX.apk
+          name: Phoenix-Forge-WEIGHT-BRUSH-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-WEIGHT-BRUSH.apk
           if-no-files-found: error
 
 
