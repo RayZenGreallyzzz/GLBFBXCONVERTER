@@ -49,7 +49,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="joints">Суставы</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <p class="tip">Кнопки ниже задают размер текстур. Цель сетки и сохранение формы настраиваются отдельно. Каждый предпросмотр создаётся из загруженного исходника.</p>
@@ -239,6 +239,23 @@
     <button id="skin-save" class="primary save-btn" disabled>СОХРАНИТЬ GLB С ПРАВКАМИ</button>
     <button id="skin-use" disabled>Применить правки к рабочей модели</button>
     <button id="skin-close" disabled>Отклонить копию и закрыть редактор</button>
+  </section>
+  <section id="tab-joints" class="tab-panel hidden">
+    <h2>Локти и колени · 3 этапа</h2>
+    <p class="tip">Сначала настрой плечи и ручные веса. Эта операция создаёт отдельную копию: добавляет поперечные ряды, ограничивает смешивание костей областью сгиба и создаёт корректирующие формы.</p>
+    <div class="joint-choices"><label><input id="joints-LeftElbow" type="checkbox" checked> Левый локоть</label><label><input id="joints-RightElbow" type="checkbox" checked> Правый локоть</label><label><input id="joints-LeftKnee" type="checkbox" checked> Левое колено</label><label><input id="joints-RightKnee" type="checkbox" checked> Правое колено</label></div>
+    <label>Сила коррекции формы <output id="joints-strength-value">80%</output><input id="joints-strength" type="range" min="20" max="100" step="5" value="80"></label>
+    <button id="joints-build" class="primary" disabled>СОЗДАТЬ КОПИЮ · ВСЕ 3 ЭТАПА</button>
+    <button id="joints-cancel" hidden>Отменить расчёт</button>
+    <p id="joints-status" class="compare-report" role="status">Открой GLB со скелетом тела Forge.</p>
+    <label>Проверка локтей <output id="joints-test-elbow-value">0°</output><input id="joints-test-elbow" type="range" min="0" max="135" step="5" value="0" disabled></label>
+    <label>Проверка коленей <output id="joints-test-knee-value">0°</output><input id="joints-test-knee" type="range" min="0" max="135" step="5" value="0" disabled></label>
+    <button id="joints-reset-pose" disabled>Вернуть исходную позу</button>
+    <p class="tip">Сравни «Исходник / Результат» на 90° и 120°, затем проверь движения. Это приближение формы сгиба: необычные позы и сильное скручивание требуют отдельной проверки.</p>
+    <button id="joints-save" class="primary save-btn" disabled>СОХРАНИТЬ GLB ДЛЯ ИГРЫ</button>
+    <button id="joints-use" disabled>Применить копию и добавлять анимации</button>
+    <button id="joints-discard" disabled>Отклонить копию</button>
+    <p class="tip">Формы и их анимация записываются в GLB. Если движений пока нет, после применения добавь их во вкладке «Анимации» и экспортируй набор: коррекция будет записана автоматически. Движок должен поддерживать анимацию Blend Shapes из GLB; новые движения вне Forge требуют соответствующей коррекции в движке.</p>
   </section>
   <section id="tab-anim" class="tab-panel hidden">
   <h2>Перенос анимаций на персонажа</h2>
