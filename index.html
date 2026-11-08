@@ -181,6 +181,15 @@
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-rig" class="tab-panel hidden">
+    <div class="compare-report">
+      <h2>Веса рук готового скелета</h2>
+      <p class="tip">Для GLB со скелетом тела Forge. Исправление ограничивает влияние предплечья на пальцы и сохраняет объём середины руки. После расчёта сравни исходник и результат на своих анимациях.</p>
+      <button type="button" id="arms-build" class="primary" disabled>ИСПРАВИТЬ ВЕСА РУК</button>
+      <button type="button" id="arms-cancel" hidden>Отменить исправление весов</button>
+      <p id="arms-status" class="tip" role="status">Открой GLB со скелетом тела Forge (27 костей).</p>
+      <button type="button" id="arms-save" class="primary save-btn" disabled>СОХРАНИТЬ GLB С ИСПРАВЛЕННЫМИ ВЕСАМИ</button>
+      <button type="button" id="arms-use" disabled>Применить веса к рабочей модели</button>
+    </div>
     <h2>Создание скелета тела</h2>
     <p class="tip">Тестовый режим для гуманоидного GLB без костей, анимаций и Blend Shapes, стоящего в T/A-позе. Создай черновик точек, проверь центры суставов спереди и сбоку, затем рассчитай веса. Сетка и исходные изображения сохраняются. Всё работает офлайн.</p>
     <button type="button" id="rig-draft" class="primary" disabled>＋ СОЗДАТЬ ЧЕРНОВИК ТОЧЕК</button>

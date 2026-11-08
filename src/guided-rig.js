@@ -6,6 +6,7 @@ import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import {attributeValues} from './static-simplify.js';
 import {rigBoneSpec} from './rig-guides.js';
 import {computeSkinWeights} from './vendor/voxel-skinner/index.js';
+import {localizeArmWeights} from './arm-weights.js';
 
 export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  const j=inspectGlb(bytes).json;
@@ -62,6 +63,7 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
  const {skinIndices,skinWeights}=result;let unweighted=0;
  for(let v=0;v<count;v++) {let sum=0;const seen=new Set();for(let c=0;c<4;c++){const at=v*4+c,w=skinWeights[at],index=skinIndices[at];if(!Number.isFinite(w)||w<0||index>=deform.length||w>0&&seen.has(index))throw Error('Некорректные веса скелета');if(w>0)seen.add(index);sum+=w;skinIndices[at]=deform[index]?.i||0}if(sum<.9999||sum>1.0001)unweighted++}
  if(unweighted)throw Error('Без надёжных весов осталось вершин: '+unweighted+'. Проверь точки, замкнутость сетки и точность. Экспорт отменён.');
+ const localized=localizeArmWeights(positions,skinIndices,skinWeights,spec.map(b=>({name:b.name,position:b.position.toArray()})));skinIndices.set(localized.skinIndices);skinWeights.set(localized.skinWeights);
  onProgress(90,'Создаём скелет и проверяем привязку…');
  const nodes=spec.map(b=>document.createNode(b.name).setTranslation(b.translation.toArray()).setRotation(b.rotation.toArray())),names=new Map(spec.map((b,i)=>[b.name,i]));
  for(let i=0;i<spec.length;i++)if(spec[i].parent)nodes[names.get(spec[i].parent)].addChild(nodes[i]);
@@ -80,7 +82,7 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
  }
  const used=new Set(root.listNodes().map(n=>n.getMesh()).filter(Boolean));for(const mesh of root.listMeshes())if(!used.has(mesh)){for(const p of mesh.listPrimitives())p.dispose();mesh.dispose()}
  for(const ext of root.listExtensionsUsed())if(ext.extensionName==='KHR_mesh_quantization')ext.dispose();
- root.setExtras({...root.getExtras(),phoenixRig:{version:2,profile:'humanoid-body',method:'voxel-geodesic',weightSampling:'connected-trilinear-compact',resolution,joints:nodes.length,requiresMotionReview:true}});
+ root.setExtras({...root.getExtras(),phoenixRig:{version:3,profile:'humanoid-body',method:'voxel-geodesic',weightSampling:'connected-trilinear-localized-arms',armLocalWeights:1,resolution,joints:nodes.length,requiresMotionReview:true}});
  await document.transform(prune({propertyTypes:[PropertyType.ACCESSOR],keepAttributes:true,keepExtras:true}));
  const output=await io.writeBinary(document),verify=await io.readBinary(output);
  if(verify.getRoot().listSkins()[0]?.listJoints().length!==nodes.length||verify.getRoot().listTextures().length!==originalImages.length)throw Error('Проверка GLB обнаружила потерю данных');
