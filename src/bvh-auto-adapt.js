@@ -13,6 +13,7 @@ import { canonicalBone,characterBones,isRiggedCharacter,findCanonicalBone,boneMa
 
 import {buildArmPoseCorrections} from './motion-arm-pose.js';
 import {buildVolumeBoneTracks} from './motion-volume-bones.js';
+import {bakeGroundContact,makeSourceFootContact} from './motion-grounding.js';
 
 const EPS=1e-7;
 
@@ -142,7 +143,7 @@ function mapPairs(sourceSkeleton,targetRoot,mappings){
 }
 export function autoAdaptBvhClip({
  targetRoot,sourceSkeleton,sourceClip,mappings,name='BVH Motion',
- rootMotion=false,scale=1,autoScale=true,alignAxes=true,
+ rootMotion=false,groundMotion=false,scale=1,autoScale=true,alignAxes=true,
  trimCalibration=true,referencePose='first-frame'
 }){
  if(!Number.isFinite(scale)||scale<=0||scale>100)
@@ -185,9 +186,12 @@ export function autoAdaptBvhClip({
  const animated=new Map();
  const tempInverse=Q(),delta=Q(),local=Q();
  const hipsPair=pairs.filter(({from})=>canonicalBone(from.name)==='hips').sort((a,b)=>boneMatchPriority(a.from.name)-boneMatchPriority(b.from.name))[0],hipPositions=model&&rootMotion&&hipsPair?new Float32Array(timeline.length*3):null;
+ const footContact=groundMotion&&hipsPair?makeSourceFootContact(sourceSkeleton,sourceRef):null;
+ const contacts=footContact?new Float32Array(timeline.length):null;
  for(let frame=0;frame<timeline.length;frame++){
    const sourceFrame=sampler(times[frame+first]);
    if(hipPositions)sourceFrame.positions.get(hipsPair.from).toArray(hipPositions,frame*3);
+   if(contacts)contacts[frame]=footContact(sourceFrame);
    animated.clear();animated.set(targetRoot,identity);
    for(const node of ref.nodes){
      const parent=animated.get(node.parent);
@@ -262,11 +266,17 @@ export function autoAdaptBvhClip({
     }
    }
  }
- const volumeTracks=buildVolumeBoneTracks(targetRoot,sourceSkeleton,tracks);
+ let volumeTracks=buildVolumeBoneTracks(targetRoot,sourceSkeleton,tracks);
  tracks.push(...volumeTracks);
  const title=String(name||'Motion').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,60)||'Motion';
  const clip=new THREE.AnimationClip(title,-1,tracks);
+ const ground=groundMotion&&hipsPair?bakeGroundContact(targetRoot,hipsPair.to.name,clip,timeline,contacts,corrected=>{
+   corrected.tracks=corrected.tracks.filter(track=>!volumeTracks.includes(track));
+   volumeTracks=buildVolumeBoneTracks(targetRoot,sourceSkeleton,corrected.tracks);
+   corrected.tracks.push(...volumeTracks);
+ }):{grounded:false,stance:false};
  clip.userData={
+   ...ground,
    poseAware:true,calibrationFrameRemoved:first>0,referencePose,
    autoScaleRatio:sizing.ratio,autoScaleMeasured:sizing.measured,
    matchedBones:pairs.length,volumeBones:volumeTracks.length,armPoseSides:armPoses.size/2

@@ -773,6 +773,7 @@ function previewMotion(){
      sourceSkeleton:motion.source.skeleton,sourceClip:motion.source.clip,
      mappings:mapping,name:$('anim-clip-name').value,
      rootMotion:$('anim-root-motion').checked,
+     groundMotion:$('anim-ground-motion').checked,
      scale:Number($('anim-root-scale').value),
      autoScale:$('anim-auto-scale').checked,
      alignAxes:$('anim-align-axes').checked,
@@ -789,13 +790,13 @@ function previewMotion(){
    state.mixer.clipAction(withJointFormTracks(state.root,newClip,state.jointConfig)).play();
    motion.preview=newClip;
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
-     ' дорожек. '+(newClip.userData.armPoseSides?'Положение рук перенесено относительно груди. ':'')+(newClip.userData.volumeBones?'Восстановлены вспомогательные кости объёма: '+newClip.userData.volumeBones+'. ':'')+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
+     ' дорожек. '+(newClip.userData.grounded?'Высота относительно пола скорректирована. ':'')+(newClip.userData.armPoseSides?'Положение рук перенесено относительно груди. ':'')+(newClip.userData.volumeBones?'Восстановлены вспомогательные кости объёма: '+newClip.userData.volumeBones+'. ':'')+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
      (newClip.userData.autoScaleMeasured?'Масштаб Hips '+newClip.userData.autoScaleRatio.toFixed(4)+'×. ':'')+
      'Проверь плечи, колени, одежду и направление движения.');
  }catch(e){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка переноса: '+(e.message||e))}
  buttons();
 }
-for(const id of ['anim-clip-name','anim-root-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
+for(const id of ['anim-clip-name','anim-root-motion','anim-ground-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
  $(id).addEventListener('change',()=>{
    stopMotionPlayback();motion.preview=null;buttons();
    motionStatus('Настройки изменены. Нажми «Адаптировать и посмотреть» для пересчёта.');
