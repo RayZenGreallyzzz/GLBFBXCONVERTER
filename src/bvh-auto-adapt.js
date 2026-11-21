@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { canonicalBone,characterBones,isRiggedCharacter,findCanonicalBone,boneMatchPriority } from './animation-retarget.js';
 
+import {buildArmPoseCorrections} from './motion-arm-pose.js';
 import {buildVolumeBoneTracks} from './motion-volume-bones.js';
 
 const EPS=1e-7;
@@ -104,7 +105,7 @@ function modelTimeline(clip){
 function bodyAlignment(source,target,skeleton,targetRoot){
  const basis=(ref,bones)=>{const find=id=>findCanonicalBone(bones,id),hips=find('hips'),top=find('head')||find('neck'),left=find('leftarm')||find('leftshoulder'),right=find('rightarm')||find('rightshoulder');if(![hips,top,left,right].every(Boolean))return null;
   const x=ref.positions.get(left).clone().sub(ref.positions.get(right)),y=ref.positions.get(top).clone().sub(ref.positions.get(hips));if(x.lengthSq()<EPS||y.lengthSq()<EPS)return null;x.normalize();y.addScaledVector(x,-y.dot(x));if(y.lengthSq()<EPS)return null;y.normalize();const z=x.clone().cross(y).normalize();return Q().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z))};
- const a=basis(source,skeleton.bones),b=basis(target,characterBones(targetRoot));return a&&b?b.multiply(a.invert()):Q();
+ const a=basis(source,skeleton.bones),b=basis(target,characterBones(targetRoot));return a&&b?b.multiply(a.invert()):null;
 }
 function modelScale(source,target,skeleton,targetRoot){
  const length=(ref,bones,side)=>{const ids=[side+'upleg',side+'leg',side+'foot'],points=ids.map(id=>bones.find(b=>canonicalBone(b.name)===id)).map(b=>b&&ref.positions.get(b));return points.every(Boolean)?points[0].distanceTo(points[1])+points[1].distanceTo(points[2]):null};
@@ -163,7 +164,9 @@ export function autoAdaptBvhClip({
  const fromForTarget=new Map(pairs.map(pair=>[pair.to,pair.from]));
  const corrections=new Map();
  const identity=Q();
- const alignment=model&&alignAxes?bodyAlignment(sourceRef,targetRef,sourceSkeleton,targetRoot):Q();
+ const bodyBasis=model&&alignAxes?bodyAlignment(sourceRef,targetRef,sourceSkeleton,targetRoot):null;
+ const alignment=bodyBasis??Q();
+ const armPoses=bodyBasis?buildArmPoseCorrections(pairs,sourceRef,targetRef,alignment,quatTracks):new Map();
  for(const to of ref.nodes){const from=fromForTarget.get(to);if(!from)continue;
    const sDir=direction(from,sourceRef,model),tDir=direction(to,targetRef,model);
    let inherited=alignment;for(let p=to.parent;p;p=p.parent)if(corrections.has(p)){inherited=corrections.get(p);break}
@@ -191,7 +194,20 @@ export function autoAdaptBvhClip({
      const from=fromForTarget.get(node);
      if(from){
        let desired;
-       if(model){const chain=chains.get(node);delta.copy(sourceFrame.get(from));if(chain.sourceAncestor)delta.premultiply(tempInverse.copy(sourceFrame.get(chain.sourceAncestor)).invert());delta.premultiply(chain.sourceRestInverse).premultiply(chain.axis).multiply(chain.axisInverse);desired=chain.targetRest.clone().multiply(delta);if(chain.ancestor)desired.premultiply(animated.get(chain.ancestor));desired.normalize();}
+       const armPose=armPoses.get(node);
+       if(armPose){
+         desired=animated.get(armPose.targetChest).clone().multiply(armPose.chestBridge)
+           .multiply(tempInverse.copy(sourceFrame.get(armPose.sourceChest)).invert())
+           .multiply(sourceFrame.get(from)).multiply(armPose.bindOffset).normalize();
+       }else if(model){
+         const chain=chains.get(node);
+         delta.copy(sourceFrame.get(from));
+         if(chain.sourceAncestor)delta.premultiply(tempInverse.copy(sourceFrame.get(chain.sourceAncestor)).invert());
+         delta.premultiply(chain.sourceRestInverse).premultiply(chain.axis).multiply(chain.axisInverse);
+         desired=chain.targetRest.clone().multiply(delta);
+         if(chain.ancestor)desired.premultiply(animated.get(chain.ancestor));
+         desired.normalize();
+       }
        else{
        const correct=corrections.get(node);
        // Global delta of the source bone relative to its reference T pose.
@@ -253,7 +269,7 @@ export function autoAdaptBvhClip({
  clip.userData={
    poseAware:true,calibrationFrameRemoved:first>0,referencePose,
    autoScaleRatio:sizing.ratio,autoScaleMeasured:sizing.measured,
-   matchedBones:pairs.length,volumeBones:volumeTracks.length
+   matchedBones:pairs.length,volumeBones:volumeTracks.length,armPoseSides:armPoses.size/2
  };
  return clip;
 }
