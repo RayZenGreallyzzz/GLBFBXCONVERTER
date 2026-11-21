@@ -117,3 +117,40 @@ test('export of automatically adapted clip keeps animation and GLB skeleton',asy
  assert.equal(result.animations,1);
  assert.ok(result.json.animations[0].channels.length>=4);
 });
+
+test('retarget reconstructs a missing volume helper at half the driver motion',()=>{
+ const group=new THREE.Group();
+ const shoulder=new THREE.Bone(),arm=new THREE.Bone(),helper=new THREE.Bone(),other=new THREE.Bone();
+ shoulder.name='mixamorigLeftShoulder';arm.name='mixamorigLeftArm';
+ helper.name='rig_volume_upperarm_l';other.name='rig_volume_lowerarm_l';
+ arm.position.set(.25,0,0);helper.position.copy(arm.position);other.position.set(.03,0,0);
+ arm.rotateZ(.3);helper.quaternion.copy(arm.quaternion);
+ shoulder.add(arm,helper,other);group.add(shoulder);
+ const mesh=new THREE.SkinnedMesh(new THREE.BufferGeometry());group.add(mesh);
+ mesh.bind(new THREE.Skeleton([shoulder,arm,helper,other]));
+ const sourceShoulder=new THREE.Bone(),sourceArm=new THREE.Bone();
+ sourceShoulder.name=shoulder.name;sourceArm.name=arm.name;sourceShoulder.add(sourceArm);
+ const finalRotation=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),1.4);
+ const armTrack=new THREE.QuaternionKeyframeTrack(arm.name+'.quaternion',[0,1],[0,0,0,1,...finalRotation.toArray()]);
+ const sourceClip=new THREE.AnimationClip('arm',1,[armTrack]);
+ const make=(bones,clip)=>{const sourceSkeleton=new THREE.Skeleton(bones);return autoAdaptBvhClip({targetRoot:group,sourceSkeleton,sourceClip:clip,mappings:suggestBoneMappings(sourceSkeleton,group).mappings,referencePose:'rest'})};
+ const clip=make([sourceShoulder,sourceArm],sourceClip);
+ assert.equal(clip.userData.volumeBones,1);
+ assert.ok(!clip.tracks.some(t=>t.name===other.name+'.quaternion'));
+ const driverTrack=clip.tracks.find(t=>t.name===arm.name+'.quaternion');
+ const helperTrack=clip.tracks.find(t=>t.name===helper.name+'.quaternion');
+ assert.deepEqual(helperTrack.times,driverTrack.times);
+ for(const t of [0,.35,1]){
+  const driver=new THREE.Quaternion().fromArray(driverTrack.createInterpolant().evaluate(t)).normalize();
+  const current=new THREE.Quaternion().fromArray(helperTrack.createInterpolant().evaluate(t)).normalize();
+  assert.ok(Math.abs(helper.quaternion.angleTo(current)-arm.quaternion.angleTo(driver)*.5)<1e-5);
+ }
+ const explicit=new THREE.Bone();explicit.name=helper.name;sourceShoulder.add(explicit);
+ const authored=new THREE.QuaternionKeyframeTrack(explicit.name+'.quaternion',[0,1],[0,0,0,1,...finalRotation.toArray()]);
+ const existing=make([sourceShoulder,sourceArm,explicit],new THREE.AnimationClip('arm',1,[armTrack,authored]));
+ assert.equal(existing.userData.volumeBones,0);
+ assert.equal(existing.tracks.filter(t=>t.name===authored.name).length,1);
+ const authoredResult=existing.tracks.find(t=>t.name===authored.name);
+ const end=new THREE.Quaternion().fromArray(authoredResult.values,authoredResult.values.length-4).normalize();
+ assert.ok(Math.abs(helper.quaternion.angleTo(end)-1.4)<1e-5);
+});

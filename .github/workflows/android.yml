@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights, feature/skin-weight-brush, feature/portable-joint-correctives, fix/head-rig-weights]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights, feature/skin-weight-brush, feature/portable-joint-correctives, fix/head-rig-weights, fix/retarget-volume-bones]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -71,9 +71,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.headweights1"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.headweights1"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge HEAD WEIGHTS TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.volumeretarget1"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.volumeretarget1"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge ARM RETARGET TEST/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -122,12 +122,12 @@ jobs:
                   assert len(data)==clip['bytes'] and hashlib.sha256(data).hexdigest()==clip['id']
               print('Verified',len(manifest['clips']),'embedded animations and both character groups in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-HEAD-WEIGHTS-TEST.apk
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-ARM-RETARGET-TEST.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-HEAD-WEIGHTS-TEST-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-HEAD-WEIGHTS-TEST.apk
+          name: Phoenix-Forge-ARM-RETARGET-TEST-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-ARM-RETARGET-TEST.apk
           if-no-files-found: error
 
 

@@ -11,6 +11,8 @@
 import * as THREE from 'three';
 import { canonicalBone,characterBones,isRiggedCharacter,findCanonicalBone,boneMatchPriority } from './animation-retarget.js';
 
+import {buildVolumeBoneTracks} from './motion-volume-bones.js';
+
 const EPS=1e-7;
 
 /** Detect Bruce Hahne's CMU MotionBuilder-friendly conversion, not arbitrary BVH.
@@ -244,12 +246,14 @@ export function autoAdaptBvhClip({
     }
    }
  }
+ const volumeTracks=buildVolumeBoneTracks(targetRoot,sourceSkeleton,tracks);
+ tracks.push(...volumeTracks);
  const title=String(name||'Motion').replace(/[^\p{L}\p{N}_ -]/gu,'_').slice(0,60)||'Motion';
  const clip=new THREE.AnimationClip(title,-1,tracks);
  clip.userData={
    poseAware:true,calibrationFrameRemoved:first>0,referencePose,
    autoScaleRatio:sizing.ratio,autoScaleMeasured:sizing.measured,
-   matchedBones:pairs.length
+   matchedBones:pairs.length,volumeBones:volumeTracks.length
  };
  return clip;
 }
