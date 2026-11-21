@@ -17,6 +17,7 @@ try{
  await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');assert.deepEqual(await download(()=>page.locator('#convert-export').click()),bytes,'original export is immutable');await page.locator('[data-tab="skin"]').click();await page.locator('#skin-use').click();assert.equal(await page.locator('#model-clip option').count(),1);await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);
  await page.locator('[data-tab="skin"]').click();await page.locator('#skin-open').click();await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);await page.setViewportSize({width:412,height:915});assert.equal(await page.locator('#tab-skin').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await page.locator('#skin-close').click();await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);
  await page.locator('[data-tab="skin"]').click();await page.locator('#skin-open').click();
+ await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);
  await page.locator('#skin-head-tools').evaluate(el=>el.open=true);
  const beforeY=Number(await page.locator('#skin-head-y').inputValue());
  await page.locator('#skin-head-y').fill(String(beforeY-.015));await page.locator('#skin-head-y').dispatchEvent('change');
@@ -45,5 +46,5 @@ try{
  const guided=await download(()=>page.locator('#skin-save').click());
  assert.equal(inspectGlb(guided).json.extras.phoenixRig.headWeightStrength,.7);
  assert.deepEqual(errors,[]);
- console.log('Skin editor: actual visible-surface brush → save → exact undo/redo → shoulder rebind → animated comparison → immutable original → adoption → reopen → mobile layout → discard. Passed.');
+ console.log('Skin editor: actual visible-surface brush → save → exact undo/redo → shoulder rebind → animated comparison → immutable original → adoption → mobile layout → head pivot and weights → new rig opens directly in the editor. Passed.');
 }catch(e){if(page)console.error('Skin UI status:',await page.locator('#skin-status').innerText().catch(()=>''));throw e}finally{await browser?.close();server.kill('SIGTERM');await rm(temp,{recursive:true,force:true})}
