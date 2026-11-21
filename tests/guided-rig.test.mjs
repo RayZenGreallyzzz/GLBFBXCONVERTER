@@ -54,3 +54,30 @@ test('rigging rejects existing skins, missing guides and insufficient memory wit
  assert.throws(()=>rigPreflight(metadata(j=>j.nodes[0].extensions={EXT_mesh_gpu_instancing:{}})),/GPU/);
  assert.throws(()=>rigPreflight(metadata(j=>j.accessors.push({componentType:5126,type:'VEC4',count:1000000000}))),/память/);
 });
+
+test('head refinement makes the upper head follow a yaw while removing its pull on the upper torso',async()=>{
+ const {bytes,guides}=await rigFixture();
+ const previous=await buildGuidedRig(bytes,{guides,resolution:32,headWeightStrength:0});
+ const adjusted=await buildGuidedRig(bytes,{guides,resolution:32});
+ const scenes=await Promise.all([runtime(previous.bytes),runtime(adjusted.bytes)]);
+ const origin=new THREE.Vector3(...guides.head);
+ const yaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),1);
+ const metrics=scenes.map(({scene})=>{
+  const head=scene.getObjectByName('mixamorigHead');
+  let mesh;scene.traverse(node=>{if(node.isSkinnedMesh)mesh=node});
+  head.rotateY(1);scene.updateMatrixWorld(true);mesh.skeleton.update();
+  let crown=0,torso=0,crownCount=0,torsoCount=0;
+  for(let n=0;n<mesh.geometry.attributes.position.count;n++){
+   const rest=new THREE.Vector3().fromBufferAttribute(mesh.geometry.attributes.position,n);
+   const local=rest.clone().sub(origin);
+   if(Math.hypot(local.x,local.z)>.2)continue;
+   const posed=mesh.getVertexPosition(n,new THREE.Vector3());
+   if(local.y>.08){crown+=posed.distanceTo(local.applyQuaternion(yaw).add(origin));crownCount++}
+   if(local.y<-.075&&local.y>-.17){torso+=posed.distanceTo(rest);torsoCount++}
+  }
+  assert.ok(crownCount>30&&torsoCount>50);
+  return {crown:crown/crownCount,torso:torso/torsoCount};
+ });
+ assert.ok(metrics[0].crown>.015&&metrics[0].torso>.005,JSON.stringify(metrics));
+ assert.ok(metrics[1].crown<metrics[0].crown*.1&&metrics[1].torso<1e-6,JSON.stringify(metrics));
+});

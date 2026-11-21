@@ -7,6 +7,8 @@ import {attributeValues} from './static-simplify.js';
 import {rigBoneSpec} from './rig-guides.js';
 import {computeSkinWeights} from './vendor/voxel-skinner/index.js';
 import {localizeArmWeights} from './arm-weights.js';
+import {headWeightRegion,headWeightTargets} from './head-weights.js';
+import {assignBoneWeight} from './skin-weights.js';
 
 export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  const j=inspectGlb(bytes).json;
@@ -31,8 +33,9 @@ export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  return {vertices,triangles,estimatedMiB,resolution};
 }
 
-export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB=384,onProgress=()=>{}}={}){
+export async function buildGuidedRig(input,{guides,resolution=48,headWeightStrength=1,memoryBudgetMiB=384,onProgress=()=>{}}={}){
  const bytes=input instanceof Uint8Array?input:new Uint8Array(input),plan=rigPreflight(bytes,{resolution,memoryBudgetMiB});
+ if(!Number.isFinite(headWeightStrength)||headWeightStrength<0||headWeightStrength>1)throw Error('Сила коррекции головы должна быть от 0 до 100%.');
  onProgress(2,'Читаем исходный GLB…');const io=await createCodecIO(bytes),document=await io.readBinary(bytes);removeGeometryCompression(document);
  const root=document.getRoot(),buffer=root.listBuffers()[0],originalImages=root.listTextures().map(t=>t.getImage()),records=[];let count=0,faceCount=0;
  // Snapshot world transforms before resetting any node. Each instance receives
@@ -63,7 +66,13 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
  const {skinIndices,skinWeights}=result;let unweighted=0;
  for(let v=0;v<count;v++) {let sum=0;const seen=new Set();for(let c=0;c<4;c++){const at=v*4+c,w=skinWeights[at],index=skinIndices[at];if(!Number.isFinite(w)||w<0||index>=deform.length||w>0&&seen.has(index))throw Error('Некорректные веса скелета');if(w>0)seen.add(index);sum+=w;skinIndices[at]=deform[index]?.i||0}if(sum<.9999||sum>1.0001)unweighted++}
  if(unweighted)throw Error('Без надёжных весов осталось вершин: '+unweighted+'. Проверь точки, замкнутость сетки и точность. Экспорт отменён.');
- const localized=localizeArmWeights(positions,skinIndices,skinWeights,spec.map(b=>({name:b.name,position:b.position.toArray()})));skinIndices.set(localized.skinIndices);skinWeights.set(localized.skinWeights);
+ const bonePoints=spec.map((b,id)=>({id,name:b.name,position:b.position.toArray()}));
+ const localized=localizeArmWeights(positions,skinIndices,skinWeights,bonePoints);skinIndices.set(localized.skinIndices);skinWeights.set(localized.skinWeights);
+ if(headWeightStrength>0){
+  const part={positions,indices:skinIndices,weights:skinWeights},region=headWeightRegion(bonePoints,h);
+  const targets=headWeightTargets(part,region,headWeightStrength);
+  for(let n=0;n<targets.length;n++)if(Number.isFinite(targets[n]))assignBoneWeight(part,n,region.head,targets[n],region.neck);
+ }
  onProgress(90,'Создаём скелет и проверяем привязку…');
  const nodes=spec.map(b=>document.createNode(b.name).setTranslation(b.translation.toArray()).setRotation(b.rotation.toArray())),names=new Map(spec.map((b,i)=>[b.name,i]));
  for(let i=0;i<spec.length;i++)if(spec[i].parent)nodes[names.get(spec[i].parent)].addChild(nodes[i]);
@@ -82,7 +91,7 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
  }
  const used=new Set(root.listNodes().map(n=>n.getMesh()).filter(Boolean));for(const mesh of root.listMeshes())if(!used.has(mesh)){for(const p of mesh.listPrimitives())p.dispose();mesh.dispose()}
  for(const ext of root.listExtensionsUsed())if(ext.extensionName==='KHR_mesh_quantization')ext.dispose();
- root.setExtras({...root.getExtras(),phoenixRig:{version:3,profile:'humanoid-body',method:'voxel-geodesic',weightSampling:'connected-trilinear-localized-arms',armLocalWeights:1,resolution,joints:nodes.length,requiresMotionReview:true}});
+ root.setExtras({...root.getExtras(),phoenixRig:{version:3,profile:'humanoid-body',method:'voxel-geodesic',weightSampling:'connected-trilinear-localized-arms',armLocalWeights:1,headWeightStrength,resolution,joints:nodes.length,requiresMotionReview:true}});
  await document.transform(prune({propertyTypes:[PropertyType.ACCESSOR],keepAttributes:true,keepExtras:true}));
  const output=await io.writeBinary(document),verify=await io.readBinary(output);
  if(verify.getRoot().listSkins()[0]?.listJoints().length!==nodes.length||verify.getRoot().listTextures().length!==originalImages.length)throw Error('Проверка GLB обнаружила потерю данных');
@@ -92,7 +101,8 @@ export async function buildGuidedRig(input,{guides,resolution=48,memoryBudgetMiB
   const rest=new Matrix4().fromArray(checkedSkin.listJoints()[i].getWorldMatrix()).multiply(new Matrix4().fromArray(inverse,i*16));
   for(let k=0;k<16;k++)if(Math.abs(rest.elements[k]-(k%5===0?1:0))>(k>=12?Math.max(1,h)*2e-5:2e-5))throw Error('Не совпала исходная поза скелета после записи GLB');
  }
- onProgress(100,'Скелет готов. Проверь плечи, локти, таз и колени в движении.');
- const preview={bones:spec.map(b=>({name:b.name,parent:b.parent,translation:b.translation.toArray(),rotation:b.rotation.toArray()})),parts:records.flatMap(r=>r.parts.map(p=>({node:r.nodeIndex,primitive:p.primitiveIndex,positions:p.positions,normals:p.normals,tangents:p.tangents,indices:p.indices,skinIndices:p.skinIndices,skinWeights:p.skinWeights})))};
+ onProgress(100,'Скелет готов. Проверь поворот головы и сгибы суставов.');
+ const outputNodes=new Map(root.listNodes().map((node,index)=>[node,index]));
+ const preview={bones:spec.map(b=>({name:b.name,parent:b.parent,translation:b.translation.toArray(),rotation:b.rotation.toArray()})),parts:records.flatMap(r=>r.parts.map(p=>({node:r.nodeIndex,outputNode:outputNodes.get(r.node),primitive:p.primitiveIndex,positions:p.positions,normals:p.normals,tangents:p.tangents,indices:p.indices,skinIndices:p.skinIndices,skinWeights:p.skinWeights})))};
  return {bytes:output,preview,kind:'rig',beforeBytes:bytes.byteLength,afterBytes:output.byteLength,sourceTriangles:plan.triangles,optimizedTriangles:faceCount,vertices:count,bones:nodes.length,estimatedMiB:plan.estimatedMiB,stats:result.stats,note:'Создан гуманоидный скелет тела; до 4 влияний на вершину. Сетка и исходные изображения сохранены. Пальцы, уши и хвост требуют отдельного риггинга. Проверь деформации перед игрой.'};
 }

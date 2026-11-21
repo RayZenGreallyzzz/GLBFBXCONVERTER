@@ -14,9 +14,11 @@ export class GuidedRigUI{
   for(const axis of ['x','y','z'])$('rig-'+axis).addEventListener('change',()=>{if(!this.guides||api.busy())return;const value=Number($('rig-'+axis).value);if(!Number.isFinite(value)){this.fields();return}this.invalidate();this.guides[$('rig-joint').value][['x','y','z'].indexOf(axis)]=value;this.markers();this.refresh()});
   for(const id of ['rig-confirm','rig-edit'])$(id).addEventListener('change',()=>this.refresh());
   $('rig-resolution').addEventListener('change',()=>{this.invalidate();this.refresh()});
+  $('rig-head-strength').addEventListener('change',()=>{this.invalidate({keepConfirmation:true});this.refresh()});
+  $('rig-head-strength').addEventListener('input',()=>{$('rig-head-strength-value').textContent=$('rig-head-strength').value+'%'});
   $('rig-build').addEventListener('click',()=>this.build());$('rig-cancel').addEventListener('click',()=>this.job?.cancel());
   $('rig-test-play').addEventListener('click',()=>this.play());$('rig-test-stop').addEventListener('click',()=>this.stop());
-  $('rig-export').addEventListener('click',()=>this.export());$('rig-use').addEventListener('click',()=>this.use());
+  $('rig-export').addEventListener('click',()=>this.export());$('rig-use').addEventListener('click',()=>this.use());$('rig-edit-weights').addEventListener('click',()=>this.use(true));
   let down=null;api.canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY}});
   api.canvas.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>8)return;this.place(e)});
  }
@@ -26,8 +28,8 @@ export class GuidedRigUI{
   if(id!==this.sourceId){this.sourceId=id;this.guides=null;this.bounds=null;this.clearResult();this.feedback=null;$('rig-confirm').checked=false;this.clearMarkers()}
   const eligible=this.eligible(),busy=this.api.busy();
   $('rig-draft').disabled=!eligible||busy;$('rig-build').disabled=!eligible||busy||!this.guides||!$('rig-confirm').checked;
-  for(const id of ['rig-front','rig-side','rig-joint','rig-x','rig-y','rig-z','rig-edit','rig-confirm','rig-resolution'])$(id).disabled=busy||!this.guides;
-  for(const id of ['rig-export','rig-use','rig-test-play'])$(id).disabled=busy||!this.result;
+  for(const id of ['rig-front','rig-side','rig-joint','rig-x','rig-y','rig-z','rig-edit','rig-confirm','rig-resolution','rig-head-strength'])$(id).disabled=busy||!this.guides;
+  for(const id of ['rig-export','rig-use','rig-edit-weights','rig-test-play'])$(id).disabled=busy||!this.result;
   $('rig-test-stop').disabled=busy||!this.mixer;$('rig-cancel').hidden=!this.job;
   this.overlay.visible=this.tab&&!!this.guides&&$('rig-edit').checked&&!busy;
   this.api.orbit.enabled=!(this.tab&&this.guides&&$('rig-edit').checked&&!busy);
@@ -49,7 +51,7 @@ export class GuidedRigUI{
   root.traverse(n=>{if(!n.isMesh)return;const p=n.geometry.getAttribute('position');for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i).applyMatrix4(n.matrixWorld);positions.push(v.x,v.y,v.z);for(let k=0;k<3;k++){bounds.min[k]=Math.min(bounds.min[k],v.getComponent(k));bounds.max[k]=Math.max(bounds.max[k],v.getComponent(k))}}});
   try{this.bounds=bounds;this.guides=suggestRigGuides(bounds,positions);this.fields();this.markers();this.setView('front');this.refresh()}catch(e){$('rig-status').textContent=e.message}
  }
- invalidate(){this.stop();if(this.result)this.api.invalidate();this.result=null;this.feedback=null;$('rig-confirm').checked=false}
+ invalidate({keepConfirmation=false}={}){this.stop();if(this.result)this.api.invalidate();this.result=null;this.feedback=null;if(!keepConfirmation)$('rig-confirm').checked=false}
  setView(view){
   if(!this.bounds)return;this.view=view;const box=new THREE.Box3(new THREE.Vector3(...this.bounds.min),new THREE.Vector3(...this.bounds.max)),center=box.getCenter(new THREE.Vector3()),h=box.getSize(new THREE.Vector3()).length();
   this.api.orbit.target.copy(center);this.api.camera.up.set(0,1,0);this.api.camera.position.copy(center).add(view==='front'?new THREE.Vector3(0,0,h*1.3):new THREE.Vector3(h*1.3,0,0));this.api.orbit.update();
@@ -63,17 +65,17 @@ export class GuidedRigUI{
   this.invalidate();if(this.view==='front'){p[0]=point.x;p[1]=point.y}else{p[1]=point.y;p[2]=point.z}this.fields();this.markers();this.refresh();
  }
  clearResult(){this.stop();this.result=null;this.testRoot=null;this.refreshResultButtons()}
- refreshResultButtons(){for(const id of ['rig-export','rig-use','rig-test-play','rig-test-stop'])$(id).disabled=true}
+ refreshResultButtons(){for(const id of ['rig-export','rig-use','rig-edit-weights','rig-test-play','rig-test-stop'])$(id).disabled=true}
  stop(){if(this.mixer){this.mixer.stopAllAction();if(this.testRoot){this.mixer.uncacheRoot(this.testRoot);this.testRoot.updateMatrixWorld(true)}this.mixer=null}$('rig-test-stop').disabled=true}
  play(){if(!this.result||this.api.busy())return;this.api.stopPlayback();this.stop();this.testRoot=this.api.resultRoot();if(!this.testRoot)return;this.api.showResult();this.mixer=new THREE.AnimationMixer(this.testRoot);this.mixer.clipAction(rigBendTestClip(this.testRoot)).play();this.refresh()}
  update(delta){if(!this.api.busy())this.mixer?.update(delta)}
  async build(){
   if(!this.guides||!this.eligible()||this.api.busy()||!$('rig-confirm').checked)return;
   this.stop();this.feedback=null;this.api.stopPlayback();this.api.setBusy(true);this.refresh();
-  try{const memoryBudgetMiB=await this.api.memoryBudget();this.job=startGuidedRig(this.api.model().sourceBuffer,{guides:structuredClone(this.guides),resolution:Number($('rig-resolution').value),memoryBudgetMiB},(p,s)=>{this.api.progress(p);$('rig-status').textContent=s});this.refresh();const result=await this.job.promise;await this.api.result(result);this.result=result;this.testRoot=this.api.resultRoot();$('rig-status').textContent=result.bones+' костей. '+result.optimizedTriangles.toLocaleString('ru-RU')+' треугольников сохранены. Запусти проверку сгибов и сравни результат.';$('rig-edit').checked=false;
+  try{const memoryBudgetMiB=await this.api.memoryBudget();this.job=startGuidedRig(this.api.model().sourceBuffer,{guides:structuredClone(this.guides),resolution:Number($('rig-resolution').value),headWeightStrength:Number($('rig-head-strength').value)/100,memoryBudgetMiB},(p,s)=>{this.api.progress(p);$('rig-status').textContent=s});this.refresh();const result=await this.job.promise;await this.api.result(result);this.result=result;this.testRoot=this.api.resultRoot();$('rig-status').textContent=result.bones+' костей. '+result.optimizedTriangles.toLocaleString('ru-RU')+' треугольников сохранены. Запусти проверку сгибов и сравни результат.';$('rig-edit').checked=false;
   }catch(e){this.feedback=(e.name==='AbortError'?'':'Ошибка скелета: ')+e.message;$('rig-status').textContent=this.feedback}
   finally{this.job=null;this.api.setBusy(false);this.api.progress(0);this.refresh()}
  }
  async export(){if(!this.result||this.api.busy())return;this.stop();this.api.setBusy(true);try{await this.api.save(this.result.bytes,this.api.model().name+'_rig.glb')}catch(e){$('rig-status').textContent=e.message}finally{this.api.setBusy(false);this.refresh()}}
- use(){if(!this.result||this.api.busy())return;this.stop();const result=this.result;this.api.use(result);this.clearResult();this.refresh()}
+ use(editWeights=false){if(!this.result||this.api.busy())return;this.stop();const result=this.result;this.api.use(result,editWeights);this.clearResult();this.refresh()}
 }

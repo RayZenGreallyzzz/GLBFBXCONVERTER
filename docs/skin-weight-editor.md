@@ -1,6 +1,6 @@
-# Optional skin-weight editor
+# Skin-weight editor
 
-The existing body-rig generator and arm-weight repair remain available with their existing defaults. **Веса → Открыть редактор весов** creates an independent geometry/skeleton preview. Merely opening, browsing, changing settings, or discarding it does not alter the working model or original bytes.
+**Веса → Открыть редактор весов** and **Скелет → Настроить веса этого рига** open an independent geometry/skeleton preview. Merely opening, browsing, changing settings, or discarding it does not alter the working model or original bytes.
 
 ## Brush
 
@@ -9,6 +9,12 @@ Select a bone, size (diameter as a percentage of character height), strength, an
 Brush weights remain normalized with at most four influences. Add reserves the selected bone and proportionally distributes the remainder to the strongest other three. Removing the last rigid influence uses the parent bone as fallback. Smooth averages through welded triangle adjacency, including UV seams; it is computed from a snapshot before the dab. Normalized integer attributes are quantized during editing so the preview and saved values agree. Colored visualization uses temporary cloned materials; source textures are shared and never re-encoded.
 
 Strokes have Undo/Redo. Pointer cancellation rolls back the active stroke. History retains up to 24 commands / about 12 MiB of typed deltas, with at most one complete stroke beyond that budget; a 60,000-vertex stroke limit bounds transient history. Very large dabs are rejected rather than partially painted. Reset restores original weights and joints and clears history. A spatial hash, compact adjacency, indirect BVH and input throttling bound work on Android. Actual peak memory and speed depend on device and mesh; the preflight estimate is not an Android heap guarantee.
+
+## Head and neck
+
+New guided rigs use the base of the skull for the Head guide. The **Коррекция автовесов головы** slider controls how much the automatic solution follows Head above the pivot and blends toward Neck through a narrow band. Review the draft in both views, especially with large hair, headgear or an angled neck.
+
+On Forge body rigs, **Голова и шея** in the weight editor provides a synchronized turn-and-nod test on the original and edited copy. Move the Head pivot in two views or enter X/Y/Z and apply it separately. Rebinding keeps the mesh and the HeadEnd point in their rest positions. Apply **Скорректировать веса головы** at the chosen strength, or paint the individual Head/Neck weights. The pivot and the weight adjustment have separate undo steps. The test motion is preview-only.
 
 ## Shoulder tools
 
@@ -20,7 +26,7 @@ This correction preserves animation key data, but repositioning a pivot intentio
 
 ## Save and compatibility
 
-Save writes a separate GLB. Adopt makes the reviewed copy the current model and supports reopening it for additional edits. Exporting the original before adoption remains byte-identical. With no effective edits, export returns the original bytes exactly, including after reset/undo. Texture, geometry, material and animation payloads remain unchanged. Painting modifies joint/weight bytes; shoulder movement additionally modifies two joint translations and inverse bind entries. A skin-edit marker is added.
+Save writes a separate GLB. Adopt makes the reviewed copy the current model and supports reopening it for additional edits. Exporting the original before adoption remains byte-identical. With no effective edits, export returns the original bytes exactly, including after reset/undo. Texture, geometry, material and animation payloads remain unchanged. Painting modifies joint/weight bytes. Moving a pivot also updates joint translations and inverse bind entries. A skin-edit marker is added.
 
 Supports a GLB with one 2–256-joint skin, ordinary triangle geometry, four influences, float positions and float/normalized U8/U16 weights, up to 650,000 editable vertices and available memory. Shared weight accessors, sparse/compressed geometry and incompatible bind poses are rejected. Unsupported formats need a separately prepared uncompressed GLB. Morph payloads are retained, but editing is done at default morph values.
 
@@ -30,4 +36,4 @@ Unit tests cover normalization, erasing rigid weights, visibility callbacks, fal
 
 The three separately supplied models (203,062 / 357,245 / 48,778 vertices; 39 / 2 / 14 clips) passed file validation after shoulder adjustment and exact undo. They are not committed to the public repository. These checks do not replace Android device review.
 
-The isolated APK is **Forge WEIGHT BRUSH**, package `com.phoenix.glbfbxconverter.rigtest.skin1`. The 1,273 embedded Humanoids/Monsters animations are inherited.
+The isolated APK is **Forge HEAD WEIGHTS TEST**, package `com.phoenix.glbfbxconverter.rigtest.headweights1`. The 1,273 embedded Humanoids/Monsters animations are inherited.
