@@ -19,9 +19,38 @@ export function brushDab(doc,partIndex,candidates,{bone,radius,strength,mode='ad
 }
 export class SkinHistory{
  constructor(doc,applyJoints,{maxBytes=12*1048576,maxCommands=24}={}){Object.assign(this,{doc,applyJoints,maxBytes,maxCommands});this.undoStack=[];this.redoStack=[];this.active=null}
- begin(){if(this.active)throw Error('Мазок уже начат');this.active={changes:new Map(),before:structuredClone(this.doc.shoulders)}}
+ begin(){if(this.active)throw Error('Мазок уже начат');this.active={changes:new Map(),before:structuredClone(this.doc.jointPoints)}}
  capture(p,n){if(!this.active)throw Error('Нет активного мазка');const key=p*1000000+n;if(this.active.changes.has(key))return;if(this.active.changes.size>=60000)throw Error('Мазок слишком длинный. Отпусти палец и начни следующий.');const part=this.doc.parts[p];this.active.changes.set(key,{p,n,I:Array.from(part.indices.subarray(n*4,n*4+4)),W:Array.from(part.weights.subarray(n*4,n*4+4))})}
- end(){if(!this.active)return;const {changes,before}=this.active;this.active=null;const after=structuredClone(this.doc.shoulders);if(!changes.size&&JSON.stringify(before)===JSON.stringify(after))return;const rows=[...changes.values()],locations=new Uint32Array(rows.length*2),I=new Uint16Array(rows.length*8),W=new Float32Array(rows.length*8);for(let a=0;a<rows.length;a++){const r=rows[a],p=this.doc.parts[r.p];locations.set([r.p,r.n],a*2);I.set(r.I,a*8);I.set(p.indices.subarray(r.n*4,r.n*4+4),a*8+4);W.set(r.W,a*8);W.set(p.weights.subarray(r.n*4,r.n*4+4),a*8+4)}const command={locations,I,W,before,after,bytes:locations.byteLength+I.byteLength+W.byteLength+512};this.redoStack=[];this.undoStack.push(command);while(this.undoStack.length>1&&(this.undoStack.length>this.maxCommands||this.undoStack.reduce((s,c)=>s+c.bytes,0)>this.maxBytes))this.undoStack.shift()}
+ end(){if(!this.active)return;const {changes,before}=this.active;this.active=null;const after=structuredClone(this.doc.jointPoints);if(!changes.size&&JSON.stringify(before)===JSON.stringify(after))return;const rows=[...changes.values()],locations=new Uint32Array(rows.length*2),I=new Uint16Array(rows.length*8),W=new Float32Array(rows.length*8);for(let a=0;a<rows.length;a++){const r=rows[a],p=this.doc.parts[r.p];locations.set([r.p,r.n],a*2);I.set(r.I,a*8);I.set(p.indices.subarray(r.n*4,r.n*4+4),a*8+4);W.set(r.W,a*8);W.set(p.weights.subarray(r.n*4,r.n*4+4),a*8+4)}this.remember({locations,I,W,before,after})}
+ remember(command){
+  const bytes=command.locations.byteLength+command.I.byteLength+command.W.byteLength+512;
+  this.redoStack=[];this.undoStack.push({...command,bytes});
+  while(this.undoStack.length>1&&(this.undoStack.length>this.maxCommands||this.undoStack.reduce((s,c)=>s+c.bytes,0)>this.maxBytes))this.undoStack.shift();
+ }
+ applyBoneWeights(bone,fallback,targets){
+  if(this.active)throw Error('Заверши текущий мазок.');
+  let count=0;
+  for(const part of targets)for(const weight of part)if(Number.isFinite(weight))count++;
+  if(!count)return 0;
+  const before=structuredClone(this.doc.jointPoints),locations=new Uint32Array(count*2),I=new Uint16Array(count*8),W=new Float32Array(count*8);
+  let row=0;
+  for(const [pi,values] of targets.entries()){
+   const part=this.doc.parts[pi];
+   for(let n=0;n<values.length;n++){
+    if(!Number.isFinite(values[n]))continue;
+    const offset=n*4;
+    locations[row*2]=pi;locations[row*2+1]=n;
+    I.set(part.indices.subarray(offset,offset+4),row*8);
+    W.set(part.weights.subarray(offset,offset+4),row*8);
+    assignBoneWeight(part,n,bone,values[n],fallback);
+    I.set(part.indices.subarray(offset,offset+4),row*8+4);
+    W.set(part.weights.subarray(offset,offset+4),row*8+4);
+    row++;
+   }
+  }
+  this.remember({locations,I,W,before,after:before});
+  return count;
+ }
  apply(c,redo){for(let a=0;a<c.locations.length/2;a++){const p=this.doc.parts[c.locations[a*2]],n=c.locations[a*2+1],offset=a*8+(redo?4:0);p.indices.set(c.I.subarray(offset,offset+4),n*4);p.weights.set(c.W.subarray(offset,offset+4),n*4)}this.applyJoints(redo?c.after:c.before)}
  cancel(){if(!this.active)return;for(const r of this.active.changes.values()){const p=this.doc.parts[r.p];p.indices.set(r.I,r.n*4);p.weights.set(r.W,r.n*4)}this.applyJoints(this.active.before);this.active=null}
  undo(){if(this.active)return;const c=this.undoStack.pop();if(c){this.apply(c,false);this.redoStack.push(c)}}
@@ -30,7 +59,7 @@ export class SkinHistory{
 }
 export function protectShoulderTorso(doc,strength,history){
  const lookup=new Map(doc.bones.map(b=>[b.name,b])),chest=lookup.get('mixamorigSpine2'),spine=lookup.get('mixamorigSpine1'),hips=lookup.get('mixamorigHips');if(!chest||!hips)throw Error('Для коррекции нужен скелет тела Forge.');let changed=0;
- for(const side of ['Left','Right']){const arm=lookup.get('mixamorig'+side+'Arm'),collar=lookup.get('mixamorig'+side+'Shoulder');if(!arm||!collar)throw Error('Не найдены плечи');const shoulder=doc.shoulders[side]||arm.position,sign=side==='Left'?1:-1;
+ for(const side of ['Left','Right']){const arm=lookup.get('mixamorig'+side+'Arm'),collar=lookup.get('mixamorig'+side+'Shoulder');if(!arm||!collar)throw Error('Не найдены плечи');const shoulder=doc.jointPoints[side]||arm.position,sign=side==='Left'?1:-1;
   for(const [pi,p]of doc.parts.entries())for(let n=0;n<p.positions.length/3;n++){const x=sign*(p.positions[n*3]-hips.position[0]),inside=sign*(shoulder[0]-p.positions[n*3]),y=p.positions[n*3+1],amount=clamp(strength)*smooth(inside/(doc.height*.065))*smooth(x/(doc.height*.035))*smooth((shoulder[1]+doc.height*.012-y)/(doc.height*.055));if(amount<1e-6||y<hips.position[1]+doc.height*.06)continue;const values=new Map();let freed=0;for(let k=0;k<4;k++){const id=p.indices[n*4+k],w=p.weights[n*4+k],take=(id===collar.id||id===arm.id)?w*amount:0;freed+=take;values.set(id,(values.get(id)||0)+w-take)}if(freed<1e-6)continue;values.set(chest.id,(values.get(chest.id)||0)+freed*.8);const other=spine?.id??chest.id;values.set(other,(values.get(other)||0)+freed*.2);const rows=[...values].filter(([,w])=>w>1e-8).sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,4),sum=rows.reduce((s,r)=>s+r[1],0);history?.capture(pi,n);for(let k=0;k<4;k++){p.indices[n*4+k]=rows[k]?.[0]??0;p.weights[n*4+k]=(rows[k]?.[1]??0)/sum}quantizeVertex(p,n);changed++}
  }return changed;
 }

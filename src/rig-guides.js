@@ -1,7 +1,7 @@
 import {Vector3,Quaternion,Matrix4} from 'three';
 
 export const RIG_GUIDES=Object.freeze([
- ['hips','Таз'],['chest','Грудь'],['neck','Основание шеи'],['head','Центр головы'],
+ ['hips','Таз'],['chest','Грудь'],['neck','Основание шеи'],['head','Поворот головы у основания черепа'],
  ['leftShoulder','Левое плечо'],['leftElbow','Левый локоть'],['leftWrist','Левое запястье'],
  ['rightShoulder','Правое плечо'],['rightElbow','Правый локоть'],['rightWrist','Правое запястье'],
  ['leftHip','Левый тазобедренный сустав'],['leftKnee','Левое колено'],['leftAnkle','Левая щиколотка'],['leftToe','Основание пальцев левой стопы'],
@@ -11,7 +11,7 @@ export function suggestRigGuides({min,max},positions=null){
  const h=max[1]-min[1],w=max[0]-min[0],cx=(min[0]+max[0])/2,cz=(min[2]+max[2])/2;
  if(!Number.isFinite(h+w+cx+cz)||h<=0||w<=0)throw Error('Нет объёмной геометрии для скелета');
  const point=(x,y,z=0)=>[cx+w*x,min[1]+h*y,cz+h*z];
- const out={hips:point(0,.52),chest:point(0,.73),neck:point(0,.85),head:point(0,.93)};
+ const out={hips:point(0,.52),chest:point(0,.73),neck:point(0,.85),head:point(0,.90)};
  for(const [side,s]of [['left',1],['right',-1]]){
   out[side+'Shoulder']=point(s*.17,.79);out[side+'Elbow']=point(s*.29,.74);out[side+'Wrist']=point(s*.385,.70);
   out[side+'Hip']=point(s*.085,.50);out[side+'Knee']=point(s*.09,.29);out[side+'Ankle']=point(s*.09,.055);out[side+'Toe']=point(s*.09,.025,.08);

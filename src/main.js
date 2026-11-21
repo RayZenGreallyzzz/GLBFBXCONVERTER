@@ -137,7 +137,7 @@ function showComparison(optimized=false){
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
- $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Ручные веса и плечи':state.preview?.kind==='joint-forms'?'Коррекция суставов':'После оптимизации'):'Исходная модель';
+ $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Редактор весов':state.preview?.kind==='joint-forms'?'Коррекция суставов':'После оптимизации'):'Исходная модель';
  displayMetrics();
 }
 function clear3mfViewport(){
@@ -648,6 +648,7 @@ $('model-file').addEventListener('change',e=>{
 });
 function motionStatus(message){$('anim-status').textContent=message}
 function stopMotionPlayback(){
+ skinEditorUi?.stopHeadTest();
  jointUi?.stopPose();
  guidedRigUi?.stop();
  modelPlayback.stop();morphPreview.reset();updateMorphValue();
@@ -953,16 +954,18 @@ guidedRigUi=new GuidedRigUI({
  save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),resultRoot:()=>state.previewRoot,
  invalidate:()=>{if(state.preview?.kind==='rig')discardPreview()},showResult:()=>showComparison(true),
  result:result=>{
-  const previewRoot=makeRigPreview(state.root,state.rigLookup,result.preview);
+  result.associations=new WeakMap();
+  const previewRoot=makeRigPreview(state.root,state.rigLookup,result.preview,result.associations);
   discardPreview();state.preview=result;state.previewRoot=previewRoot;state.previewClips=[];state.previewMetrics=modelStats(previewRoot,[]);scene.add(previewRoot);
   refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true);
  },
- use:result=>{
+ use:(result,editWeights)=>{
   const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Скелет больше не относится к текущей модели');
   stopMotionPlayback();modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;
-  state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.clips=[];state.name=(state.name+'_rig').slice(0,60);state.bytes=result.bytes.length;state.type='glb';state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=null;state.hasMorphs=false;state.bvhOnly=false;state.info='GLB 2.0. Создан скелет тела: '+result.bones+' костей. Перед игрой проверь деформации.';
+  state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.clips=[];state.name=(state.name+'_rig').slice(0,60);state.bytes=result.bytes.length;state.type='glb';state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.hasMorphs=false;state.bvhOnly=false;state.info='GLB 2.0. Создан скелет тела: '+result.bones+' костей. Перед игрой проверь деформации.';
   resetMotionStudio();refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();
-  document.querySelector('[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии. Исходный файл не изменялся.');buttons();
+  document.querySelector(editWeights?'[data-tab="skin"]':'[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии.');buttons();
+  if(editWeights)skinEditorUi.open();
  }
 });
 armWeightsUi=new ArmWeightsUI({
@@ -986,7 +989,7 @@ jointUi=new JointCorrectionUI({
  result:result=>{const preview=makeJointPreview(state.root,state.rigLookup,result.preview),clips=state.clips.map(c=>withJointFormTracks(preview.root,c,result.config));discardPreview();result.associations=preview.associations;state.preview=result;state.previewRoot=preview.root;state.previewClips=clips;state.previewMetrics=modelStats(preview.root,clips);scene.add(preview.root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия суставов больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.clips=state.previewClips;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_joints').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.jointConfig=result.config;state.hasMorphs=true;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Коррекции применены. Новые анимации будут экспортированы вместе с формами сгиба.');buttons()}
 });
-function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
+function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){

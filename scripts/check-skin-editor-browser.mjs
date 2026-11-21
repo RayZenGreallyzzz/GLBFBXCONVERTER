@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {mkdtemp,readFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';import {chromium} from 'playwright';import * as THREE from 'three';import {armRepairFixture} from '../tests/helpers/arm-repair-fixture.mjs';import {openSkinDocument} from '../src/skin-document.js';import {inspectGlb} from '../src/format.js';
+import assert from 'node:assert/strict';import {spawn} from 'node:child_process';import {mkdtemp,readFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';import {chromium} from 'playwright';import * as THREE from 'three';import {armRepairFixture} from '../tests/helpers/arm-repair-fixture.mjs';import {rigFixture} from '../tests/helpers/rig-fixture.mjs';import {openSkinDocument} from '../src/skin-document.js';import {inspectGlb} from '../src/format.js';
 const origin='http://127.0.0.1:4183',temp=await mkdtemp(join(tmpdir(),'forge-skin-ui-')),server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4183','--strictPort'],{stdio:'ignore'});let browser,page;
 try{
  const {bytes}=await armRepairFixture(),doc=openSkinDocument(bytes),bone=doc.bones.find(b=>b.name==='mixamorigLeftForeArm'),hand=doc.bones.find(b=>b.name==='mixamorigLeftHand'),target=new THREE.Vector3(...bone.position).lerp(new THREE.Vector3(...hand.position),.55),p=doc.parts[0];let aim=null,best=Infinity;
@@ -15,6 +15,36 @@ try{
  await page.locator('#skin-shoulder-tools').evaluate(el=>el.open=true);const oldX=Number(await page.locator('#skin-shoulder-x').inputValue());await page.locator('#skin-shoulder-x').fill(String(oldX-.03));await page.locator('#skin-shoulder-x').dispatchEvent('change');await page.locator('#skin-shoulder-apply').click();assert.ok(!(await page.locator('#skin-status').innerText()).includes('Ошибка'),await page.locator('#skin-status').innerText());const shoulders=await download(()=>page.locator('#skin-save').click());assert.deepEqual(inspectGlb(shoulders).json.animations,inspectGlb(bytes).json.animations);openSkinDocument(shoulders);
  await page.locator('#model-play').click();assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'playing');await page.waitForTimeout(500);await page.locator('#model-play').click();await page.locator('#view-original').click();await page.waitForTimeout(50);const screenshot=await page.locator('#viewport canvas').screenshot();await page.locator('#view-optimized').click();await page.waitForTimeout(50);assert.notDeepEqual(await page.locator('#viewport canvas').screenshot(),screenshot);await page.locator('#model-stop').click();
  await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');assert.deepEqual(await download(()=>page.locator('#convert-export').click()),bytes,'original export is immutable');await page.locator('[data-tab="skin"]').click();await page.locator('#skin-use').click();assert.equal(await page.locator('#model-clip option').count(),1);await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);
- await page.locator('[data-tab="skin"]').click();await page.locator('#skin-open').click();await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);await page.setViewportSize({width:412,height:915});assert.equal(await page.locator('#tab-skin').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await page.locator('#skin-close').click();await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);assert.deepEqual(errors,[]);
- console.log('Skin editor: actual visible-surface brush → save → exact undo/redo → shoulder rebind → animated comparison → immutable original → adoption → reopen → mobile layout → discard. Passed.');
+ await page.locator('[data-tab="skin"]').click();await page.locator('#skin-open').click();await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);await page.setViewportSize({width:412,height:915});assert.equal(await page.locator('#tab-skin').evaluate(el=>el.scrollWidth<=el.clientWidth+1),true);await page.locator('#skin-close').click();await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);
+ await page.locator('[data-tab="skin"]').click();await page.locator('#skin-open').click();
+ await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);
+ await page.locator('#skin-head-tools').evaluate(el=>el.open=true);
+ const beforeY=Number(await page.locator('#skin-head-y').inputValue());
+ await page.locator('#skin-head-y').fill(String(beforeY-.015));await page.locator('#skin-head-y').dispatchEvent('change');
+ await page.locator('#skin-head-pivot').click();assert.match(await page.locator('#skin-status').innerText(),/Точка Head применена/);
+ await page.locator('#skin-head-strength').evaluate(el=>{el.value='80';el.dispatchEvent(new Event('input',{bubbles:true}))});
+ assert.equal(await page.locator('#skin-head-strength-value').innerText(),'80%');
+ await page.locator('#skin-head-adjust').click();await page.waitForFunction(()=>/Коррекция головы: [1-9]/.test(document.getElementById('skin-status').textContent));
+ await page.locator('#skin-head-play').click();assert.equal(await page.locator('#skin-head-stop').isEnabled(),true);
+ await page.locator('#view-original').click();assert.equal(await page.locator('#skin-head-stop').isEnabled(),true);
+ await page.locator('#skin-head-stop').click();assert.equal(await page.locator('#skin-head-stop').isDisabled(),true);
+ const headFixed=await download(()=>page.locator('#skin-save').click());
+ assert.equal(inspectGlb(headFixed).json.extras.phoenixSkinEdit.headMoved,true);
+ await page.locator('#skin-undo').click();await page.locator('#skin-undo').click();
+ assert.deepEqual(await download(()=>page.locator('#skin-save').click()),shoulders);
+ await page.locator('#skin-close').click();
+
+ const unrigged=await rigFixture();
+ await page.locator('#model-file').setInputFiles({name:'body.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(unrigged.bytes)});
+ await page.locator('[data-tab="rig"]').click();await page.locator('#rig-draft').click();
+ await page.locator('#rig-resolution').selectOption('32');
+ await page.locator('#rig-head-strength').evaluate(el=>{el.value='70';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}))});
+ await page.locator('#rig-confirm').check();await page.locator('#rig-build').click();
+ await page.locator('#rig-edit-weights').click({timeout:60000});
+ await page.waitForFunction(()=>!document.getElementById('skin-save').disabled);
+ assert.equal(await page.locator('#tab-skin').isVisible(),true);
+ const guided=await download(()=>page.locator('#skin-save').click());
+ assert.equal(inspectGlb(guided).json.extras.phoenixRig.headWeightStrength,.7);
+ assert.deepEqual(errors,[]);
+ console.log('Skin editor: actual visible-surface brush → save → exact undo/redo → shoulder rebind → animated comparison → immutable original → adoption → mobile layout → head pivot and weights → new rig opens directly in the editor. Passed.');
 }catch(e){if(page)console.error('Skin UI status:',await page.locator('#skin-status').innerText().catch(()=>''));throw e}finally{await browser?.close();server.kill('SIGTERM');await rm(temp,{recursive:true,force:true})}

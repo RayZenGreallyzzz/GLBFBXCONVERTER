@@ -1,6 +1,7 @@
 import {Matrix4,Vector3,Quaternion} from 'three';
 import {inspectGlb} from './format.js';
 import {asBytes} from './binary.js';
+export const SKIN_PIVOT_BONES = {Left:'mixamorigLeftArm', Right:'mixamorigRightArm', Head:'mixamorigHead'};
 const widths={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16},sizes={5121:1,5123:2,5125:4,5126:4},reads={5121:'getUint8',5123:'getUint16',5125:'getUint32',5126:'getFloat32'};
 export function skinEditEligibility(input){try{const j=inspectGlb(input).json;if(j.extras?.phoenixJointForms)throw Error('Сначала настрой веса и плечи на исходнике, затем создай формы суставов. Для новых весов открой копию до коррекции.');if(j.skins?.length!==1||j.skins[0].joints.length<2||j.skins[0].joints.length>256)throw Error('Нужен GLB с одним скелетом (2–256 костей).');return {eligible:true,reason:''}}catch(e){return {eligible:false,reason:e.message||'Открой GLB со скелетом.'}}}
 export function nodeWorlds(j){const parent=new Int32Array(j.nodes.length).fill(-1),world=[],active=new Set();j.nodes.forEach((n,i)=>(n.children||[]).forEach(c=>{if(parent[c]>=0)throw Error('Общий узел скелета');parent[c]=i}));const get=i=>{if(world[i])return world[i];if(active.has(i)||!j.nodes[i])throw Error('Повреждена иерархия');active.add(i);const n=j.nodes[i],m=n.matrix?new Matrix4().fromArray(n.matrix):new Matrix4().compose(new Vector3().fromArray(n.translation||[0,0,0]),new Quaternion().fromArray(n.rotation||[0,0,0,1]),new Vector3().fromArray(n.scale||[1,1,1]));if(parent[i]>=0)m.premultiply(get(parent[i]));active.delete(i);return world[i]=m};j.nodes.forEach((_,i)=>get(i));return {parent,world}}
@@ -23,34 +24,52 @@ export function openSkinDocument(input,{memoryBudgetMiB=384}={}){
  for(let i=0;i<bones.length;i++){const m=world[bones[i].node].clone().multiply(new Matrix4().fromArray(ibm,i*16));for(const r of records){const bind=r.world.clone().invert().multiply(m);if(bind.elements.some((v,k)=>Math.abs(v-(k%5===0?1:0))>1e-4))throw Error('Для кисти нужен скелет в исходной позе привязки.')}}
  const parts=records.map(r=>{const local=read(r.attributes.POSITION),positions=new Float32Array(local.length),v=new Vector3();for(let i=0;i<local.length;i+=3)v.fromArray(local,i).applyMatrix4(r.world).toArray(positions,i);const indices=new Uint16Array(read(r.attributes.JOINTS_0)),weights=read(r.attributes.WEIGHTS_0);for(let i=0;i<weights.length;i+=4){let sum=0;for(let k=0;k<4;k++){if(indices[i+k]>=bones.length||weights[i+k]<0)throw Error('Повреждены веса');sum+=weights[i+k]}if(Math.abs(sum-1)>1e-4)throw Error('Исходные веса не нормализованы');}return {...r,local,positions,indices,weights,baseIndices:indices.slice(),baseWeights:weights.slice(),triangles:r.index===undefined?Uint32Array.from({length:local.length/3},(_,i)=>i):new Uint32Array(read(r.index))}});
  const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];for(const p of parts)for(let i=0;i<p.positions.length;i++){const k=i%3;min[k]=Math.min(min[k],p.positions[i]);max[k]=Math.max(max[k],p.positions[i])}
- return {bytes,j,chunks,bin,parts,bones,world,parent,ibm,ibmLayout,layout,baseJson:structuredClone(j),shoulders:{},height:max[1]-min[1],bounds:{min,max},estimatedMiB};
+ return {bytes,j,chunks,bin,parts,bones,world,parent,ibm,ibmLayout,layout,baseJson:structuredClone(j),jointPoints:{},height:max[1]-min[1],bounds:{min,max},estimatedMiB};
 }
-export function setShoulders(doc,points){
- const j=structuredClone(doc.baseJson),lookup=new Map(doc.bones.map(b=>[b.name,b]));
- for(const [side,point]of Object.entries(points)){
-  const arm=lookup.get('mixamorig'+side+'Arm'),fore=lookup.get('mixamorig'+side+'ForeArm');if(!arm||!fore||j.extras?.phoenixRig?.profile!=='humanoid-body')throw Error('Перемещение плеч поддерживает скелет тела Forge.');
-  if(!Array.isArray(point)||point.length!==3||point.some((x,k)=>!Number.isFinite(x)||x<doc.bounds.min[k]||x>doc.bounds.max[k]))throw Error('Точка плеча вне модели');
-  if(point.every((v,k)=>Math.abs(v-arm.position[k])<1e-9))continue;
-  if(new Vector3().fromArray(point).distanceTo(new Vector3().fromArray(arm.position))>doc.height*.12)throw Error('Сдвиг плеча слишком большой — уточни точку.');
-  for(const a of j.animations||[])for(const c of a.channels)if([arm.node,fore.node].includes(c.target.node)&&c.target.path!=='rotation')throw Error('У плеча есть анимация перемещения/масштаба: здесь доступна только кисть весов.');
-  if(j.nodes[arm.node].matrix||j.nodes[fore.node].matrix)throw Error('Для перемещения плеч нужны обычные TRS-кости');
-  const parentWorld=doc.world[doc.parent[arm.node]],position=new Vector3().fromArray(point);j.nodes[arm.node].translation=position.clone().applyMatrix4(parentWorld.clone().invert()).toArray();
-  const armWorld=parentWorld.clone().multiply(new Matrix4().compose(new Vector3().fromArray(j.nodes[arm.node].translation),new Quaternion().fromArray(j.nodes[arm.node].rotation||[0,0,0,1]),new Vector3().fromArray(j.nodes[arm.node].scale||[1,1,1])));
-  j.nodes[fore.node].translation=new Vector3().setFromMatrixPosition(doc.world[fore.node]).applyMatrix4(armWorld.invert()).toArray();
+export function setSkinJointPoints(doc,points){
+ const j=structuredClone(doc.baseJson),byName=new Map(doc.bones.map(b=>[b.name,b])),jointNodes=new Set(doc.bones.map(b=>b.node));
+ for(const [key,point]of Object.entries(points)){
+  const bone=byName.get(SKIN_PIVOT_BONES[key]),parent=bone&&doc.parent[bone.node];
+  if(!bone||parent<0||j.extras?.phoenixRig?.profile!=='humanoid-body')throw Error('Перемещение сустава поддерживает скелет тела Forge.');
+  if(!Array.isArray(point)||point.length!==3||point.some((x,k)=>!Number.isFinite(x)||x<doc.bounds.min[k]||x>doc.bounds.max[k]))throw Error('Точка сустава вне модели.');
+  if(point.every((v,k)=>Math.abs(v-bone.position[k])<1e-9))continue;
+  const position=new Vector3().fromArray(point);
+  if(position.distanceTo(new Vector3().fromArray(bone.position))>doc.height*.12)throw Error('Сдвиг сустава слишком большой — уточни точку.');
+  if(key==='Head'){
+   const neck=byName.get('mixamorigNeck'),end=byName.get('mixamorigHeadEnd'),minGap=doc.height*.004;
+   if(!neck||point[1]-neck.position[1]<minGap||end&&end.position[1]-point[1]<minGap)
+    throw Error('Поставь точку поворота между основанием шеи и верхней точкой головы.');
+  }
+  const children=j.nodes[bone.node].children||[],affected=new Set([bone.node,...children]);
+  for(const node of affected)if(!jointNodes.has(node)||j.nodes[node].matrix)throw Error('Для переноса точки нужны TRS-кости без прикреплённых объектов. Здесь доступна кисть весов.');
+  for(const a of j.animations||[])for(const c of a.channels)if(affected.has(c.target.node)&&['translation','scale'].includes(c.target.path))throw Error('На этом суставе или его дочерней кости есть анимация перемещения/масштаба. Здесь доступна кисть весов.');
+  j.nodes[bone.node].translation=position.clone().applyMatrix4(doc.world[parent].clone().invert()).toArray();
+  const movedWorld=doc.world[bone.node].clone().setPosition(position).invert();
+  for(const child of children)j.nodes[child].translation=new Vector3().setFromMatrixPosition(doc.world[child]).applyMatrix4(movedWorld).toArray();
  }
- doc.shoulders=structuredClone(points);doc.j=j;const {world}=nodeWorlds(j);doc.currentWorld=world;doc.currentIbm=doc.ibm.slice();for(let i=0;i<doc.bones.length;i++)world[doc.bones[i].node].clone().invert().multiply(doc.world[doc.bones[i].node]).multiply(new Matrix4().fromArray(doc.ibm,i*16)).toArray(doc.currentIbm,i*16);
+ const {world}=nodeWorlds(j),ibm=doc.ibm.slice();
+ for(const {node,id} of doc.bones)if(!world[node].equals(doc.world[node])){
+  world[node].clone().invert().multiply(doc.world[node]).multiply(new Matrix4().fromArray(doc.ibm,id*16)).toArray(ibm,id*16);
+ }
+ doc.jointPoints=structuredClone(points);doc.j=j;doc.currentWorld=world;doc.currentIbm=ibm;
 }
-export function resetSkinDocument(doc){for(const p of doc.parts){p.indices.set(p.baseIndices);p.weights.set(p.baseWeights)}setShoulders(doc,{})}
+export function resetSkinDocument(doc){for(const p of doc.parts){p.indices.set(p.baseIndices);p.weights.set(p.baseWeights)}setSkinJointPoints(doc,{})}
 export function writeSkinDocument(doc){
- const changedJoints=Object.keys(doc.shoulders).some(side=>{const b=doc.bones.find(b=>b.name==='mixamorig'+side+'Arm');return doc.shoulders[side].some((v,k)=>Math.abs(v-b.position[k])>1e-9)}),changedWeights=doc.parts.some(p=>p.indices.some((v,i)=>v!==p.baseIndices[i])||p.weights.some((v,i)=>v!==p.baseWeights[i]));if(!changedJoints&&!changedWeights)return doc.bytes.slice();
+ const moved=Object.keys(doc.jointPoints).filter(key=>{
+  const b=doc.bones.find(b=>b.name===SKIN_PIVOT_BONES[key]);
+  return doc.jointPoints[key].some((v,k)=>Math.abs(v-b.position[k])>1e-9);
+ });
+ const changedJoints=moved.length>0;
+ const changedWeights=doc.parts.some(p=>p.indices.some((v,i)=>v!==p.baseIndices[i])||p.weights.some((v,i)=>v!==p.baseWeights[i]));
+ if(!changedJoints&&!changedWeights)return doc.bytes.slice();
  const bin=doc.bin.slice(),v=new DataView(bin.buffer),j=structuredClone(changedJoints?doc.j:doc.baseJson);
  for(const p of doc.parts)for(let n=0;n<p.weights.length/4;n++){
   if([0,1,2,3].every(k=>p.indices[n*4+k]===p.baseIndices[n*4+k]&&p.weights[n*4+k]===p.baseWeights[n*4+k]))continue;
   const limit=p.W.a.componentType===5121?255:65535,q=Array.from(p.weights.subarray(n*4,n*4+4));let encoded=q;if(p.W.a.componentType!==5126){encoded=q.map(x=>Math.floor(x*limit));const order=[0,1,2,3].sort((a,b)=>(q[b]*limit-encoded[b])-(q[a]*limit-encoded[a]));for(let k=0,r=limit-encoded.reduce((s,x)=>s+x,0);k<r;k++)encoded[order[k%4]]++}
   for(let k=0;k<4;k++){v[p.I.a.componentType===5121?'setUint8':'setUint16'](p.I.offset+n*p.I.stride+k*p.I.size,p.indices[n*4+k],true);v[p.W.a.componentType===5126?'setFloat32':p.W.a.componentType===5121?'setUint8':'setUint16'](p.W.offset+n*p.W.stride+k*p.W.size,encoded[k],true)}
  }
- if(changedJoints)for(let i=0;i<doc.ibm.length;i++)if(Math.abs(doc.currentIbm[i]-doc.ibm[i])>1e-7)v.setFloat32(doc.ibmLayout.offset+Math.floor(i/16)*doc.ibmLayout.stride+(i%16)*4,doc.currentIbm[i],true);
+ if(changedJoints)for(let i=0;i<doc.ibm.length;i++)if(doc.currentIbm[i]!==doc.ibm[i])v.setFloat32(doc.ibmLayout.offset+Math.floor(i/16)*doc.ibmLayout.stride+(i%16)*4,doc.currentIbm[i],true);
  // Accessor extrema, when present, must describe the newly painted values.
  for(const p of doc.parts)for(const l of [p.I,p.W])if(l.a.min||l.a.max){const min=[Infinity,Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity,-Infinity];for(let n=0;n<l.a.count;n++)for(let k=0;k<4;k++){const raw=v[reads[l.a.componentType]](l.offset+n*l.stride+k*l.size,true);min[k]=Math.min(min[k],raw);max[k]=Math.max(max[k],raw)}const id=p.attributes[l===p.I?'JOINTS_0':'WEIGHTS_0'];if(l.a.min)j.accessors[id].min=min;if(l.a.max)j.accessors[id].max=max}
- j.extras={...j.extras,phoenixSkinEdit:{version:1,shouldersMoved:changedJoints}};const text=new TextEncoder().encode(JSON.stringify(j)),jsonSize=Math.ceil(text.length/4)*4,total=12+doc.chunks.reduce((s,c)=>s+8+(c.type===0x4e4f534a?jsonSize:c.data.length),0),out=new Uint8Array(total),h=new DataView(out.buffer);h.setUint32(0,0x46546c67,true);h.setUint32(4,2,true);h.setUint32(8,total,true);let at=12;for(const c of doc.chunks){const data=c.type===0x004e4942?bin:c.data,size=c.type===0x4e4f534a?jsonSize:data.length;h.setUint32(at,size,true);h.setUint32(at+4,c.type,true);if(c.type===0x4e4f534a){out.fill(32,at+8,at+8+size);out.set(text,at+8)}else out.set(data,at+8);at+=8+size}return out;
+ j.extras={...j.extras,phoenixSkinEdit:{version:1,shouldersMoved:moved.some(key=>key==='Left'||key==='Right'),headMoved:moved.includes('Head')}};const text=new TextEncoder().encode(JSON.stringify(j)),jsonSize=Math.ceil(text.length/4)*4,total=12+doc.chunks.reduce((s,c)=>s+8+(c.type===0x4e4f534a?jsonSize:c.data.length),0),out=new Uint8Array(total),h=new DataView(out.buffer);h.setUint32(0,0x46546c67,true);h.setUint32(4,2,true);h.setUint32(8,total,true);let at=12;for(const c of doc.chunks){const data=c.type===0x004e4942?bin:c.data,size=c.type===0x4e4f534a?jsonSize:data.length;h.setUint32(at,size,true);h.setUint32(at+4,c.type,true);if(c.type===0x4e4f534a){out.fill(32,at+8,at+8+size);out.set(text,at+8)}else out.set(data,at+8);at+=8+size}return out;
 }

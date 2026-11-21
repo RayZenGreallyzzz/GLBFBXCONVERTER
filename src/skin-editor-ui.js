@@ -1,38 +1,133 @@
 import * as THREE from 'three';
-import {openSkinDocument,skinEditEligibility,setShoulders,writeSkinDocument,resetSkinDocument} from './skin-document.js';
+import {openSkinDocument,skinEditEligibility,setSkinJointPoints,SKIN_PIVOT_BONES,writeSkinDocument,resetSkinDocument} from './skin-document.js';
 import {SkinHistory,makePaintIndex,brushDab,boneWeight,suggestShoulderPoints,protectShoulderTorso} from './skin-weights.js';
 import {makeSkinEditPreview,syncSkinEditPreview,SkinPickSurface} from './skin-preview.js';
+import {headWeightRegion,headWeightTargets} from './head-weights.js';
+import {headTurnTestClip} from './rig-preview.js';
+import {ModelPlayback} from './model-playback.js';
 const $=id=>document.getElementById(id),frame=()=>new Promise(r=>requestAnimationFrame(r));
 export class SkinEditorUI{
- constructor(api){this.api=api;this.doc=null;this.tab=false;this.sourceId=null;this.mode='view';this.heatStates=new Map();this.feedback='Открой GLB со скелетом. Исходный файл сохраняется до применения результата.';this.eligibility={eligible:false};this.stroke=0;this.overlay=new THREE.Group();api.scene.add(this.overlay);this.brushCursor=new THREE.Mesh(new THREE.RingGeometry(.97,1,48),new THREE.MeshBasicMaterial({color:0xffdc78,side:THREE.DoubleSide,depthTest:false,transparent:true,opacity:.9}));this.brushCursor.visible=false;this.brushCursor.renderOrder=101;api.scene.add(this.brushCursor);
+ constructor(api){this.api=api;this.doc=null;this.tab=false;this.sourceId=null;this.mode='view';this.heatStates=new Map();this.feedback='Открой GLB со скелетом. Исходный файл сохраняется до применения результата.';this.eligibility={eligible:false};this.stroke=0;this.headTest=new ModelPlayback();this.overlay=new THREE.Group();api.scene.add(this.overlay);this.brushCursor=new THREE.Mesh(new THREE.RingGeometry(.97,1,48),new THREE.MeshBasicMaterial({color:0xffdc78,side:THREE.DoubleSide,depthTest:false,transparent:true,opacity:.9}));this.brushCursor.visible=false;this.brushCursor.renderOrder=101;api.scene.add(this.brushCursor);
   $('skin-open').addEventListener('click',()=>this.open());$('skin-close').addEventListener('click',()=>api.discard());$('skin-save').addEventListener('click',()=>this.save());$('skin-use').addEventListener('click',()=>this.use());
   $('skin-mode').addEventListener('change',()=>this.setMode($('skin-mode').value));$('skin-bone').addEventListener('change',()=>this.colors());$('skin-heat').addEventListener('change',()=>this.colors());for(const id of ['skin-radius','skin-strength'])$(id).addEventListener('input',()=>this.refresh());
   $('skin-undo').addEventListener('click',()=>this.historyAction('undo'));$('skin-redo').addEventListener('click',()=>this.historyAction('redo'));$('skin-reset').addEventListener('click',()=>{if(!this.doc)return;this.rest();resetSkinDocument(this.doc);this.history.clear();this.drafts={};this.resetDrafts();this.sync();this.feedback='Все правки сброшены. Исходные веса и точки восстановлены.';this.refresh()});
-  $('skin-front').addEventListener('click',()=>this.view('front'));$('skin-side').addEventListener('click',()=>this.view('side'));$('skin-shoulder-side').addEventListener('change',()=>this.fields());for(const axis of ['x','y','z'])$('skin-shoulder-'+axis).addEventListener('change',()=>{if(!this.doc)return;const side=$('skin-shoulder-side').value,p=this.drafts[side],i=['x','y','z'].indexOf(axis),x=Number($('skin-shoulder-'+axis).value);if(Number.isFinite(x))p[i]=x;this.fields();this.markers();$('skin-shoulder-apply').disabled=false});
+  $('skin-front').addEventListener('click',()=>this.view('front'));$('skin-side').addEventListener('click',()=>this.view('side'));$('skin-shoulder-side').addEventListener('change',()=>this.fields());
+  for(const axis of ['x','y','z']){
+   $('skin-shoulder-'+axis).addEventListener('change',()=>this.setDraftCoordinate($('skin-shoulder-side').value,'skin-shoulder-',axis));
+   $('skin-head-'+axis).addEventListener('change',()=>this.setDraftCoordinate('Head','skin-head-',axis));
+  }
+  $('skin-head-pivot').addEventListener('click',()=>this.applyHeadPivot());
+  $('skin-head-adjust').addEventListener('click',()=>this.applyHeadWeights());
+  $('skin-head-play').addEventListener('click',()=>this.playHeadTest());
+  $('skin-head-stop').addEventListener('click',()=>{this.stopHeadTest();this.refresh()});
+  $('skin-head-strength').addEventListener('input',()=>this.refresh());
   $('skin-suggest').addEventListener('click',()=>this.suggest());$('skin-shoulder-apply').addEventListener('click',()=>this.applyShoulders());$('skin-protect').addEventListener('input',()=>{$('skin-shoulder-apply').disabled=false;$('skin-protect-value').textContent=$('skin-protect').value+'%'});
   api.canvas.addEventListener('pointerdown',e=>this.down(e),{capture:true});api.canvas.addEventListener('pointermove',e=>this.move(e),{capture:true});for(const type of ['pointerup','pointercancel','lostpointercapture'])api.canvas.addEventListener(type,e=>this.up(e,type==='pointercancel'));
  }
  refresh(){const model=this.api.model();if(this.sourceId!==model.root?.uuid){this.sourceId=model.root?.uuid;this.eligibility=model.type==='glb'&&model.sourceBuffer?skinEditEligibility(model.sourceBuffer):{eligible:false,reason:'Открой GLB со скелетом.'}}
   const busy=this.api.busy(),active=!!this.doc;$('skin-open').disabled=busy||active||!this.eligibility.eligible;$('skin-tools').hidden=!active;for(const e of $('skin-tools').querySelectorAll('button,select,input'))e.disabled=busy;for(const id of ['skin-save','skin-use','skin-close'])$(id).disabled=busy||!active;
   $('skin-undo').disabled=busy||!this.history?.undoStack.length;$('skin-redo').disabled=busy||!this.history?.redoStack.length;$('skin-mode').value=this.mode;$('skin-radius-value').textContent=$('skin-radius').value+'% роста';$('skin-strength-value').textContent=$('skin-strength').value+'%';
-  const forge=this.doc?.j.extras?.phoenixRig?.profile==='humanoid-body';$('skin-shoulder-tools').hidden=!forge;$('skin-status').textContent=active?this.feedback:this.eligibility.reason||this.feedback;$('skin-mode').querySelector('[value=joint]').disabled=!forge;if(!(active&&this.tab&&this.mode==='brush'&&!busy))this.brushCursor.visible=false;this.overlay.visible=active&&this.tab&&this.mode==='joint'&&!busy;const owns=active&&this.tab&&this.mode!=='view'&&!busy;if(owns)this.api.orbit.enabled=false;else if(this.ownsOrbit)this.api.orbit.enabled=true;this.ownsOrbit=owns;this.api.canvas.style.cursor=active&&this.tab&&this.mode==='brush'?'crosshair':'';
+  const forge=this.doc?.j.extras?.phoenixRig?.profile==='humanoid-body';
+  const head=forge&&!!this.doc.bones.find(b=>b.name===SKIN_PIVOT_BONES.Head)&&!!this.doc.bones.find(b=>b.name==='mixamorigNeck');
+  $('skin-shoulder-tools').hidden=!forge;$('skin-head-tools').hidden=!head;
+  $('skin-head-stop').disabled=busy||!this.headTest.active;
+  $('skin-head-strength-value').textContent=$('skin-head-strength').value+'%';
+  $('skin-head-adjust').disabled=busy||!head||Number($('skin-head-strength').value)===0;
+  $('skin-status').textContent=active?this.feedback:this.eligibility.reason||this.feedback;
+  $('skin-mode').querySelector('[value=joint]').disabled=!forge;
+  $('skin-mode').querySelector('[value=head]').disabled=!head;
+  if(!(active&&this.tab&&this.mode==='brush'&&!busy))this.brushCursor.visible=false;
+  this.overlay.visible=active&&this.tab&&['joint','head'].includes(this.mode)&&!busy;
+  const owns=active&&this.tab&&this.mode!=='view'&&!busy;
+  if(owns)this.api.orbit.enabled=false;else if(this.ownsOrbit)this.api.orbit.enabled=true;
+  this.ownsOrbit=owns;this.api.canvas.style.cursor=active&&this.tab&&this.mode==='brush'?'crosshair':'';
  }
  setTab(tab){this.tab=tab;if(!tab)this.setMode('view');this.refresh()}
- setMode(mode){if(mode==='joint'&&this.doc?.j.extras?.phoenixRig?.profile!=='humanoid-body')mode='view';if(this.pointer!==undefined)this.up({pointerId:this.pointer});this.mode=mode;if(mode!=='view'&&this.doc){this.rest();this.api.showResult()}this.markers();this.refresh()}
+ setMode(mode){
+  if((mode==='joint'||mode==='head')&&this.doc?.j.extras?.phoenixRig?.profile!=='humanoid-body')mode='view';
+  if(mode==='head'&&!this.drafts?.Head)mode='view';
+  if(this.pointer!==undefined)this.up({pointerId:this.pointer});this.stopHeadTest();this.mode=mode;
+  if(mode!=='view'&&this.doc){this.rest();this.api.showResult()}
+  this.markers();this.refresh()
+ }
  rest(){this.api.stop();this.preview?.root.updateMatrixWorld(true)}
  async open(){if(this.api.busy()||this.doc)return;this.api.setBusy(true);let preview,pick;
-  try{this.api.stop();this.feedback='Готовим копию для ручных весов…';$('skin-status').textContent=this.feedback;await frame();const doc=openSkinDocument(this.api.model().sourceBuffer,{memoryBudgetMiB:await this.api.memoryBudget()});preview=makeSkinEditPreview(this.api.model().root,this.api.model().rigLookup,doc);pick=new SkinPickSurface(preview,doc);const indices=doc.parts.map(p=>makePaintIndex(p,doc.height));const result={kind:'skin-editor',bytes:doc.bytes,beforeBytes:doc.bytes.length,afterBytes:doc.bytes.length,sourceTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),optimizedTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),note:'Редактируются веса и выбранные точки плеч. Сравни движения перед сохранением.',getBytes:()=>writeSkinDocument(doc),associations:preview.associations};this.api.result(result,preview.root);this.doc=doc;this.preview=preview;this.pick=pick;this.indices=indices;this.result=result;this.history=new SkinHistory(doc,points=>setShoulders(doc,points));this.drafts={};this.resetDrafts();const select=$('skin-bone');select.replaceChildren();for(const b of doc.bones){const o=document.createElement('option');o.value=String(b.id);o.textContent=b.name.replace('mixamorig','');select.append(o)}select.value=String(doc.bones.find(b=>b.name==='mixamorigLeftShoulder')?.id||0);this.feedback='Копия готова. Выбери кость и режим кисти. Рисование — в исходной позе; анимацию включай для проверки.';this.mode='view';this.colors();this.fields();this.view('front');
+  try{this.api.stop();this.feedback='Готовим копию для ручных весов…';$('skin-status').textContent=this.feedback;await frame();const doc=openSkinDocument(this.api.model().sourceBuffer,{memoryBudgetMiB:await this.api.memoryBudget()});preview=makeSkinEditPreview(this.api.model().root,this.api.model().rigLookup,doc);pick=new SkinPickSurface(preview,doc);const indices=doc.parts.map(p=>makePaintIndex(p,doc.height));const result={kind:'skin-editor',bytes:doc.bytes,beforeBytes:doc.bytes.length,afterBytes:doc.bytes.length,sourceTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),optimizedTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),note:'Сравни поворот головы и движения суставов перед сохранением.',getBytes:()=>writeSkinDocument(doc),associations:preview.associations};this.api.result(result,preview.root);this.doc=doc;this.preview=preview;this.pick=pick;this.indices=indices;this.result=result;this.history=new SkinHistory(doc,points=>setSkinJointPoints(doc,points));this.drafts={};this.resetDrafts();const select=$('skin-bone');select.replaceChildren();for(const b of doc.bones){const o=document.createElement('option');o.value=String(b.id);o.textContent=b.name.replace('mixamorig','');select.append(o)}select.value=String(doc.bones.find(b=>b.name===SKIN_PIVOT_BONES.Head)?.id??0);this.feedback='Копия готова. Выбери кость и режим кисти. Рисование — в исходной позе; анимацию включай для проверки.';this.mode='view';this.colors();this.fields();this.view('front');
   }catch(e){pick?.dispose();if(preview&&!this.doc)this.api.release(preview.root);this.feedback='Ошибка редактора: '+e.message}finally{this.api.setBusy(false);this.refresh()}
  }
- resetDrafts(){if(!this.doc)return;for(const side of ['Left','Right']){const b=this.doc.bones.find(b=>b.name==='mixamorig'+side+'Arm');if(b)this.drafts[side]=(this.doc.shoulders[side]||b.position).slice()}this.fields();this.markers()}
- fields(){const p=this.drafts?.[$('skin-shoulder-side').value];if(!p)return;for(let i=0;i<3;i++)$('skin-shoulder-'+['x','y','z'][i]).value=String(Number(p[i].toFixed(6)))}
- markers(){for(const o of [...this.overlay.children]){this.overlay.remove(o);o.geometry?.dispose();o.material?.dispose()}if(!this.doc)return;for(const [side,point]of Object.entries(this.drafts)){const m=new THREE.Mesh(new THREE.SphereGeometry(this.doc.height*.009,10,8),new THREE.MeshBasicMaterial({color:side==='Left'?0xffbf55:0x4ad8f4,depthTest:false}));m.position.fromArray(point);m.renderOrder=100;this.overlay.add(m)}this.overlay.visible=this.tab&&this.mode==='joint'}
+ resetDrafts(){
+  if(!this.doc)return;
+  for(const [key,name] of Object.entries(SKIN_PIVOT_BONES)){
+   const bone=this.doc.bones.find(b=>b.name===name);
+   if(bone)this.drafts[key]=(this.doc.jointPoints[key]||bone.position).slice();
+  }
+  this.fields();this.markers();
+ }
+ setDraftCoordinate(key,prefix,axis){
+  const p=this.drafts?.[key],input=$(prefix+axis),value=input.valueAsNumber;
+  if(!p)return;
+  if(Number.isFinite(value))p[['x','y','z'].indexOf(axis)]=value;
+  this.fields();this.markers();
+ }
+ fields(){
+  for(const [key,prefix] of [[$('skin-shoulder-side').value,'skin-shoulder-'],['Head','skin-head-']]){
+   const p=this.drafts?.[key];
+   if(p)for(const [i,axis] of ['x','y','z'].entries())$(prefix+axis).value=String(Number(p[i].toFixed(6)));
+  }
+ }
+ markers(){
+  for(const o of [...this.overlay.children]){this.overlay.remove(o);o.geometry?.dispose();o.material?.dispose()}
+  if(!this.doc||!['joint','head'].includes(this.mode))return;
+  for(const [key,point] of Object.entries(this.drafts)){
+   if((key==='Head')!==(this.mode==='head'))continue;
+   const marker=new THREE.Mesh(new THREE.SphereGeometry(this.doc.height*.009,10,8),new THREE.MeshBasicMaterial({color:key==='Right'?0x4ad8f4:0xffbf55,depthTest:false}));
+   marker.position.fromArray(point);marker.renderOrder=100;this.overlay.add(marker);
+  }
+ }
+ applyHeadPivot(){
+  if(!this.drafts?.Head||this.api.busy())return;
+  this.rest();this.history.begin();
+  try{
+   setSkinJointPoints(this.doc,{...this.doc.jointPoints,Head:this.drafts.Head});
+   this.history.end();this.sync();
+   this.feedback='Точка Head применена к копии. Проверь поворот головы.';
+  }catch(e){this.history.cancel();this.sync();this.feedback=e.message}
+  this.refresh();
+ }
+ async applyHeadWeights(){
+  if(!this.doc||this.api.busy())return;
+  this.rest();this.api.setBusy(true);
+  try{
+   await frame();
+   const region=headWeightRegion(this.doc.bones,this.doc.height,this.doc.jointPoints.Head);
+   if(!region)throw Error('Проверь положение Head относительно основания шеи.');
+   const strength=Number($('skin-head-strength').value)/100;
+   const targets=this.doc.parts.map(p=>headWeightTargets(p,region,strength));
+   const count=this.history.applyBoneWeights(region.head,region.neck,targets);
+   this.sync();
+   this.feedback=count?'Коррекция головы: '+count+' вершин. Проверь поворот и при необходимости уточни веса кистью.':'При этой настройке веса головы совпадают с текущими.';
+  }catch(e){this.feedback=e.message}
+  finally{this.api.setBusy(false);this.refresh()}
+ }
+ playHeadTest(){
+  if(!this.doc||this.api.busy())return;
+  this.setMode('view');this.rest();
+  try{
+   const original=this.api.model().root,copy=this.preview.root;
+   this.headTest.setModels(original,[headTurnTestClip(original)],copy,[headTurnTestClip(copy)]);
+   this.headTest.play();this.api.showResult();
+   this.feedback='Поворачивается только Head. Сравни «Исходник / Результат» в одной позе.';
+  }catch(e){this.feedback=e.message}
+  this.refresh();
+ }
+ stopHeadTest(){if(this.headTest.active)this.headTest.dispose()}
+ update(delta){this.headTest.update(delta)}
  async suggest(){if(!this.doc||this.api.busy())return;this.rest();this.api.setBusy(true);try{await frame();const result=suggestShoulderPoints(this.doc);for(const side of ['Left','Right'])this.drafts[side]=result[side].point;this.feedback='Это черновик по сечениям модели. Проверь точки спереди и сбоку, поправь касанием или координатами и нажми «Применить плечи».';this.fields();this.mode='joint';this.view('front');this.markers()}catch(e){this.feedback=e.message}finally{this.api.setBusy(false);this.refresh()}}
- applyShoulders(){if(!this.doc||this.api.busy())return;this.rest();this.history.begin();try{setShoulders(this.doc,this.drafts);const count=protectShoulderTorso(this.doc,Number($('skin-protect').value)/100,this.history);this.history.end();this.sync();this.feedback='Плечи применены, изменено вершин корпуса: '+count+'. Проверь исходник/результат на тех же анимациях. Действие можно отменить.'}catch(e){this.history.cancel();this.sync();this.feedback='Ошибка плеч: '+e.message}this.refresh()}
+ applyShoulders(){if(!this.doc||this.api.busy())return;this.rest();this.history.begin();try{setSkinJointPoints(this.doc,{...this.doc.jointPoints,Left:this.drafts.Left,Right:this.drafts.Right});const count=protectShoulderTorso(this.doc,Number($('skin-protect').value)/100,this.history);this.history.end();this.sync();this.feedback='Плечи применены, изменено вершин корпуса: '+count+'. Проверь исходник/результат на тех же анимациях. Действие можно отменить.'}catch(e){this.history.cancel();this.sync();this.feedback='Ошибка плеч: '+e.message}this.refresh()}
  view(side){if(!this.doc)return;this.rest();this.projection=side;const box=new THREE.Box3(new THREE.Vector3(...this.doc.bounds.min),new THREE.Vector3(...this.doc.bounds.max)),center=box.getCenter(new THREE.Vector3()),d=box.getSize(new THREE.Vector3()).length()*1.3;this.api.orbit.target.copy(center);this.api.camera.up.set(0,1,0);this.api.camera.position.copy(center).add(side==='front'?new THREE.Vector3(0,0,d):new THREE.Vector3(d,0,0));this.api.orbit.update();this.api.camera.updateMatrixWorld(true)}
  ndc(e){const r=this.api.canvas.getBoundingClientRect();return new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1)}
  down(e){if(!this.doc||!this.tab||this.api.busy()||this.mode==='view'||e.button>0)return;if(this.pointer!==undefined){e.preventDefault();e.stopImmediatePropagation();return}e.preventDefault();e.stopImmediatePropagation();this.rest();this.api.showResult();this.pointer=e.pointerId;this.api.canvas.setPointerCapture?.(e.pointerId);this.stroke=0;
-  if(this.mode==='joint'){const p=this.drafts[$('skin-shoulder-side').value],ray=new THREE.Raycaster();ray.setFromCamera(this.ndc(e),this.api.camera);const plane=new THREE.Plane(this.projection==='side'?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1),-(this.projection==='side'?p[0]:p[2])),v=new THREE.Vector3();if(ray.ray.intersectPlane(plane,v)){if(this.projection==='side'){p[1]=v.y;p[2]=v.z}else{p[0]=v.x;p[1]=v.y}this.fields();this.markers()}return}
+  if(this.mode==='joint'||this.mode==='head'){const p=this.drafts[this.mode==='head'?'Head':$('skin-shoulder-side').value],ray=new THREE.Raycaster();ray.setFromCamera(this.ndc(e),this.api.camera);const plane=new THREE.Plane(this.projection==='side'?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1),-(this.projection==='side'?p[0]:p[2])),v=new THREE.Vector3();if(ray.ray.intersectPlane(plane,v)){if(this.projection==='side'){p[1]=v.y;p[2]=v.z}else{p[0]=v.x;p[1]=v.y}this.fields();this.markers()}return}
   this.history.begin();this.lastDab=0;this.lastPoint={x:e.clientX,y:e.clientY};this.dab(e);
  }
  cursor(e){if(!this.doc||!this.tab||this.mode!=='brush'||this.api.busy())return;const hit=this.pick.hit(this.ndc(e),this.api.camera);this.brushCursor.visible=!!hit;if(!hit)return;const normal=hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));this.brushCursor.position.copy(hit.point).addScaledVector(normal,this.doc.height*.0005);this.brushCursor.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);this.brushCursor.scale.setScalar(this.doc.height*Number($('skin-radius').value)/200)}
@@ -48,5 +143,5 @@ export class SkinEditorUI{
  historyAction(action){if(!this.doc)return;this.rest();this.history[action]();this.resetDrafts();this.sync();this.feedback=action==='undo'?'Последнее действие отменено.':'Действие возвращено.';this.refresh()}
  async save(){if(!this.doc||this.api.busy())return;this.rest();this.setMode('view');this.api.setBusy(true);try{await frame();await this.api.save(writeSkinDocument(this.doc),this.api.model().name+'_weights.glb');this.feedback='GLB с правками отправлен на сохранение.'}catch(e){this.feedback='Ошибка сохранения: '+e.message}finally{this.api.setBusy(false);this.refresh()}}
  use(){if(!this.doc||this.api.busy())return;this.rest();const result=this.result;result.bytes=writeSkinDocument(this.doc);for(const mesh of this.preview.parts)this.restoreColor(mesh);this.api.use(result);this.cleanup();this.refresh()}
- cleanup(){if(this.pointer!==undefined)this.up({pointerId:this.pointer},true);for(const mesh of this.preview?.parts||[])this.restoreColor(mesh);this.pick?.dispose();this.doc=null;this.preview=null;this.pick=null;this.indices=null;this.history=null;this.result=null;this.mode='view';this.drafts={};this.markers();this.api.orbit.enabled=true;this.api.canvas.style.cursor='';this.brushCursor.visible=false;this.refresh()}
+ cleanup(){this.stopHeadTest();if(this.pointer!==undefined)this.up({pointerId:this.pointer},true);for(const mesh of this.preview?.parts||[])this.restoreColor(mesh);this.pick?.dispose();this.doc=null;this.preview=null;this.pick=null;this.indices=null;this.history=null;this.result=null;this.mode='view';this.drafts={};this.markers();this.api.orbit.enabled=true;this.api.canvas.style.cursor='';this.brushCursor.visible=false;this.refresh()}
 }
