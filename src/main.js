@@ -789,7 +789,7 @@ function previewMotion(){
    state.mixer.clipAction(withJointFormTracks(state.root,newClip,state.jointConfig)).play();
    motion.preview=newClip;
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
-     ' дорожек. '+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
+     ' дорожек. '+(newClip.userData.volumeBones?'Восстановлены вспомогательные кости объёма: '+newClip.userData.volumeBones+'. ':'')+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
      (newClip.userData.autoScaleMeasured?'Масштаб Hips '+newClip.userData.autoScaleRatio.toFixed(4)+'×. ':'')+
      'Проверь плечи, колени, одежду и направление движения.');
  }catch(e){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка переноса: '+(e.message||e))}
