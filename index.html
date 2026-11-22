@@ -222,13 +222,18 @@
     <button id="skin-open" class="primary" disabled>ОТКРЫТЬ РЕДАКТОР ВЕСОВ</button>
     <div id="skin-tools" hidden>
       <label>Управление<select id="skin-mode"><option value="view">Вращать модель</option><option value="brush">Рисовать кистью</option><option value="detail">Выбрать отдельную деталь</option><option value="joint">Расставлять плечи касанием</option><option value="head">Поставить точку поворота головы</option></select></label>
-      <div class="row-buttons"><button id="skin-front">Спереди</button><button id="skin-side">Сбоку</button></div>
+      <div id="skin-views" role="group" aria-label="Ракурс для покраски весов">
+        <button type="button" id="skin-front" data-skin-view="front" aria-pressed="false">Спереди</button>
+        <button type="button" id="skin-back" data-skin-view="back" aria-pressed="false">Сзади</button>
+        <button type="button" id="skin-left" data-skin-view="left" aria-pressed="false">Слева</button>
+        <button type="button" id="skin-right" data-skin-view="right" aria-pressed="false">Справа</button>
+      </div>
       <label>Кость<select id="skin-bone"></select></label>
       <label><input id="skin-heat" type="checkbox"> Показать вес цветом: синий — 0, красный — 1</label>
       <label>Действие кисти<select id="skin-operation"><option value="add">Добавить влияние</option><option value="remove">Убрать влияние</option><option value="smooth">Сгладить влияние</option><option value="rigid">Закрепить на кости (100%)</option></select></label>
       <label>Диаметр кисти <output id="skin-radius-value">3% роста</output><input id="skin-radius" type="range" min="0.25" max="8" step="0.25" value="3"></label>
       <label>Сила кисти <output id="skin-strength-value">25%</output><input id="skin-strength" type="range" min="1" max="100" value="25"></label>
-      <p class="tip">Кисть меняет видимую сторону. Кнопка «Вращать» у модели помогает добраться до обратной. Для рогов и волос выбери «Закрепить на кости (100%)» с костью Head.</p>
+      <p class="tip">Кисть меняет видимую сторону. Выбирай ракурс кнопками «Спереди», «Сзади», «Слева» и «Справа». Для рогов и волос выбери «Закрепить на кости (100%)» с костью Head.</p>
       <div id="skin-piece-controls" hidden>
         <p id="skin-piece-status" class="tip" role="status">Коснись отдельной детали на модели.</p>
         <button type="button" id="skin-piece-apply" class="primary" disabled>Привязать выделенную деталь на 100%</button>

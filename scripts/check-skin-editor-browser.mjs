@@ -42,6 +42,33 @@ try{
  await page.locator('#skin-canvas-brush').click();
  await page.locator('#skin-operation').selectOption('add');
 
+ const chest=new THREE.Vector3(...doc.bones.find(b=>b.name==='mixamorigSpine2').position);
+ const views={front:[0,0,1],back:[0,0,-1],left:[1,0,0],right:[-1,0,0]};
+ for(const [view,coordinates] of Object.entries(views)){
+  await page.locator('#skin-'+view).click();
+  assert.equal(await page.locator('#skin-views [aria-pressed="true"]').getAttribute('data-skin-view'),view);
+  assert.equal(await page.locator('#skin-mode').inputValue(),'brush');
+  await page.locator('#viewport canvas').scrollIntoViewIfNeeded();
+  const rect=await page.locator('#viewport canvas').boundingBox();
+  const direction=new THREE.Vector3(...coordinates);
+  camera.aspect=rect.width/rect.height;camera.updateProjectionMatrix();
+  camera.position.copy(center).addScaledVector(direction,bounds.getSize(new THREE.Vector3()).length()*1.3);
+  camera.lookAt(center);camera.updateMatrixWorld(true);
+  const hit=chest.clone().project(camera);
+  await page.touchscreen.tap(rect.x+(hit.x+1)*rect.width/2,rect.y+(1-hit.y)*rect.height/2);
+  assert.match(await page.locator('#skin-status').innerText(),/Мазок завершён: [1-9]/,view);
+  const changed=openSkinDocument(await download(()=>page.locator('#skin-save').click())).parts[0];
+  const edited=[];
+  for(let n=0;n<changed.weights.length/4;n++){
+   if([0,1,2,3].some(k=>changed.weights[n*4+k]!==fixed.parts[0].weights[n*4+k]))
+    edited.push(new THREE.Vector3().fromArray(p.positions,n*3).sub(chest).dot(direction));
+  }
+  assert.ok(edited.length>0&&edited.every(distance=>distance>0),view+' must address its visible side');
+  await page.locator('#skin-undo').click();
+  assert.deepEqual(await download(()=>page.locator('#skin-save').click()),painted);
+ }
+ await page.locator('#skin-front').click();
+
  await page.locator('#skin-shoulder-tools').evaluate(el=>el.open=true);const oldX=Number(await page.locator('#skin-shoulder-x').inputValue());await page.locator('#skin-shoulder-x').fill(String(oldX-.03));await page.locator('#skin-shoulder-x').dispatchEvent('change');await page.locator('#skin-shoulder-apply').click();assert.ok(!(await page.locator('#skin-status').innerText()).includes('Ошибка'),await page.locator('#skin-status').innerText());const shoulders=await download(()=>page.locator('#skin-save').click());assert.deepEqual(inspectGlb(shoulders).json.animations,inspectGlb(bytes).json.animations);openSkinDocument(shoulders);
  await page.locator('#model-play').click();assert.equal(await page.locator('#model-playback').getAttribute('data-state'),'playing');await page.waitForTimeout(500);await page.locator('#model-play').click();await page.locator('#view-original').click();await page.waitForTimeout(50);const screenshot=await page.locator('#viewport canvas').screenshot();await page.locator('#view-optimized').click();await page.waitForTimeout(50);assert.notDeepEqual(await page.locator('#viewport canvas').screenshot(),screenshot);await page.locator('#model-stop').click();
  await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');assert.deepEqual(await download(()=>page.locator('#convert-export').click()),bytes,'original export is immutable');await page.locator('[data-tab="skin"]').click();await page.locator('#skin-use').click();assert.equal(await page.locator('#model-clip option').count(),1);await page.locator('[data-tab="convert"]').click();assert.deepEqual(await download(()=>page.locator('#convert-export').click()),shoulders);
