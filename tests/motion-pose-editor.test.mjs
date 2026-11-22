@@ -80,3 +80,14 @@ test('pose keys retain original tracks, interpolate and can be removed', () => {
   editor.setWholeClip('Jaw',[0,20,0,0]);
   assert.ok(Math.abs(rest.angleTo(rotationAt(editor.build(),'Jaw',.5))-Math.PI/9)<1e-6);
 });
+
+test('a key next to an original frame produces distinct export times', () => {
+  const {root} = rig();
+  const arm = new QuaternionKeyframeTrack('LeftArm.quaternion',[0,.0333333,.0666666],[0,0,0,1,0,0,0,1,0,0,0,1]);
+  const editor = new MotionPoseEditor(root,new AnimationClip('Turn',-1,[arm]));
+  editor.setKey('LeftArm',.033333,[30,0,0,0]);
+  const pose = editor.build();
+  const times = pose.tracks.find(track => track.name === arm.name).times;
+  assert.deepEqual([...times],[0,Math.fround(.033333),Math.fround(.0666666)]);
+  assert.ok(Math.abs(new Quaternion().angleTo(rotationAt(pose,'LeftArm',.033333))-Math.PI/6)<1e-6);
+});

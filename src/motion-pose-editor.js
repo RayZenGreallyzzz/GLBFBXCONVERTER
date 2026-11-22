@@ -32,6 +32,7 @@ function restOutwardAxes(bones) {
 }
 
 const neutral = Object.freeze([0, 0, 0, 0]);
+const minimumSampleGap = 1e-5;
 
 function orderedKeys(keys, duration) {
   return [...new Map([[0, neutral], [duration, neutral], ...(keys || [])])].sort(([a], [b]) => a - b);
@@ -44,18 +45,31 @@ function offsetsAt(keys, time) {
   return start.map((value, i) => MathUtils.lerp(value, end[i], (time - a) / (b - a)));
 }
 
-function poseTimes(track, keys) {
-  const times = new Set(track?.times);
-  const duration = keys.at(-1)[0], rate = Math.min(30, 5400 / (duration || 1));
+function poseTimes(tracks, keys, recorded) {
+  const times = new Map();
+  for (const track of tracks) for (const time of track?.times || []) times.set(time, 1);
+  for (const [time] of keys) times.set(time, recorded.has(time) ? 3 : 2);
+  const duration = keys.at(-1)[0];
+  const rate = Math.min(30, 5400 / (duration || 1), Math.max(0, 18000 - times.size) / (duration || 1));
   for (let i = 0; i < keys.length; i++) {
     const [time, offsets] = keys[i];
-    times.add(time);
     if (!i) continue;
     const [start, earlier] = keys[i - 1];
     if (offsets.every((value, axis) => value === earlier[axis])) continue;
-    for (let j = Math.floor(start * rate) + 1; j < time * rate; j++) times.add(Math.fround(j / rate));
+    for (let j = Math.floor(start * rate) + 1; j < time * rate; j++) {
+      const sample = Math.fround(j / rate);
+      if (!times.has(sample)) times.set(sample, 0);
+    }
   }
-  return [...times].sort((a, b) => a - b);
+  const result = [];
+  for (const time of [...times.keys()].sort((a, b) => a - b)) {
+    const previous = result.at(-1);
+    // Keep the user's key when it falls on a frame already present in the
+    // source. Near-duplicate times can collapse when converted to FBX.
+    if (previous === undefined || time - previous >= minimumSampleGap) result.push(time);
+    else if (times.get(time) > times.get(previous)) result[result.length - 1] = time;
+  }
+  return result;
 }
 
 export class MotionPoseEditor {
@@ -99,7 +113,9 @@ export class MotionPoseEditor {
 
   setKey(name, time, offsets) {
     const keys = this.keys.get(name) || new Map();
-    keys.set(this.time(time), offsets.slice());
+    const sample = this.time(time);
+    for (const earlier of keys.keys()) if (Math.abs(earlier - sample) < minimumSampleGap) keys.delete(earlier);
+    keys.set(sample, offsets.slice());
     this.keys.set(name, keys);
   }
 
@@ -141,7 +157,7 @@ export class MotionPoseEditor {
       const timeline = orderedKeys(keys, this.duration);
       if (timeline.every(([, offsets]) => offsets.every(value => !value))) continue;
       const linked = [name, ...(this.helpers.get(name) || []).filter(helper => !this.keys.has(helper))];
-      const times = [...new Set(linked.flatMap(bone => poseTimes(this.tracks.get(bone), timeline)))].sort((a, b) => a - b);
+      const times = poseTimes(linked.map(bone => this.tracks.get(bone)), timeline, keys);
       const values = new Map(linked.map(bone => [bone, new Float32Array(times.length * 4)]));
       const previous = new Map();
       times.forEach((time, i) => {
