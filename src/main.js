@@ -333,7 +333,11 @@ function downloadBrowser(value,name,mime){
  link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 async function save(value,name,mime){
- if(!Capacitor.isNativePlatform()){downloadBrowser(value,name,mime);status('✓ Отправлено в загрузки: '+name);return}
+ const report=(kind,message)=>{status(message);return {kind,message}};
+ if(!Capacitor.isNativePlatform()){
+   downloadBrowser(value,name,mime);
+   return report('download','✓ Отправлено в загрузки: '+name);
+ }
  const b=typeof value==='string'?new TextEncoder().encode(value):value instanceof Uint8Array?value:new Uint8Array(value);
  await saver.begin({name,mime});
  try{
@@ -345,7 +349,9 @@ async function save(value,name,mime){
      if(offset%750000===0)await new Promise(r=>setTimeout(r,0));
    }
    const r=await saver.finish();
-   status(r.cancelled?'Сохранение отменено. Исходная модель не изменена.':'✓ Сохранён новый файл: '+name);
+   if(r?.cancelled===true)return report('cancelled','Сохранение отменено. Можно повторить экспорт.');
+   if(r?.saved!==true)throw Error('Android не подтвердил запись файла.');
+   return report('saved','✓ Сохранён новый файл: '+name);
  }catch(e){await saver.abort().catch(()=>{});throw e}
 }
 
@@ -582,12 +588,12 @@ async function exportAs(target){
      const content=file.content;
      if(!content||(typeof content==='string'&&!content.length))throw Error('Экспорт создал пустой файл');
      progress(70);
-     await save(content,state.name+
+     const result=await save(content,state.name+
        (target==='obj-mixamo'?'_mixamo':'_converted')+
        outputNameExt(target),file.mime);
-     if(mixamoObj && file.largeForMixamo)
-       status('ZIP создан ('+formatSize(content.byteLength)+
-         '). Размер большой: если Mixamo не примет архив, попробуй более лёгкую сетку.');
+     if(result.kind!=='cancelled'&&mixamoObj&&file.largeForMixamo)
+       status(result.message+'. Размер ZIP '+formatSize(content.byteLength)+
+         '. Если Mixamo не примет архив, попробуй более лёгкую сетку.');
    }else{
      const version=Number(target);
      if(![7300,7400,7500].includes(version))
@@ -623,9 +629,9 @@ async function exportAs(target){
        verifyLegacyFbxMetadata(file,version);
      }
      progress(70);
-     await save(file,state.name+(mixamo?'_mixamo_clean_':'_fbx')+version+'.fbx',
+     const result=await save(file,state.name+(mixamo?'_mixamo_clean_':'_fbx')+version+'.fbx',
        'application/vnd.autodesk.fbx');
-     if(details)status('✓ FBX '+version+' сохранён.'+details+
+     if(details&&result.kind!=='cancelled')status(result.message+'.'+details+
        ' Android может показывать тип «BIN» — содержимое остаётся FBX.');
    }
  }catch(error){console.error(error);status('Ошибка экспорта: '+(error.message||String(error)))}
@@ -842,9 +848,12 @@ $('anim-export').addEventListener('click',async()=>{
    if(checked.animations!==clips.length)
      throw Error('Часть анимаций не была сохранена');
    progress(70);
-   await save(content,state.name+'_with_animations.glb','model/gltf-binary');
-   motionStatus('✓ GLB сохранён: '+clips.length+' анимаций, '+checked.skins+' скелетов. '+
-     'Проверь движения и A/T-позы в Godot.');
+   const result=await save(content,state.name+'_with_animations.glb','model/gltf-binary');
+   if(result.kind==='cancelled'){
+     motionStatus(result.message+' Добавленные анимации остались в наборе.');
+     return;
+   }
+   motionStatus(result.message+'. Анимаций '+clips.length+', скелетов '+checked.skins+'.');
  }catch(e){motionStatus('Ошибка экспорта анимаций: '+(e.message||e))}
  finally{state.busy=false;buttons();setTimeout(()=>progress(0),1000)}
 });
