@@ -56,3 +56,34 @@ test('weight-only preview retains the local position of a bone authored as a mat
  syncSkinEditPreview(preview,{j:{nodes:[{matrix:new THREE.Matrix4().makeTranslation(.1,.2,.3).toArray()}]}});
  assert.deepEqual(bone.position.toArray(),[.1,.2,.3]);
 });
+
+
+test('the rigid brush gives the selected bone exactly 100% without changing an occluded vertex',()=>{
+ const p=part(),doc={parts:[p],bones:[{id:0,parent:-1},{id:1,parent:0},{id:2,parent:0},{id:3,parent:0}],jointPoints:{}};
+ const index=makePaintIndex(p,2),history=new SkinHistory(doc,joints=>doc.jointPoints=joints);
+ history.begin();
+ assert.equal(brushDab(doc,0,[[0,0],[1,.9],[2,0]],{
+  bone:1,radius:1,strength:.01,mode:'rigid',index,visible:n=>n!==2,history
+ }),2);
+ history.end();
+ assert.deepEqual(Array.from(p.weights.subarray(0,8)),[1,0,0,0,1,0,0,0]);
+ assert.deepEqual(Array.from(p.indices.subarray(0,8)),[1,0,0,0,1,0,0,0]);
+ assert.deepEqual(p.weights.subarray(8),part().weights.subarray(8));
+ history.undo();assert.deepEqual(p.weights,part().weights);
+});
+
+test('separate detail selection crosses duplicate seam vertices and leaves other shells untouched',()=>{
+ const vertices=[0,0,0,1,0,0,0,1,0,1,0,0,1,1,0,0,1,0,2,0,0,3,0,0,2,1,0];
+ const p={positions:new Float32Array(vertices),triangles:Uint32Array.from({length:9},(_,i)=>i),
+  indices:new Uint16Array(36),weights:new Float32Array(36)};
+ for(let n=0;n<9;n++)p.weights[n*4]=1;
+ const selected=makePaintIndex(p,3).component(4).sort();
+ assert.deepEqual(Array.from(selected),[0,1,2,3,4,5]);
+ const doc={parts:[p],jointPoints:{},bones:[{id:0,parent:-1},{id:1,parent:0}]};
+ const history=new SkinHistory(doc,joints=>doc.jointPoints=joints);
+ const targets=new Float32Array(9).fill(NaN);
+ for(const n of selected)targets[n]=1;
+ history.applyBoneWeights(1,0,[targets]);
+ for(let n=0;n<9;n++)assert.equal(boneWeight(p,n,1),n<6?1:0);
+ history.undo();for(let n=0;n<9;n++)assert.equal(boneWeight(p,n,0),1);
+});
