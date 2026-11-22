@@ -7,7 +7,8 @@ import {ArmWeightsUI} from './arm-weights-ui.js';
 import {SkinEditorUI} from './skin-editor-ui.js';
 import {JointCorrectionUI} from './joint-ui.js';
 import {makeJointPreview} from './joint-preview.js';
-import {withJointFormTracks} from './joint-form-animation.js';
+import {jointFormWeights,withJointFormTracks} from './joint-form-animation.js';
+import {MotionPoseUI} from './motion-pose-ui.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
@@ -53,7 +54,8 @@ configureGltfCodecs(renderer);
 $('viewport').append(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);orbit.enableDamping=true;
 const state={root:null,clips:[],name:'model',bytes:0,type:'',sourceBuffer:null,sourceFile:null,busy:false,info:'',preview:null,previewRoot:null,previewClips:[],sourceMetrics:null,previewMetrics:null,viewMode:'original',hasMorphs:false,viewProxyRoot:null,bvhOnly:false,mixer:null,rigLookup:null,jointConfig:null};
-const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundle:null};
+const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundle:null,
+ playing:null,action:null,temporary:null,queueIndex:null,poseEditors:[]};
 let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
@@ -80,8 +82,15 @@ function buttons(){
  $('anim-trim-calibration').disabled=!rig||motion.source?.kind!=='bvh';
  $('anim-preview').disabled=!rig||!motion.source;
  $('anim-stop').disabled=!rig||!state.mixer;
- $('anim-add').disabled=!rig||!motion.preview;
- $('anim-export').disabled=!rig||!motion.extras.length;
+ const pending=!!motion.preview&&motionPoseUi.pending;
+ const unapplied=!!motion.preview&&motion.queueIndex===null&&!!motionPoseUi.editor?.keys.size;
+ $('anim-add').disabled=!rig||!motion.preview||pending||motion.queueIndex!==null;
+ const addLabel=motion.preview&&motion.queueIndex!==null?'✓ АНИМАЦИЯ В НАБОРЕ':'＋ ДОБАВИТЬ АНИМАЦИЮ В НАБОР';
+ if($('anim-add').textContent!==addLabel)$('anim-add').textContent=addLabel;
+ $('anim-export').disabled=!rig||!motion.extras.length||pending||unapplied;
+ $('anim-queue-edit').disabled=!rig||!motion.extras.length;
+ $('anim-queue-clip').disabled=!rig;
+ motionPoseUi.refresh(rig,motion.preview);
  document.querySelectorAll('[data-quality]').forEach(b=>b.disabled=state.busy);
  $('view-original').disabled=!ready||!state.previewRoot;
  $('view-optimized').disabled=!ready||!state.previewRoot;
@@ -653,6 +662,14 @@ $('model-file').addEventListener('change',e=>{
  catch(error){status('Ошибка выбора файла: '+error.message)}
 });
 function motionStatus(message){$('anim-status').textContent=message}
+const motionPoseUi=new MotionPoseUI($,{
+ seek:playMotionClip,play:playMotionClip,
+ commit:clip=>{
+   motion.preview=clip;
+   if(motion.queueIndex!==null)motion.extras[motion.queueIndex]=clip;
+ },
+ refresh:buttons,status:motionStatus
+});
 function stopMotionPlayback(){
  skinEditorUi?.stopHeadTest();
  jointUi?.stopPose();
@@ -671,11 +688,66 @@ function stopMotionPlayback(){
    state.root?.updateMatrixWorld(true);
    motion.pose=null;
  }
+ motion.playing=null;motion.action=null;motion.temporary=null;
  buttons();
 }
+function playMotionClip(clip,time=null,rotations=null){
+ if(motion.playing!==clip||!state.mixer){
+   stopMotionPlayback();
+   const baked=withJointFormTracks(state.root,clip,state.jointConfig);
+   motion.pose=new Map(characterBones(state.root).map(bone=>[bone,{
+     position:bone.position.clone(),quaternion:bone.quaternion.clone(),scale:bone.scale.clone()
+   }]));
+   state.mixer=new THREE.AnimationMixer(state.root);
+   motion.action=state.mixer.clipAction(baked).play();
+   motion.playing=clip;
+ }
+ if(state.viewMode!=='original')showComparison(false);
+ for(const [bone,rotation] of motion.temporary||[])bone.quaternion.copy(rotation);
+ motion.temporary=null;
+ if(time===null){
+   motion.action.reset().play();
+   state.mixer.update(0);
+ }else{
+   motion.action.paused=true;
+   motion.action.time=time;
+   state.mixer.update(0);
+   if(rotations){
+     const bones=motionPoseUi.editor.bones;
+     motion.temporary=new Map();
+     for(const [name,rotation] of rotations){
+       const bone=bones.get(name);
+       motion.temporary.set(bone,bone.quaternion.clone());
+       bone.quaternion.copy(rotation);
+     }
+     for(const config of state.jointConfig?.meshes||[]){
+       const values=jointFormWeights(config,name=>bones.get(name)?.quaternion);
+       state.root.traverse(mesh=>{
+         if(mesh.isMesh&&mesh.morphTargetInfluences?.length===values.length&&
+            mesh.morphTargetDictionary?.[config.targets[0].name]===0)
+           for(let i=0;i<values.length;i++)mesh.morphTargetInfluences[i]=values[i];
+       });
+     }
+   }
+ }
+ state.root.updateMatrixWorld(true);
+ buttons();
+}
+function setMotionPoseClip(clip,queueIndex=null){
+ motionPoseUi.set(state.root,clip,motion.poseEditors[queueIndex]);
+ motion.preview=clip;motion.queueIndex=queueIndex;
+ if(queueIndex!==null)motion.poseEditors[queueIndex]=motionPoseUi.editor;
+}
+function renderMotionQueue(){
+ const list=$('anim-queue-clip'),selected=list.value;
+ list.replaceChildren(...motion.extras.map((clip,i)=>new Option(clip.name,i)));
+ if(motion.extras[selected])list.value=selected;
+ $('anim-queue').hidden=!motion.extras.length;
+ $('anim-library').textContent=motion.extras.length?'Движений в наборе: '+motion.extras.length:'Дополнительных анимаций пока нет.';
+}
 function resetMotionStudio(){
- motion.extras=[];motion.pose=null;setMotionPack($('anim-library-source').value==='imported'?importedMotions:embeddedMotions);
- $('anim-library').textContent='Дополнительных анимаций пока нет.';
+ motion.extras=[];motion.poseEditors=[];motion.pose=null;setMotionPack($('anim-library-source').value==='imported'?importedMotions:embeddedMotions);
+ renderMotionQueue();
  motionStatus('Выбери раздел и движение из встроенной библиотеки или своих файлов. Для переноса нужен персонаж со скелетом.');
  buttons();
 }
@@ -789,12 +861,8 @@ function previewMotion(){
    const mapped=mapping.filter(row=>row.target).length;
    if(mapped<Math.min(5,mapping.length)&&
      !window.confirm('Сопоставлено только '+mapped+' костей. Предпросмотр может быть неполным. Продолжить?'))return;
-   motion.pose=new Map(characterBones(state.root).map(b=>[b,{
-     position:b.position.clone(),quaternion:b.quaternion.clone(),scale:b.scale.clone()
-   }]));
-   state.mixer=new THREE.AnimationMixer(state.root);
-   state.mixer.clipAction(withJointFormTracks(state.root,newClip,state.jointConfig)).play();
-   motion.preview=newClip;
+   setMotionPoseClip(newClip);
+   playMotionClip(newClip);
    motionStatus('▶ '+newClip.name+': '+mapped+' костей, '+newClip.tracks.length+
      ' дорожек. '+(newClip.userData.grounded?'Высота относительно пола скорректирована. ':'')+(newClip.userData.armPoseSides?'Положение рук перенесено относительно груди. ':'')+(newClip.userData.volumeBones?'Восстановлены вспомогательные кости объёма: '+newClip.userData.volumeBones+'. ':'')+(newClip.userData.calibrationFrameRemoved?'Калибровочная T-поза пропущена. ':'')+
      (newClip.userData.autoScaleMeasured?'Масштаб Hips '+newClip.userData.autoScaleRatio.toFixed(4)+'×. ':'')+
@@ -802,7 +870,14 @@ function previewMotion(){
  }catch(e){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка переноса: '+(e.message||e))}
  buttons();
 }
-for(const id of ['anim-clip-name','anim-root-motion','anim-ground-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
+$('anim-clip-name').addEventListener('change',()=>{
+ if(!motion.preview||motion.queueIndex!==null)return;
+ const name=$('anim-clip-name').value.trim();
+ if(!name)return;
+ motionPoseUi.editor.clip.name=name;
+ motion.preview.name=name;
+});
+for(const id of ['anim-root-motion','anim-ground-motion','anim-root-scale','anim-auto-scale','anim-align-axes','anim-trim-calibration']){
  $(id).addEventListener('change',()=>{
    stopMotionPlayback();motion.preview=null;buttons();
    motionStatus('Настройки изменены. Нажми «Адаптировать и посмотреть» для пересчёта.');
@@ -812,20 +887,34 @@ $('anim-preview').addEventListener('click',previewMotion);
 $('anim-stop').addEventListener('click',()=>{
  stopMotionPlayback();motionStatus('Воспроизведение остановлено, исходная поза восстановлена.');
 });
+$('anim-queue-edit').addEventListener('click',()=>{
+ const index=Number($('anim-queue-clip').value),clip=motion.extras[index];
+ if(!clip||state.busy)return;
+ try{
+   stopMotionPlayback();
+   setMotionPoseClip(clip,index);
+   playMotionClip(clip,0);
+   $('anim-pose').open=true;
+   $('anim-pose').scrollIntoView({block:'center'});
+   motionStatus('Открыто для правки: '+clip.name+'.');
+ }catch(error){stopMotionPlayback();motion.preview=null;motionStatus('Ошибка открытия клипа. '+error.message);buttons()}
+});
 $('anim-add').addEventListener('click',()=>{
- if(!motion.preview)return;
+ if(!motion.preview||motionPoseUi.pending||state.busy||motion.queueIndex!==null)return;
  const existing=new Set([...state.clips,...motion.extras].map(x=>x.name));
  if(existing.has(motion.preview.name)){
    motionStatus('Анимация с названием '+motion.preview.name+' уже есть. Переименуй её перед добавлением.');return;
  }
- motion.extras.push(motion.preview.clone());
- motionStatus('Добавлено в набор: '+motion.preview.name+'. Выбери следующее движение или файл.');
- $('anim-library').textContent='Добавленные движения ('+motion.extras.length+'): '+
-   motion.extras.map(clip=>clip.name).join(', ');
+ motion.queueIndex=motion.extras.length;
+ motion.extras.push(motion.preview);
+ motion.poseEditors.push(motionPoseUi.editor);
+ motionStatus('Добавлено в набор: '+motion.preview.name+'.');
+ renderMotionQueue();
+ $('anim-queue-clip').value=String(motion.queueIndex);
  buttons();
 });
 $('anim-export').addEventListener('click',async()=>{
- if(!state.root||!isRiggedCharacter(state.root)||!motion.extras.length||state.busy)return;
+ if($('anim-export').disabled)return;
  if(state.type==='vrm'&&!window.confirm(
    'Экспорт VRM в обычный GLB может потерять VRM-мимику и специальные настройки. '+
    'Исходный VRM останется без изменений. Продолжить?'))return;
@@ -999,7 +1088,7 @@ jointUi=new JointCorrectionUI({
  result:result=>{const preview=makeJointPreview(state.root,state.rigLookup,result.preview),clips=state.clips.map(c=>withJointFormTracks(preview.root,c,result.config));discardPreview();result.associations=preview.associations;state.preview=result;state.previewRoot=preview.root;state.previewClips=clips;state.previewMetrics=modelStats(preview.root,clips);scene.add(preview.root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия суставов больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.clips=state.previewClips;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_joints').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.jointConfig=result.config;state.hasMorphs=true;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Коррекции применены. Новые анимации будут экспортированы вместе с формами сгиба.');buttons()}
 });
-function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
+function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer&&!motion.action?.paused)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){

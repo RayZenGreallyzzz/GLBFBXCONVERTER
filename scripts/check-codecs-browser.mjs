@@ -23,6 +23,7 @@ import {FBXExporter} from '@comfyorg/fbx-exporter-three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {appendGlbAnimations} from '../src/glb-add-animations.js';
 import {motionFixture} from '../tests/helpers/motion-fixture.mjs';
+import {jointGlb} from '../src/joint-glb.js';
 
 const origin='http://127.0.0.1:4178';
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','preview',
@@ -196,12 +197,53 @@ try{
  assert.equal(await page.locator('#anim-ground-motion').isChecked(),true);
  const bodyMotion=['HIERARCHY','ROOT Hips','{','OFFSET 0 0 0','CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation','JOINT Chest','{','OFFSET 0 1 0','CHANNELS 3 Zrotation Xrotation Yrotation','End Site','{','OFFSET 0 1 0','}','}','}','MOTION','Frames: 3','Frame Time: .0333333','0 0 0 0 0 0 0 0 0','0 0 0 0 0 0 15 0 0','0 0 0 0 0 0 30 0 0'].join('\n')+'\n';
  await page.locator('#anim-bvh-file').setInputFiles({name:'body-motion.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled||/Ошибка BVH/.test(document.getElementById('anim-status').textContent));
- await page.locator('#anim-preview').click();assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'));assert.equal(await page.locator('#anim-add').isDisabled(),false);await page.locator('#anim-add').click();
+ await page.locator('#anim-preview').click();assert.ok(!(await page.locator('#anim-status').innerText()).includes('Ошибка'));assert.equal(await page.locator('#anim-add').isDisabled(),false);
+ await page.setViewportSize({width:400,height:850});
+ await page.locator('#anim-pose > summary').click();
+ async function setPoseRange(id,value){
+   await page.locator('#anim-pose-'+id).evaluate((range,value)=>{
+     range.value=String(value);
+     range.dispatchEvent(new Event('input',{bubbles:true}));
+   },value);
+ }
+ await page.locator('#anim-pose-bone').selectOption('mixamorigLeftArm');
+ await setPoseRange('time',.033333);
+ await setPoseRange('out',30);
+ assert.equal(await page.locator('#anim-add').isDisabled(),true,'a temporary pose requires recording');
+ await page.locator('#anim-pose-key').click();
+ assert.equal(await page.locator('#anim-pose-remove').isEnabled(),true);
+ await page.locator('#anim-add').click();
+ await page.locator('#anim-queue-edit').click();
+ await page.locator('#anim-pose-bone').selectOption('mixamorigLeftArm');
+ await page.locator('#anim-pose-keys').selectOption({label:'0.033 с'});
+ assert.equal(await page.locator('#anim-pose-out').inputValue(),'30');
+ await page.locator('#anim-pose-bone').selectOption('mixamorigRightUpLeg');
+ await setPoseRange('out',18);
+ await page.locator('#anim-pose-all').click();
+ assert.equal(await page.locator('#anim-export').isEnabled(),true,'recorded keys update a queued clip');
+ await page.locator('#anim-pose-out').scrollIntoViewIfNeeded();
+ assert.ok(await page.locator('#viewport').evaluate(el=>el.getBoundingClientRect().top>=0&&el.getBoundingClientRect().bottom<400),'keep the character visible beside the pose controls on a phone');
+ await page.locator('#anim-pose-play').click();
+ await page.locator('#anim-pose > summary').click();
+ await page.setViewportSize({width:1280,height:900});
  async function downloadBodyAnimation(){const waiting=page.waitForEvent('download');await page.locator('#anim-export').click();const file=await waiting,path=join(temp,file.suggestedFilename());await file.saveAs(path);return new Uint8Array(await readFile(path))}
  function assertOriginalContainer(original,output){const a=inspectGlb(original).json,b=inspectGlb(output).json;for(const key of ['meshes','nodes','skins','images','textures','materials','extensionsUsed','extensionsRequired'])assert.deepEqual(b[key],a[key],key+' changed during BVH export');const prefix=bytes=>{const jLength=new DataView(bytes.buffer,bytes.byteOffset).getUint32(12,true),bin=20+jLength;return bytes.subarray(bin+8,bin+8+new DataView(bytes.buffer,bytes.byteOffset).getUint32(bin,true))};assert.deepEqual(prefix(output).subarray(0,prefix(original).length),prefix(original),'original BIN must stay exact')}
  const animatedBytes=await downloadBodyAnimation(),animatedBody=inspectGlb(animatedBytes);assert.equal(animatedBody.skins,1);assert.equal(animatedBody.animations,1);assertOriginalContainer(adopted,animatedBytes);assert.ok(animatedBody.required.includes('EXT_texture_webp'));
  const heightTrack=j=>j.animations.at(-1).channels.some(c=>c.target.path==='translation'&&j.nodes[c.target.node].name==='mixamorigHips');
  assert.ok(heightTrack(animatedBody.json),'grounded motion must write the hips height even with root motion off');
+ const edited=jointGlb(animatedBytes),animation=edited.json.animations[0];
+ function rotationsFor(name){
+   const channel=animation.channels.find(c=>c.target.path==='rotation'&&edited.json.nodes[c.target.node].name===name);
+   assert.ok(channel,'missing edited rotation for '+name);
+   const {input,output}=animation.samplers[channel.sampler],values=edited.read(output);
+   return [...edited.read(input)].map((time,i)=>[time,new THREE.Quaternion().fromArray(values,i*4)]);
+ }
+ const arm=rotationsFor('mixamorigLeftArm');
+ const armKey=arm.find(([time])=>Math.abs(time-.033333)<1e-8);
+ assert.ok(armKey&&Math.abs(arm[0][1].angleTo(armKey[1])-Math.PI/6)<.001,'arm offset must be encoded at the selected key');
+ assert.ok(arm[0][1].angleTo(arm.at(-1)[1])<.001,'the arm returns to the original motion at the end');
+ const leg=rotationsFor('mixamorigRightUpLeg'),restLeg=new THREE.Quaternion().fromArray(edited.json.nodes.find(n=>n.name==='mixamorigRightUpLeg').rotation||[0,0,0,1]);
+ assert.ok(leg.every(([,rotation])=>Math.abs(rotation.angleTo(restLeg)-Math.PI/10)<.001),'leg offset must apply at both ends');
  await load(animatedBytes,'body-with-bvh.glb');assert.equal(await page.locator('[data-metric="bones"] strong').innerText(),'27');
  await page.locator('#anim-ground-motion').evaluate(el=>{el.checked=false;el.dispatchEvent(new Event('change',{bubbles:true}))});
  await page.locator('#anim-bvh-file').setInputFiles({name:'body-motion-second.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});await page.waitForFunction(()=>!document.getElementById('anim-preview').disabled);await page.locator('#anim-preview').click();await page.locator('#anim-add').click();const secondAnimation=await downloadBodyAnimation();assert.equal(inspectGlb(secondAnimation).animations,2);assertOriginalContainer(animatedBytes,secondAnimation);
@@ -210,6 +252,7 @@ try{
  await page.locator('[data-tab="opt"]').click();
  console.log('Browser: guided body points → cancel/retry → real worker → bend review → immutable export → edit invalidation → adoption → BVH retarget/export');
  console.log('Browser: WebP GLB → BVH append → exact original image/geometry bytes → reimport → second BVH preserves first clip');
+ console.log('Browser: phone pose timeline → arm key → queued leg edit → GLB rotation round-trip');
  // A mixed ZIP opens one source at a time, exposes takes, and retains the target.
  const sourceIO=new WebIO().registerExtensions([EXTTextureWebP]),sourceDoc=await sourceIO.readBinary(animatedBytes);for(const m of sourceDoc.getRoot().listMaterials())m.dispose();for(const t of sourceDoc.getRoot().listTextures())t.dispose();const bare=await sourceIO.writeBinary(sourceDoc),sourceRuntime=await new GLTFLoader().parseAsync(bare.buffer.slice(bare.byteOffset,bare.byteOffset+bare.byteLength),'');
  const extraTake=sourceRuntime.animations[0].clone();extraTake.name='Take 2';const twoTakes=appendGlbAnimations(animatedBytes,[extraTake]);
