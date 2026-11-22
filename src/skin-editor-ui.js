@@ -6,6 +6,7 @@ import {headWeightRegion,headWeightTargets} from './head-weights.js';
 import {headTurnTestClip} from './rig-preview.js';
 import {ModelPlayback} from './model-playback.js';
 const $=id=>document.getElementById(id),frame=()=>new Promise(r=>requestAnimationFrame(r));
+const viewDirections={front:[0,0,1],back:[0,0,-1],left:[1,0,0],right:[-1,0,0]};
 export class SkinEditorUI{
  constructor(api){this.api=api;this.doc=null;this.tab=false;this.sourceId=null;this.mode='view';this.heatStates=new Map();this.feedback='Открой GLB со скелетом. Исходный файл сохраняется до применения результата.';this.eligibility={eligible:false};this.stroke=0;this.headTest=new ModelPlayback();this.overlay=new THREE.Group();api.scene.add(this.overlay);this.brushCursor=new THREE.Mesh(new THREE.RingGeometry(.97,1,48),new THREE.MeshBasicMaterial({color:0xffdc78,side:THREE.DoubleSide,depthTest:false,transparent:true,opacity:.9}));this.brushCursor.visible=false;this.brushCursor.renderOrder=101;api.scene.add(this.brushCursor);
   $('skin-open').addEventListener('click',()=>this.open());$('skin-close').addEventListener('click',()=>api.discard());$('skin-save').addEventListener('click',()=>this.save());$('skin-use').addEventListener('click',()=>this.use());
@@ -15,7 +16,14 @@ export class SkinEditorUI{
   $('skin-operation').addEventListener('change',()=>{this.setMode('brush')});
   $('skin-mode').addEventListener('change',()=>this.setMode($('skin-mode').value));$('skin-bone').addEventListener('change',()=>this.colors());$('skin-heat').addEventListener('change',()=>this.colors());for(const id of ['skin-radius','skin-strength'])$(id).addEventListener('input',()=>this.refresh());
   $('skin-undo').addEventListener('click',()=>this.historyAction('undo'));$('skin-redo').addEventListener('click',()=>this.historyAction('redo'));$('skin-reset').addEventListener('click',()=>{if(!this.doc)return;this.rest();resetSkinDocument(this.doc);this.history.clear();this.clearDetail();this.drafts={};this.resetDrafts();this.sync();this.feedback='Все правки сброшены. Исходные веса и точки восстановлены.';this.refresh()});
-  $('skin-front').addEventListener('click',()=>this.view('front'));$('skin-side').addEventListener('click',()=>this.view('side'));$('skin-shoulder-side').addEventListener('change',()=>this.fields());
+  this.viewButtons=[...$('skin-views').querySelectorAll('button')];
+  for(const button of this.viewButtons)button.addEventListener('click',()=>this.view(button.dataset.skinView));
+  api.orbit.addEventListener('start',()=>{
+   if(!this.doc||!this.tab)return;
+   this.activeView=null;
+   this.updateViewButtons();
+  });
+  $('skin-shoulder-side').addEventListener('change',()=>this.fields());
   for(const axis of ['x','y','z']){
    $('skin-shoulder-'+axis).addEventListener('change',()=>this.setDraftCoordinate($('skin-shoulder-side').value,'skin-shoulder-',axis));
    $('skin-head-'+axis).addEventListener('change',()=>this.setDraftCoordinate('Head','skin-head-',axis));
@@ -61,12 +69,16 @@ export class SkinEditorUI{
   if((mode==='joint'||mode==='head')&&this.doc?.j.extras?.phoenixRig?.profile!=='humanoid-body')mode='view';
   if(mode==='head'&&!this.drafts?.Head)mode='view';
   if(this.pointer!==undefined)this.up({pointerId:this.pointer});this.stopHeadTest();if(mode!=='detail')this.clearDetail();this.mode=mode;
-  if(mode!=='view'&&this.doc){this.rest();this.api.showResult()}
+  if(mode!=='view'&&this.doc){
+   if(['head','joint'].includes(mode)&&!this.activeView)this.view(this.projection);
+   else this.rest();
+   this.api.showResult();
+  }
   this.markers();this.refresh()
  }
  rest(){this.api.stop();this.preview?.root.updateMatrixWorld(true)}
  async open(){if(this.api.busy()||this.doc)return;this.api.setBusy(true);let preview,pick;
-  try{this.api.stop();this.feedback='Готовим копию для ручных весов…';$('skin-status').textContent=this.feedback;await frame();const doc=openSkinDocument(this.api.model().sourceBuffer,{memoryBudgetMiB:await this.api.memoryBudget()});preview=makeSkinEditPreview(this.api.model().root,this.api.model().rigLookup,doc);pick=new SkinPickSurface(preview,doc);const indices=doc.parts.map(p=>makePaintIndex(p,doc.height));const result={kind:'skin-editor',bytes:doc.bytes,beforeBytes:doc.bytes.length,afterBytes:doc.bytes.length,sourceTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),optimizedTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),note:'Сравни поворот головы и движения суставов перед сохранением.',getBytes:()=>writeSkinDocument(doc),associations:preview.associations};this.api.result(result,preview.root);this.doc=doc;this.preview=preview;this.pick=pick;this.indices=indices;this.result=result;this.history=new SkinHistory(doc,points=>setSkinJointPoints(doc,points));this.drafts={};this.resetDrafts();const select=$('skin-bone');select.replaceChildren();for(const b of doc.bones){const o=document.createElement('option');o.value=String(b.id);o.textContent=b.name.replace('mixamorig','');select.append(o)}select.value=String(doc.bones.find(b=>b.name===SKIN_PIVOT_BONES.Head)?.id??0);this.feedback='Кисть включена. Выбери кость и коснись модели.';this.mode='brush';this.colors();this.fields();this.view('front');
+  try{this.api.stop();this.feedback='Готовим копию для ручных весов…';$('skin-status').textContent=this.feedback;await frame();const doc=openSkinDocument(this.api.model().sourceBuffer,{memoryBudgetMiB:await this.api.memoryBudget()});preview=makeSkinEditPreview(this.api.model().root,this.api.model().rigLookup,doc);pick=new SkinPickSurface(preview,doc);const indices=doc.parts.map(p=>makePaintIndex(p,doc.height));const result={kind:'skin-editor',bytes:doc.bytes,beforeBytes:doc.bytes.length,afterBytes:doc.bytes.length,sourceTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),optimizedTriangles:doc.parts.reduce((s,p)=>s+p.triangles.length/3,0),note:'Сравни поворот головы и движения суставов перед сохранением.',getBytes:()=>writeSkinDocument(doc),associations:preview.associations};this.api.result(result,preview.root);this.doc=doc;this.preview=preview;this.pick=pick;this.indices=indices;this.result=result;this.history=new SkinHistory(doc,points=>setSkinJointPoints(doc,points));this.drafts={};this.resetDrafts();const select=$('skin-bone');select.replaceChildren();for(const b of doc.bones){const o=document.createElement('option');o.value=String(b.id);o.textContent=b.name.replace('mixamorig','');select.append(o)}select.value=String(doc.bones.find(b=>b.name===SKIN_PIVOT_BONES.Head)?.id??0);this.feedback='Кисть включена. Выбери кость и коснись модели.';this.mode='brush';this.colors();this.fields();this.view('front',true);
   }catch(e){pick?.dispose();if(preview&&!this.doc)this.api.release(preview.root);this.feedback='Ошибка редактора: '+e.message}finally{this.api.setBusy(false);this.refresh()}
  }
  resetDrafts(){
@@ -185,12 +197,45 @@ export class SkinEditorUI{
   $('skin-piece-status').textContent=this.feedback;
   this.refresh();
  }
- view(side){if(!this.doc)return;this.rest();this.projection=side;const box=new THREE.Box3(new THREE.Vector3(...this.doc.bounds.min),new THREE.Vector3(...this.doc.bounds.max)),center=box.getCenter(new THREE.Vector3()),d=box.getSize(new THREE.Vector3()).length()*1.3;this.api.orbit.target.copy(center);this.api.camera.up.set(0,1,0);this.api.camera.position.copy(center).add(side==='front'?new THREE.Vector3(0,0,d):new THREE.Vector3(d,0,0));this.api.orbit.update();this.api.camera.updateMatrixWorld(true)}
+ updateViewButtons(){
+  for(const button of this.viewButtons)button.setAttribute('aria-pressed',String(button.dataset.skinView===this.activeView));
+ }
+ view(side,fit=false){
+  if(!this.doc)return;
+  this.rest();
+  const {camera,orbit}=this.api;
+  this.projection=side;this.activeView=side;
+  let center=orbit.target.clone(),distance=camera.position.distanceTo(center);
+  if(fit){
+   const bounds=new THREE.Box3(new THREE.Vector3(...this.doc.bounds.min),new THREE.Vector3(...this.doc.bounds.max));
+   center=bounds.getCenter(center);
+   distance=bounds.getSize(new THREE.Vector3()).length()*1.3;
+  }
+  // Drain any old pan or rotation still stored by OrbitControls damping.
+  const damping=orbit.enableDamping;
+  orbit.enableDamping=false;orbit.update();
+  orbit.target.copy(center);camera.up.set(0,1,0);
+  camera.position.copy(center).addScaledVector(new THREE.Vector3(...viewDirections[side]),distance);
+  orbit.update();orbit.enableDamping=damping;camera.updateMatrixWorld(true);
+  this.updateViewButtons();
+ }
+ placeJoint(event){
+  const draft=this.drafts[this.mode==='head'?'Head':$('skin-shoulder-side').value];
+  const sideView=this.projection==='left'||this.projection==='right';
+  const normal=sideView?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1);
+  const plane=new THREE.Plane(normal,-draft[sideView?0:2]);
+  const ray=new THREE.Raycaster(),point=new THREE.Vector3();
+  ray.setFromCamera(this.ndc(event),this.api.camera);
+  if(!ray.ray.intersectPlane(plane,point))return;
+  draft[1]=point.y;
+  draft[sideView?2:0]=sideView?point.z:point.x;
+  this.fields();this.markers();
+ }
  ndc(e){const r=this.api.canvas.getBoundingClientRect();return new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1)}
  down(e){if(!this.doc||!this.tab||this.api.busy()||this.mode==='view'||e.button>0)return;if(this.pointer!==undefined){e.preventDefault();e.stopImmediatePropagation();return}e.preventDefault();e.stopImmediatePropagation();this.rest();this.api.showResult();this.pointer=e.pointerId;this.api.canvas.setPointerCapture?.(e.pointerId);this.stroke=0;
   this.strokeHint='Коснись видимой поверхности персонажа.';
   if(this.mode==='detail'){this.selectDetail(e);this.refresh();return}
-  if(this.mode==='joint'||this.mode==='head'){const p=this.drafts[this.mode==='head'?'Head':$('skin-shoulder-side').value],ray=new THREE.Raycaster();ray.setFromCamera(this.ndc(e),this.api.camera);const plane=new THREE.Plane(this.projection==='side'?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1),-(this.projection==='side'?p[0]:p[2])),v=new THREE.Vector3();if(ray.ray.intersectPlane(plane,v)){if(this.projection==='side'){p[1]=v.y;p[2]=v.z}else{p[0]=v.x;p[1]=v.y}this.fields();this.markers()}return}
+  if(this.mode==='joint'||this.mode==='head'){this.placeJoint(e);return}
   this.history.begin();this.lastDab=0;this.lastPoint={x:e.clientX,y:e.clientY};this.dab(e);
  }
  cursor(e){if(!this.doc||!this.tab||this.mode!=='brush'||this.api.busy())return;const hit=this.pick.hit(this.ndc(e),this.api.camera);this.brushCursor.visible=!!hit;if(!hit)return;const normal=hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld));this.brushCursor.position.copy(hit.point).addScaledVector(normal,this.doc.height*.0005);this.brushCursor.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);this.brushCursor.scale.setScalar(this.doc.height*Number($('skin-radius').value)/200)}

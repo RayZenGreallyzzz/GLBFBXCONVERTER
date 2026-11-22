@@ -95,6 +95,9 @@
 #skin-tools input[type=number]{width:100%;min-width:0;background:#112239;color:#e9f4fc;border:1px solid #315772;border-radius:6px;padding:9px}
 .skin-coordinates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 #skin-tools output{color:#81e2f4}
+#skin-views{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:12px}
+#skin-views button{border:1px solid #315772;border-radius:7px;background:#182b43;color:#eaf4ff}
+#skin-views button[aria-pressed=true]{background:#24afd5;border-color:#24afd5;color:#051420;font-weight:700}
 #skin-canvas-tools{position:absolute;z-index:2;left:8px;bottom:8px;display:flex;gap:4px;padding:4px;background:#0e1b2e;border:1px solid #315772;border-radius:9px}
 #skin-canvas-tools[hidden],#skin-piece-controls[hidden]{display:none}
 #skin-canvas-tools button{min-height:36px;padding:4px 9px;background:#182b43;color:#eaf4ff;border:0;border-radius:6px;touch-action:manipulation}
