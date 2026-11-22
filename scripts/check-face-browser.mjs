@@ -21,12 +21,17 @@ try {
   browser=await chromium.launch({headless:true,channel:process.env.CODEC_TEST_CHANNEL||undefined,
     executablePath:process.env.CODEC_TEST_BROWSER||undefined,
     args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  const page=await browser.newPage({acceptDownloads:true,viewport:{width:480,height:900}});
+  const page=await browser.newPage({acceptDownloads:true,viewport:{width:360,height:800}});
   const errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto(origin);
   await page.locator('#brand-splash').waitFor({state:'hidden'});
-  await page.locator('[data-tab="face"]').click();
+  await page.locator('#face-entry').click();
+  assert.equal(await page.locator('#face-title').isVisible(),true);
+  assert.equal(await page.locator('#face-templates').isVisible(),true);
+  assert.equal(await page.locator('#face-template-open').isDisabled(),true);
+  assert.equal(await page.locator('#face-roar').isDisabled(),true);
+  assert.match(await page.locator('#face-guide').innerText(),/Загрузи модель GLB/);
   async function load(bytes,name) {
     await page.locator('#model-file').setInputFiles({name,mimeType:'model/gltf-binary',buffer:Buffer.from(bytes)});
     await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('✓ Загружено'));
@@ -69,7 +74,10 @@ try {
   assert.ok(key>=0&&Math.abs(weights[key*2]-.9)<.001&&Math.abs(weights[key*2+1]-.8)<.001);
 
   await load(await mouthFixture(),'new-mouth.glb');
-  await page.locator('#face-setup > summary').click();
+  assert.equal(await page.locator('#face-template-open').isEnabled(),true);
+  assert.equal(await page.locator('#face-roar').isDisabled(),true);
+  await page.locator('#face-template-open').click();
+  assert.ok(await page.locator('#face-setup').evaluate(el=>el.open));
   await page.locator('#face-view-side').click();
   await page.locator('#face-x').fill('0.01');
   await page.locator('#face-x').press('Tab');
@@ -78,7 +86,10 @@ try {
     document.getElementById('face-status').textContent.startsWith('Ошибка'));
   assert.match(await page.locator('#face-status').innerText(),/Формы готовы/);
   assert.deepEqual(await page.locator('#face-shape option').allTextContents(),['MouthClose','MouthOpen']);
+  assert.equal(await page.locator('#face-template-open').isDisabled(),true);
+  assert.equal(await page.locator('#face-roar').isEnabled(),true);
   await page.locator('#face-roar').click();
+  assert.equal(await page.locator('#face-shape option:checked').innerText(),'MouthOpen');
   await page.locator('#face-play').click();
   await page.waitForFunction(()=>Number(document.getElementById('face-time').value)>.15);
   await page.locator('#face-play').click();
@@ -87,6 +98,7 @@ try {
   assert.ok(roar.some((v,i)=>i%2===1&&v>.99));
   await load(generated.bytes,'mouth-round-trip.glb');
   assert.deepEqual(await page.locator('#face-shape option').allTextContents(),['MouthClose','MouthOpen']);
+  assert.equal(await page.locator('#face-roar').isEnabled(),true,'reopened mouth forms must expose the roar template');
   assert.deepEqual(errors,[]);
   console.log('Face UI: edit cubic source form, retain related channels, fit jaw on mobile, play roar and reopen exported shapes.');
 } finally {

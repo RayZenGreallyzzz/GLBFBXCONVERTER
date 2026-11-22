@@ -73,9 +73,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.mouthanimation1"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.mouthanimation1"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge FACE TEST/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.mouthanimation2"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.mouthanimation2"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge Мимика/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -124,12 +124,12 @@ jobs:
                   assert len(data)==clip['bytes'] and hashlib.sha256(data).hexdigest()==clip['id']
               print('Verified',len(manifest['clips']),'embedded animations and both character groups in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-FACE-TEST.apk
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-FACE-V2.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-FACE-TEST-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-FACE-TEST.apk
+          name: Phoenix-Forge-FACE-V2-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-FACE-V2.apk
           if-no-files-found: error
 
 

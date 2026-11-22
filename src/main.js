@@ -1036,6 +1036,15 @@ for(const button of document.querySelectorAll('[data-tab]'))button.addEventListe
  skinEditorUi?.setTab(button.dataset.tab==='skin');
  faceStudio?.setTab(button.dataset.tab==='face');
 });
+$('face-entry').addEventListener('click',()=>{
+ document.querySelector('[data-tab="face"]').click();
+ const title=$('face-title');
+ title.focus({preventScroll:true});
+ if(matchMedia('(max-width:780px)').matches){
+   const viewer=document.querySelector('main > .view');
+   window.scrollBy({top:title.getBoundingClientRect().top-viewer.getBoundingClientRect().height-12});
+ }else title.scrollIntoView({block:'nearest'});
+});
 new ResizeObserver(()=>{
  const area=$('viewport');if(area.clientWidth<5||area.clientHeight<5)return;
  renderer.setSize(area.clientWidth,area.clientHeight,false);

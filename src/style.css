@@ -117,7 +117,11 @@ main:has(#tab-anim:not(.hidden) #anim-pose[open]:not([hidden]))>.view{position:s
 .face-fields input{width:100%;min-width:0}
 .face-fields input:not([type=range]){padding:9px;color:#e9f4fc;background:#112239;border:1px solid #315772;border-radius:7px}
 .face-fields output{color:#83d6ef}
-.face-fields .row-buttons button,#face-reset{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer}
+.face-fields .row-buttons button,#face-reset,#face-templates button,#face-entry{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer;min-height:42px}
+#face-entry{background:#216d88;color:white;border-color:#369bb3;font-weight:800}
+#face-templates h3{font-size:15px;margin:0}
+#face-templates button:enabled{background:#216d88;color:white;border-color:#369bb3;font-weight:750}
+#face-templates button:disabled{opacity:.55;cursor:default}
 .face-fields .row-buttons .primary{background:#24afd5;color:#051420;margin:0}
 .face-fields button:disabled,.face-fields:disabled{opacity:.55}
 #face-status{overflow-wrap:anywhere}

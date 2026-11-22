@@ -6,6 +6,12 @@ import {MouthShapeDraft} from './mouth-shapes.js';
 const $ = id => document.getElementById('face-'+id);
 const number = id => $(id).valueAsNumber;
 const range = (x, min, max) => Math.max(min,Math.min(max,x));
+const mouthIndex = (names, kind) => {
+  const exact=names.indexOf('Mouth'+kind);
+  if (exact>=0) return exact;
+  const suffix=kind.toLowerCase();
+  return names.findIndex(name=>['mouth'+suffix,'jaw'+suffix].includes(name.toLowerCase().replace(/[^a-z]/g,'')));
+};
 
 export class FaceStudio {
   constructor(api) {
@@ -40,6 +46,14 @@ export class FaceStudio {
       this.seek();
       this.playing=true;
       this.draw();
+    });
+    on('template-open','click',()=>{
+      if (!this.draft) return;
+      $('setup').open=true;
+      this.camera('front');
+      const summary=$('setup').querySelector('summary');
+      summary.focus({preventScroll:true});
+      summary.scrollIntoView({block:'center'});
     });
     on('roar','click',()=>this.roar());
     on('save','click',()=>this.save());
@@ -95,9 +109,19 @@ export class FaceStudio {
     }
     if (!model.busy && this.source!==model.sourceBuffer) this.guard(()=>this.loadModel(model));
     const ready=!!this.glb&&!model.busy;
-    $('editor').disabled=!ready||!$('shape').options.length;
+    const hasShapes=!!$('shape').options.length&&!!this.glb;
+    $('editor').hidden=!hasShapes;
+    $('editor').disabled=!ready||!hasShapes;
     $('jaw-controls').disabled=!ready||!this.draft;
     $('save').disabled=!ready || (!this.timeline?.keys.size && !this.generated);
+    const open=!!this.draft, roar=!!this.roarTarget();
+    $('template-open').disabled=!ready||!open;
+    $('roar').disabled=!ready||!roar;
+    const hint=!this.glb?'Загрузи модель GLB, чтобы включить шаблоны.'
+      :roar?'Формы рта готовы. Выбери анимацию тела ниже и нажми «Рёв», чтобы добавить ключи.'
+      :open?'Выбери «Открытый рот» и создай формы челюсти. После этого включится «Рёв».'
+      :'Для шаблона открытого рта нужен GLB с одним экземпляром меша лица в одной части.';
+    if ($('guide').textContent!==hint) $('guide').textContent=hint;
     this.point.visible=!!this.draft&&ready&&$('setup').open;
   }
 
@@ -111,7 +135,8 @@ export class FaceStudio {
     this.meshes.clear();
     this.generated=false;
     if (model.type!=='glb'||!this.source) {
-      $('status').textContent='Загрузи модель GLB, чтобы поставить ключи мимики.';
+      $('setup').hidden=true;
+      $('status').textContent='';
       return;
     }
     this.glb=jointGlb(this.source);
@@ -237,7 +262,6 @@ export class FaceStudio {
       if (keys?.has(time)) $('keys').value=String(time);
       $('remove').disabled=!keys?.has(time);
       $('key').textContent=keys?.has(time)?'Обновить ключ':'Записать ключ';
-      $('roar').disabled=!target?.names.some(name=>name==='MouthOpen'||name==='MouthClose');
       this.refresh();
     }
   }
@@ -248,14 +272,28 @@ export class FaceStudio {
     $('status').textContent='Ключ мимики записан.';
   }
 
+  roarTarget() {
+    if (!this.timeline) return null;
+    const [selected]=this.selection(), shapes=this.timeline.shapes;
+    const nodes=[shapes.get(selected),...shapes.values()];
+    for (const node of nodes) {
+      if (!node||!this.meshes.has(node.id)) continue;
+      const open=mouthIndex(node.names,'Open'), close=mouthIndex(node.names,'Close');
+      if (open>=0||close>=0) return {id:node.id,open,close};
+    }
+    return null;
+  }
+
   roar() {
-    const [id]=this.selection(), shapes=this.timeline.shapes.get(id).names;
-    const keys={MouthClose:[[0,0],[.18,.4],[.32,0],[1,0]],MouthOpen:[[0,0],[.18,0],[.38,1],[.7,.8],[1,0]]};
-    for (const [name, points] of Object.entries(keys)) {
-      const index=shapes.indexOf(name);
+    const target=this.roarTarget();
+    if (!target) return;
+    const {id,open,close}=target;
+    const keys=[[close,[[0,0],[.18,.4],[.32,0],[1,0]]],[open,[[0,0],[.18,0],[.38,1],[.7,.8],[1,0]]]];
+    for (const [index,points] of keys) {
       if (index<0) continue;
       for (const [at,value] of points) this.timeline.set(id,index,at*this.timeline.duration,value);
     }
+    $('shape').value=id+':'+(open>=0?open:close);
     this.seek();
     $('status').textContent='Ключи шаблона «Рёв» добавлены.';
   }
