@@ -378,6 +378,61 @@ try{
  await tabletPage.addStyleTag({content:'#viewport{height:auto!important}'});await checkTabletUpload();
  await tablet.close();
  console.log('Browser: high-DPI tablet rotation → upload stays visible/clickable → picker works; auto-height stays bounded');
+ // Use the production buttons with a simulated Android document picker.
+ const nativePage=await context.newPage();
+ nativePage.on('pageerror',e=>errors.push(e.message));
+ await nativePage.addInitScript(()=>{
+  const mock=window.forgeTestSaver={outcome:'cancel',active:false,batches:[],aborts:0};
+  window.androidBridge={};
+  window.Capacitor={
+   PluginHeaders:[
+    {name:'ModelSaver',methods:['begin','append','finish','abort'].map(name=>({name,rtype:'promise'}))},
+    {name:'DeviceMemory',methods:[{name:'getInfo',rtype:'promise'}]}
+   ],
+   nativePromise:async (plugin,method,arg)=>{
+    if(plugin==='DeviceMemory')return {totalMiB:6144,availableMiB:4096,thresholdMiB:256};
+    if(method==='begin'){
+     if(mock.active)throw Error('Write already active');
+     mock.active=true;mock.batches.push([]);return;
+    }
+    if(method==='append'){mock.batches.at(-1).push(arg.data);return}
+    if(method==='abort'){mock.active=false;mock.aborts++;return}
+    if(mock.outcome==='error')throw Error('Провайдер отклонил запись');
+    mock.active=false;
+    if(mock.outcome==='cancel')return {cancelled:true};
+    if(mock.outcome==='unconfirmed')return {};
+    return {saved:true};
+   }
+  };
+ });
+ await nativePage.goto(origin);
+ await nativePage.locator('#brand-splash').waitFor({state:'detached',timeout:15000});
+ await nativePage.locator('#model-file').setInputFiles({name:'android-save-test.glb',mimeType:'model/gltf-binary',buffer:Buffer.from(adopted)});
+ await nativePage.waitForFunction(()=>/Загружено/.test(document.getElementById('status').textContent));
+ await nativePage.locator('[data-tab="anim"]').click();
+ await nativePage.locator('#anim-bvh-file').setInputFiles({name:'save-test.bvh',mimeType:'text/plain',buffer:Buffer.from(bodyMotion)});
+ await nativePage.locator('#anim-preview').click();
+ await nativePage.locator('#anim-add').click();
+ const queued=await nativePage.locator('#anim-library').innerText();
+ for(const [outcome,expected] of [
+  ['cancel','Сохранение отменено.'],
+  ['error','Провайдер отклонил запись'],
+  ['unconfirmed','Android не подтвердил запись файла.'],
+  ['saved','Сохранён новый файл']
+ ]){
+  await nativePage.evaluate(value=>window.forgeTestSaver.outcome=value,outcome);
+  await nativePage.locator('#anim-export').click();
+  await nativePage.waitForFunction(message=>document.getElementById('anim-status').textContent.includes(message)&&!document.getElementById('anim-export').disabled,expected);
+  assert.equal(await nativePage.locator('#anim-library').innerText(),queued);
+ }
+ const writes=await nativePage.evaluate(()=>({batches:window.forgeTestSaver.batches,aborts:window.forgeTestSaver.aborts}));
+ assert.equal(writes.aborts,2);
+ assert.equal(writes.batches.length,4);
+ for(const batch of writes.batches)assert.deepEqual(batch,writes.batches[0],'retry must write the same GLB');
+ const exported=Buffer.concat(writes.batches.at(-1).map(chunk=>Buffer.from(chunk,'base64')));
+ assert.equal(inspectGlb(exported).animations,1);
+ await nativePage.close();
+ console.log('Android bridge simulation: cancel, write error, missing confirmation, successful retry with identical GLB');
  assert.deepEqual(external,[],'all codecs must be loaded from the local app');
  assert.deepEqual(errors,[],'browser must not raise uncaught exceptions');
  console.log('Production browser codec checks passed.');

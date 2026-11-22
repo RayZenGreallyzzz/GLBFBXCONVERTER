@@ -5,7 +5,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
-import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -81,22 +80,32 @@ public class ModelSaverPlugin extends Plugin {
     @ActivityCallback
     private void onDestination(PluginCall call,ActivityResult result) {
         if(call==null){reset();return;}
-        Uri dest=result.getData()==null?null:result.getData().getData();
-        if(result.getResultCode()!=Activity.RESULT_OK||dest==null){
+        if(result.getResultCode()!=Activity.RESULT_OK){
             reset();JSObject response=new JSObject();response.put("cancelled",true);call.resolve(response);return;
         }
+        Uri dest=result.getData()==null?null:result.getData().getData();
+        if(dest==null){
+            reset();call.reject("Android не вернул место записи файла.");return;
+        }
         final File from=temporary;
+        final Activity activity=getActivity();
         new Thread(()->{
+            String error=null;
             try(FileInputStream input=new FileInputStream(from);
                 OutputStream output=getContext().getContentResolver().openOutputStream(dest,"w")){
                 if(output==null)throw new IllegalStateException("Не удалось создать файл");
                 byte[] buf=new byte[65536];int n;
                 while((n=input.read(buf))!=-1)output.write(buf,0,n);
                 output.flush();
-                JSObject response=new JSObject();response.put("saved",true);
-                getActivity().runOnUiThread(()->call.resolve(response));
-            }catch(Exception e){getActivity().runOnUiThread(()->call.reject("Ошибка сохранения: "+e.getMessage()));}
+            }catch(Exception e){error="Ошибка сохранения: "+e.getMessage();}
             finally{reset();}
+            // A document provider can fail while closing its stream. Report
+            // success only after the stream has closed and the saver is free.
+            final String resultError=error;
+            activity.runOnUiThread(()->{
+                if(resultError!=null){call.reject(resultError);return;}
+                JSObject response=new JSObject();response.put("saved",true);call.resolve(response);
+            });
         },"GLBFBX-save").start();
     }
 
