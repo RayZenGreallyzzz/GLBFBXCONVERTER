@@ -9,6 +9,7 @@ import {JointCorrectionUI} from './joint-ui.js';
 import {makeJointPreview} from './joint-preview.js';
 import {jointFormWeights,withJointFormTracks} from './joint-form-animation.js';
 import {MotionPoseUI} from './motion-pose-ui.js';
+import {FaceStudio} from './face-studio.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
@@ -59,7 +60,7 @@ const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundl
 let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
-let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null,jointUi=null;
+let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null,jointUi=null,faceStudio=null;
 let sourceVisual=null,motionCatalog=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -102,6 +103,7 @@ function buttons(){
  armWeightsUi?.refresh();
  skinEditorUi?.refresh();
  jointUi?.refresh();
+ faceStudio?.refresh();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -671,6 +673,7 @@ const motionPoseUi=new MotionPoseUI($,{
  refresh:buttons,status:motionStatus
 });
 function stopMotionPlayback(){
+ faceStudio?.stop();
  skinEditorUi?.stopHeadTest();
  jointUi?.stopPose();
  guidedRigUi?.stop();
@@ -984,6 +987,7 @@ for(const id of ['texture','geometry','opt-geometry','opt-textures','opt-animati
 $('morph-select').addEventListener('change',updateMorphValue);
 $('morph-weight').addEventListener('input',()=>{
  if(state.busy)return;const value=Number($('morph-weight').value);
+ faceStudio?.stop();
  try{modelPlayback.stop();if(state.mixer||motion.pose)stopMotionPlayback();const [mesh,index]=$('morph-select').value.split(':').map(Number);morphPreview.setWeight(mesh,index,value);updateMorphValue();buttons()}catch(e){status('Ошибка проверки мимики: '+e.message)}
 });
 $('morph-reset').addEventListener('click',()=>{stopMotionPlayback();updateMorphValue();buttons()});
@@ -991,6 +995,7 @@ $('model-play').addEventListener('click',()=>{
  jointUi?.stopPose();
  skinEditorUi?.setMode('view');
  if(state.busy||!state.root)return;
+ faceStudio?.stop();
  try{
   if(modelPlayback.playing)modelPlayback.pause();
   else {if(state.mixer||motion.pose)stopMotionPlayback();if(!modelPlayback.active){morphPreview.reset();updateMorphValue()}modelPlayback.play(Number($('model-clip').value));}
@@ -1029,6 +1034,7 @@ for(const button of document.querySelectorAll('[data-tab]'))button.addEventListe
  for(const panel of document.querySelectorAll('.tab-panel'))panel.classList.toggle('hidden',panel.id!=='tab-'+button.dataset.tab);
  guidedRigUi?.setTab(button.dataset.tab==='rig');
  skinEditorUi?.setTab(button.dataset.tab==='skin');
+ faceStudio?.setTab(button.dataset.tab==='face');
 });
 new ResizeObserver(()=>{
  const area=$('viewport');if(area.clientWidth<5||area.clientHeight<5)return;
@@ -1036,6 +1042,29 @@ new ResizeObserver(()=>{
  camera.aspect=area.clientWidth/area.clientHeight;camera.updateProjectionMatrix();
 }).observe($('viewport'));
 const playbackClock=new THREE.Clock();
+faceStudio=new FaceStudio({
+ scene,camera,orbit,canvas:renderer.domElement,model:()=>state,
+ prepare:()=>{stopMotionPlayback();if(state.viewMode!=='original')showComparison(false)},
+ busy:value=>{state.busy=value;buttons()},
+ budget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),
+ save:data=>save(data,state.name+'_face.glb','model/gltf-binary'),
+ exportSource:budget=>{
+   if(!motion.extras.length)return state.sourceBuffer;
+   const nodeIndices=new Map();
+   state.root.traverse(node=>{const index=state.rigLookup?.get(node)?.nodes;if(node.isBone&&index!==undefined)nodeIndices.set(node.name,index)});
+   return appendGlbAnimations(state.sourceBuffer,motion.extras,{nodeIndices,memoryBudgetMiB:budget});
+ },
+ install:async data=>{
+   const buffer=asArrayBuffer(data),loaded=await createModelLoader().parseAsync(buffer,'');
+   stopMotionPlayback();discardPreview();modelPlayback.dispose();morphPreview.dispose();
+   scene.remove(state.root);release(state.root);
+   state.root=loaded.scene;scene.add(state.root);state.clips=loaded.animations;
+   state.bytes=data.byteLength;state.sourceBuffer=buffer;state.sourceFile=null;
+   state.rigLookup=new WeakMap(loaded.parser.associations);state.hasMorphs=true;
+   motion.preview=null;motion.poseEditors=[];
+   refreshModelPlayback();display();showComparison(false);renderer.renderLists.dispose();
+ }
+});
 sourceVisual=new MotionCanvas($('anim-source-visual-canvas'));
 $('anim-source-visual-toggle').addEventListener('click',()=>{const playing=sourceVisual.toggle();$('anim-source-visual-toggle').textContent=playing?'Ⅱ Пауза схемы':'▶ Играть схему';$('anim-source-visual-toggle').setAttribute('aria-pressed',String(playing))});
 motionCatalog=new MotionCatalog({
@@ -1088,7 +1117,7 @@ jointUi=new JointCorrectionUI({
  result:result=>{const preview=makeJointPreview(state.root,state.rigLookup,result.preview),clips=state.clips.map(c=>withJointFormTracks(preview.root,c,result.config));discardPreview();result.associations=preview.associations;state.preview=result;state.previewRoot=preview.root;state.previewClips=clips;state.previewMetrics=modelStats(preview.root,clips);scene.add(preview.root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия суставов больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.clips=state.previewClips;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_joints').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.jointConfig=result.config;state.hasMorphs=true;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Коррекции применены. Новые анимации будут экспортированы вместе с формами сгиба.');buttons()}
 });
-function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer&&!motion.action?.paused)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
+function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer&&!motion.action?.paused)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);faceStudio.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 
 // Launcher overlay only; model processing and preview stay intact.
 function hideBrandSplash(){

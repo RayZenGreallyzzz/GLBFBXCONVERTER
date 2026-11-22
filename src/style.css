@@ -112,3 +112,17 @@ main:has(#tab-anim:not(.hidden) #anim-pose[open]:not([hidden]))>.view{position:s
 #skin-canvas-tools button[aria-pressed=true]{background:#24afd5;color:#051420;font-weight:700}
 
 .joint-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.joint-choices label{display:flex!important;flex-direction:row!important;align-items:center}.joint-choices input{width:auto}#tab-joints input[type=range]{width:100%;min-height:32px}#joints-cancel[hidden]{display:none}#tab-joints button{min-height:42px}#tab-joints output{color:#81e2f4}
+
+.face-fields{min-inline-size:0;padding:0;border:0;margin:10px 0}
+.face-fields input{width:100%;min-width:0}
+.face-fields input:not([type=range]){padding:9px;color:#e9f4fc;background:#112239;border:1px solid #315772;border-radius:7px}
+.face-fields output{color:#83d6ef}
+.face-fields .row-buttons button,#face-reset{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:11px;cursor:pointer}
+.face-fields .row-buttons .primary{background:#24afd5;color:#051420;margin:0}
+.face-fields button:disabled,.face-fields:disabled{opacity:.55}
+#face-status{overflow-wrap:anywhere}
+main:has(#tab-face:not(.hidden))>.view{position:sticky;top:0;align-self:start;z-index:6}
+@media(max-width:780px){
+  main:has(#tab-face:not(.hidden))>.view>:not(#viewport):not(.viewbar){display:none}
+  main:has(#tab-face:not(.hidden)) #viewport{height:28vh;min-height:155px}
+}

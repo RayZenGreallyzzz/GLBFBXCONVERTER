@@ -53,7 +53,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="joints">Суставы</button><button data-tab="anim">Анимации</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="joints">Суставы</button><button data-tab="anim">Анимации</button><button data-tab="face">Мимика</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <p class="tip">Кнопки ниже задают размер текстур. Цель сетки и сохранение формы настраиваются отдельно. Каждый предпросмотр создаётся из загруженного исходника.</p>
@@ -363,6 +363,38 @@
   </div>
   <button class="primary save-btn" type="button" id="anim-export" disabled>▣ СОХРАНИТЬ ПЕРСОНАЖА С АНИМАЦИЯМИ (GLB)</button>
   <p class="tip">Файлы открываются по одному, без текстур исходника. ZIP — до 128 МиБ; отдельный источник — до 64 МиБ, доступная память может ограничить его раньше. FBX зависит от совместимости версии файла. Переносятся повороты костей и, по выбору, движение таза; мимика, анимация материалов, изменяющийся масштаб и перемещения отдельных суставов не переносятся. Экспериментальная автоадаптация требует проверки A/T-позы, плеч и коленей. Для BVH без отдельного T-кадра отключи его удаление.</p>
+</section>
+<section id="tab-face" class="tab-panel hidden">
+  <h2>Мимика</h2>
+  <details id="face-setup" class="compare-report" hidden>
+    <summary>Создать формы челюсти</summary>
+    <fieldset id="face-jaw-controls" class="face-fields" disabled>
+      <p class="tip">Шаблон для открытого рта. Проверь область со стороны, уточни шарнир и при необходимости подправь влияние кистью.</p>
+      <label>Меш лица<select id="face-mesh"></select></label>
+      <label>Направление лица<select id="face-front-axis"><option>+Z</option><option>-Z</option><option>+X</option><option>-X</option></select></label>
+      <div class="row-buttons"><button id="face-view-front" type="button">Спереди</button><button id="face-view-side" type="button">Сбоку</button></div>
+      <label>Касание модели<select id="face-mode"><option value="view">Вращать модель</option><option value="front">Поставить шарнир спереди</option><option value="side">Поставить шарнир сбоку</option><option value="add">Кисть · добавить влияние</option><option value="erase">Кисть · убрать влияние</option></select></label>
+      <div class="skin-coordinates"><label>X<input id="face-x" type="number" step="any"></label><label>Y<input id="face-y" type="number" step="any"></label><label>Z<input id="face-z" type="number" step="any"></label></div>
+      <label>Область челюсти <output id="face-size-value">1.00×</output><input id="face-size" type="range" min=".35" max="2.5" step=".01" value="1"></label>
+      <div class="row-buttons"><label>Диаметр кисти, % роста<input id="face-radius" type="number" min=".2" max="8" step=".1" value="1.2"></label><label>Сила кисти, %<input id="face-strength" type="number" min="1" max="100" value="55"></label></div>
+      <div class="row-buttons"><label>Прикрытие, °<input id="face-close" type="number" min="1" max="45" value="20"></label><label>Открытие, °<input id="face-open" type="number" min="1" max="35" value="13"></label></div>
+      <button id="face-reset" type="button">Вернуть точки шаблона</button>
+      <button id="face-generate" class="primary" type="button">Создать MouthClose и MouthOpen</button>
+    </fieldset>
+  </details>
+  <fieldset id="face-editor" class="face-fields" disabled>
+    <label>Анимация тела<select id="face-body"></select></label>
+    <label id="face-duration-field">Длительность, с<input id="face-duration" type="number" min=".1" max="60" step=".1" value="3"></label>
+    <label>Имя новой анимации<input id="face-name" type="text" maxlength="60" autocomplete="off"></label>
+    <label>Форма лица<select id="face-shape"></select></label>
+    <label>Время <output id="face-time-value"></output><input id="face-time" type="range" min="0" max="3" value="0" step="any"></label>
+    <label>Вес формы <output id="face-weight-value">0%</output><input id="face-weight" type="range" min="-1" max="1" step="any" value="0"></label>
+    <div class="row-buttons"><button id="face-key" class="primary" type="button">Записать ключ</button><button id="face-roar" type="button">Шаблон «Рёв»</button></div>
+    <label>Ключи формы<select id="face-keys"></select></label>
+    <div class="row-buttons"><button id="face-remove" type="button" disabled>Удалить ключ</button><button id="face-play" type="button">▶ Проверить</button></div>
+  </fieldset>
+  <p id="face-status" class="tip" role="status">Загрузи модель GLB.</p>
+  <button id="face-save" class="primary save-btn" type="button" disabled>Сохранить GLB с мимикой</button>
 </section>
 <section id="tab-check" class="tab-panel hidden">
     <h2>Анализ совместимости</h2><div id="compat">Загрузи модель для анализа.</div>
