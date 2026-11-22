@@ -20,6 +20,8 @@ export function syncSkinEditPreview(preview,doc){
 export class SkinPickSurface{
  constructor(preview,doc){this.doc=doc;const all=[];preview.root.traverse(m=>{if(m.isMesh)all.push(m)});this.meshes=all.map(mesh=>{const i=preview.parts.indexOf(mesh);mesh.geometry.boundsTree=new MeshBVH(mesh.geometry,{indirect:true,targetLeafSize:12});const p=new THREE.Mesh(mesh.geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));p.matrixAutoUpdate=false;p.matrixWorld.copy(mesh.matrixWorld);p.raycast=acceleratedRaycast;p.userData.part=i;return p});this.ray=new THREE.Raycaster();this.ray.firstHitOnly=true}
  hit(ndc,camera){this.ray.setFromCamera(ndc,camera);return this.ray.intersectObjects(this.meshes,false)[0]||null}
- visible(point,camera){const position=new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld),direction=point.clone().sub(position),distance=direction.length();this.ray.set(position,direction.normalize());const hit=this.ray.intersectObjects(this.meshes,false)[0];return !!hit&&hit.distance>=distance-this.doc.height*2e-5}
+ visible(point,camera){const position=new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld),direction=point.clone().sub(position),distance=direction.length();this.ray.set(position,direction.normalize());const hit=this.ray.intersectObjects(this.meshes,false)[0];// A ray can miss at the exact edge of an antler or a hair card.
+  // Known surface vertices are visible whenever no nearer face occludes them.
+  return !hit||hit.distance>=distance-this.doc.height*2e-5}
  dispose(){for(const m of this.meshes){m.geometry.boundsTree=null;m.material.dispose()}this.meshes=[]}
 }

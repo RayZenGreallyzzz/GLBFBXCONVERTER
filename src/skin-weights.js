@@ -2,7 +2,13 @@ const clamp=x=>Math.max(0,Math.min(1,x));export const smooth=x=>{x=clamp(x);retu
 export function boneWeight(part,n,bone){let w=0;for(let k=0;k<4;k++)if(part.indices[n*4+k]===bone)w+=part.weights[n*4+k];return w}
 function quantizeVertex(part,n){const type=part.W?.a.componentType;if(![5121,5123].includes(type))return;const limit=type===5121?255:65535,q=Array.from(part.weights.subarray(n*4,n*4+4)),encoded=q.map(x=>Math.floor(x*limit)),order=[0,1,2,3].sort((a,b)=>(q[b]*limit-encoded[b])-(q[a]*limit-encoded[a]));for(let k=0,r=limit-encoded.reduce((s,x)=>s+x,0);k<r;k++)encoded[order[k%4]]++;for(let k=0;k<4;k++)part.weights[n*4+k]=encoded[k]/limit}
 export function assignBoneWeight(part,n,bone,value,fallback){
- value=clamp(value);const other=new Map();for(let k=0;k<4;k++){const i=part.indices[n*4+k],w=part.weights[n*4+k];if(i!==bone&&w>0)other.set(i,(other.get(i)||0)+w)}
+ value=clamp(value);
+ if(value===1){
+  part.indices.set([bone,0,0,0],n*4);
+  part.weights.set([1,0,0,0],n*4);
+  return;
+ }
+ const other=new Map();for(let k=0;k<4;k++){const i=part.indices[n*4+k],w=part.weights[n*4+k];if(i!==bone&&w>0)other.set(i,(other.get(i)||0)+w)}
  let rows=[...other].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,value>1e-8?3:4);if(value<1-1e-8&&!rows.length)rows=[[fallback,1]];const sum=rows.reduce((s,r)=>s+r[1],0);rows=rows.map(([i,w])=>[i,w*(1-value)/sum]);if(value>1e-8)rows.push([bone,value]);rows.sort((a,b)=>b[1]-a[1]||a[0]-b[0]);for(let k=0;k<4;k++){part.indices[n*4+k]=rows[k]?.[0]??0;part.weights[n*4+k]=rows[k]?.[1]??0}quantizeVertex(part,n);
 }
 export function makePaintIndex(part,height){
@@ -10,11 +16,29 @@ export function makePaintIndex(part,height){
  for(let n=0;n<groupOf.length;n++){const x=part.positions[n*3],y=part.positions[n*3+1],z=part.positions[n*3+2],k=key(x,y,z);if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(n);const wk=weldKey(x,y,z);if(!groups.has(wk)){groups.set(wk,members.length);members.push([])}groupOf[n]=groups.get(wk);members[groupOf[n]].push(n)}
  const groupCount=members.length,memberOffset=new Uint32Array(groupCount+1);for(let i=0;i<groupCount;i++)memberOffset[i+1]=memberOffset[i]+members[i].length;const memberList=new Uint32Array(groupOf.length);for(let i=0;i<groupCount;i++)memberList.set(members[i],memberOffset[i]);members.length=0;groups.clear();
  const degree=new Uint32Array(groupCount);for(const n of part.triangles)if(n>=groupOf.length)throw Error('Индекс вне сетки');for(let i=0;i<part.triangles.length;i+=3){const a=groupOf[part.triangles[i]],b=groupOf[part.triangles[i+1]],c=groupOf[part.triangles[i+2]];degree[a]+=2;degree[b]+=2;degree[c]+=2}const offset=new Uint32Array(groupCount+1);for(let i=0;i<groupCount;i++)offset[i+1]=offset[i]+degree[i];const neighbors=new Uint32Array(offset[groupCount]),cursor=offset.slice();for(let i=0;i<part.triangles.length;i+=3){const a=groupOf[part.triangles[i]],b=groupOf[part.triangles[i+1]],c=groupOf[part.triangles[i+2]];neighbors[cursor[a]++]=b;neighbors[cursor[a]++]=c;neighbors[cursor[b]++]=a;neighbors[cursor[b]++]=c;neighbors[cursor[c]++]=a;neighbors[cursor[c]++]=b}
- return {near(point,radius){const out=[];for(let x=Math.floor((point[0]-radius)/cell);x<=Math.floor((point[0]+radius)/cell);x++)for(let y=Math.floor((point[1]-radius)/cell);y<=Math.floor((point[1]+radius)/cell);y++)for(let z=Math.floor((point[2]-radius)/cell);z<=Math.floor((point[2]+radius)/cell);z++)for(const n of buckets.get(x+','+y+','+z)||[]){const d=Math.hypot(part.positions[n*3]-point[0],part.positions[n*3+1]-point[1],part.positions[n*3+2]-point[2]);if(d<radius)out.push([n,d])}return out},mean(n,bone){let sum=0,count=0;const g=groupOf[n],near=new Set(neighbors.subarray(offset[g],offset[g+1]));near.add(g);for(const group of near)for(let k=memberOffset[group];k<memberOffset[group+1];k++){sum+=boneWeight(part,memberList[k],bone);count++}return sum/Math.max(count,1)}};
+ function component(vertex){
+  const visited=new Uint8Array(groupCount),queue=new Uint32Array(groupCount);
+  const start=groupOf[vertex];queue[0]=start;visited[start]=1;
+  let end=1,count=0;
+  for(let i=0;i<end;i++){
+   const group=queue[i];count+=memberOffset[group+1]-memberOffset[group];
+   for(let k=offset[group];k<offset[group+1];k++){
+    const neighbor=neighbors[k];
+    if(!visited[neighbor]){visited[neighbor]=1;queue[end++]=neighbor}
+   }
+  }
+  const vertices=new Uint32Array(count);let at=0;
+  for(let i=0;i<end;i++){
+   const group=queue[i],members=memberList.subarray(memberOffset[group],memberOffset[group+1]);
+   vertices.set(members,at);at+=members.length;
+  }
+  return vertices;
+ }
+ return {component,near(point,radius){const out=[];for(let x=Math.floor((point[0]-radius)/cell);x<=Math.floor((point[0]+radius)/cell);x++)for(let y=Math.floor((point[1]-radius)/cell);y<=Math.floor((point[1]+radius)/cell);y++)for(let z=Math.floor((point[2]-radius)/cell);z<=Math.floor((point[2]+radius)/cell);z++)for(const n of buckets.get(x+','+y+','+z)||[]){const d=Math.hypot(part.positions[n*3]-point[0],part.positions[n*3+1]-point[1],part.positions[n*3+2]-point[2]);if(d<radius)out.push([n,d])}return out},mean(n,bone){let sum=0,count=0;const g=groupOf[n],near=new Set(neighbors.subarray(offset[g],offset[g+1]));near.add(g);for(const group of near)for(let k=memberOffset[group];k<memberOffset[group+1];k++){sum+=boneWeight(part,memberList[k],bone);count++}return sum/Math.max(count,1)}};
 }
 export function brushDab(doc,partIndex,candidates,{bone,radius,strength,mode='add',index,visible=()=>true,history}){
  if(!Number.isInteger(bone)||bone<0||bone>=doc.bones.length||!(radius>0)||!Number.isFinite(strength))throw Error('Некорректная кисть');const part=doc.parts[partIndex],fallback=doc.bones[bone].parent>=0?doc.bones[bone].parent:doc.bones.find(b=>b.id!==bone).id,changes=[];if(candidates.length>12000)throw Error('Слишком большой мазок. Уменьши размер кисти.');
- for(const [n,d]of candidates){if(!visible(n))continue;const old=boneWeight(part,n,bone),amount=clamp(strength)*smooth(1-d/radius),value=mode==='remove'?old*(1-amount):mode==='smooth'?old+(index.mean(n,bone)-old)*amount:old+(1-old)*amount;if(Math.abs(value-old)>1e-7)changes.push([n,value])}
+ for(const [n,d]of candidates){if(!visible(n))continue;const old=boneWeight(part,n,bone),amount=clamp(strength)*smooth(1-d/radius),value=mode==='rigid'?1:mode==='remove'?old*(1-amount):mode==='smooth'?old+(index.mean(n,bone)-old)*amount:old+(1-old)*amount;if(Math.abs(value-old)>1e-7)changes.push([n,value])}
  for(const [n,value]of changes){history?.capture(partIndex,n);assignBoneWeight(part,n,bone,value,fallback)}return changes.length;
 }
 export class SkinHistory{

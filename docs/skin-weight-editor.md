@@ -4,11 +4,15 @@
 
 ## Brush
 
-Select a bone, size (diameter as a percentage of character height), strength, and Add/Remove/Smooth. Painting stops animation and restores the bind pose; playing a clip switches the editor back to camera mode. A surface cursor shows the brush footprint. A BVH ray pick and per-vertex visibility rays restrict a dab to the visible surface of the hit mesh. Other meshes can occlude it. Turn the model to paint its back.
+The editor opens with the brush active. Use the buttons on the preview to switch between painting and rotating. Select a bone, the brush diameter as a percentage of character height, and the action. Add, Remove, and Smooth use the strength slider. The rigid brush assigns exactly 100% to the selected bone at each painted vertex. Painting stops animation and restores the bind pose; playing a clip switches the editor back to camera mode. A surface cursor shows the brush footprint. A BVH ray pick and per-vertex visibility rays restrict a dab to the visible surface of the hit mesh. Other meshes can occlude it. Turn the model to paint its back.
 
 Brush weights remain normalized with at most four influences. Add reserves the selected bone and proportionally distributes the remainder to the strongest other three. Removing the last rigid influence uses the parent bone as fallback. Smooth averages through welded triangle adjacency, including UV seams; it is computed from a snapshot before the dab. Normalized integer attributes are quantized during editing so the preview and saved values agree. Colored visualization uses temporary cloned materials; source textures are shared and never re-encoded.
 
 Strokes have Undo/Redo. Pointer cancellation rolls back the active stroke. History retains up to 24 commands / about 12 MiB of typed deltas, with at most one complete stroke beyond that budget; a 60,000-vertex stroke limit bounds transient history. Very large dabs are rejected rather than partially painted. Reset restores original weights and joints and clears history. A spatial hash, compact adjacency, indirect BVH and input throttling bound work on Android. Actual peak memory and speed depend on device and mesh; the preflight estimate is not an Android heap guarantee.
+
+## Separate details
+
+Choose **Выбрать отдельную деталь** and tap the part on the model. Forge highlights the connected triangles, crossing duplicate vertices at seams. Review the highlight, choose a bone and confirm the assignment to set that bone to 100% on the whole detail. The action is undoable. Use the rigid brush for an area attached to the main mesh.
 
 ## Head and neck
 
