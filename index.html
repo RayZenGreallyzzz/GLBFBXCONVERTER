@@ -53,7 +53,7 @@
   <div id="metrics" class="metrics"></div>
 </section>
 <section class="controls">
-  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="joints">Суставы</button><button data-tab="anim">Анимации</button><button data-tab="face">Мимика</button><button data-tab="check">Проверка</button></div>
+  <div class="tabs"><button data-tab="opt" class="active">Оптимизация</button><button data-tab="convert">Конвертация</button><button data-tab="rig">Скелет</button><button data-tab="skin">Веса</button><button data-tab="joints">Суставы</button><button data-tab="anim">Анимации</button><button data-tab="face">Мимика</button><button data-tab="details">Детали</button><button data-tab="check">Проверка</button></div>
   <section id="tab-opt" class="tab-panel">
     <h2>Оптимизация под Android</h2>
     <p class="tip">Кнопки ниже задают размер текстур. Цель сетки и сохранение формы настраиваются отдельно. Каждый предпросмотр создаётся из загруженного исходника.</p>
@@ -431,6 +431,73 @@
   </fieldset>
   <p id="face-status" class="tip" role="status"></p>
   <button id="face-save" class="primary save-btn" type="button" disabled>Сохранить GLB с мимикой</button>
+</section>
+<section id="tab-details" class="tab-panel hidden">
+  <h2>Детали</h2>
+  <label id="detail-import" class="load" hidden>＋ Добавить детали<input id="detail-file" type="file" multiple accept=".glb" hidden></label>
+  <p id="detail-status" class="tip" role="status">Загрузи готового персонажа в формате GLB.</p>
+  <fieldset id="detail-controls" class="detail-fields" disabled>
+    <label>Модель в сцене<select id="detail-selected"><option>Персонаж</option></select></label>
+    <div class="detail-actions" role="group" aria-label="Вид">
+      <button id="detail-focus" type="button">Приблизить</button>
+      <button id="detail-front" type="button">Спереди</button>
+      <button id="detail-side" type="button">Сбоку</button>
+    </div>
+    <div class="detail-actions" role="group" aria-label="Гизмо">
+      <button id="detail-camera" type="button" aria-pressed="true">Камера</button>
+      <button id="detail-move" type="button" aria-pressed="false" disabled>Сдвиг</button>
+      <button id="detail-turn" type="button" aria-pressed="false" disabled>Поворот</button>
+      <button id="detail-scale" type="button" aria-pressed="false" disabled>Масштаб</button>
+    </div>
+    <div id="detail-part" class="compare-report" hidden>
+      <label>Имя детали<input id="detail-name" type="text" maxlength="60"></label>
+      <button id="detail-position" type="button">Настроить положение детали</button>
+      <details><summary>Точное положение детали</summary>
+        <div class="skin-coordinates"><label>X<input id="detail-place-x" type="number" step="any"></label><label>Y<input id="detail-place-y" type="number" step="any"></label><label>Z<input id="detail-place-z" type="number" step="any"></label></div>
+        <div class="detail-actions"><button id="detail-reset-place" type="button">Сбросить положение</button><button id="detail-remove" type="button">Убрать деталь</button></div>
+      </details>
+      <label>Кость крепления<select id="detail-parent"><option value="-1">Без крепления</option></select></label>
+      <label>Движение детали<select id="detail-chain"><option value="0">Жёсткое крепление</option><option value="1">Своя кость</option><option value="2">Две кости</option><option value="3">Три кости</option><option value="4">Четыре кости</option></select></label>
+      <div id="detail-chain-controls" hidden>
+        <label>Точка цепочки <output id="detail-points-count"></output><select id="detail-point"></select></label>
+        <button id="detail-mark" type="button">Поставить точку касанием</button>
+        <div class="skin-coordinates" id="detail-point-fields"><label>X<input id="detail-point-x" type="number" step="any"></label><label>Y<input id="detail-point-y" type="number" step="any"></label><label>Z<input id="detail-point-z" type="number" step="any"></label></div>
+      </div>
+      <details id="detail-animation" hidden><summary>Своя анимация</summary>
+        <label>Движение тела<select id="detail-motion-body"></select></label>
+        <label>Длительность, с<input id="detail-duration" type="number" min=".1" max="120" step=".1" value="2"></label>
+        <label>Кость детали<select id="detail-bone"></select></label>
+        <label>Время <output id="detail-time-value"></output><input id="detail-time" type="range" min="0" max="2" step="any" value="0"></label>
+        <div class="skin-coordinates"><label>Поворот X°<input id="detail-angle-x" type="number" min="-180" max="180" value="0"></label><label>Поворот Y°<input id="detail-angle-y" type="number" min="-180" max="180" value="0"></label><label>Поворот Z°<input id="detail-angle-z" type="number" min="-180" max="180" value="0"></label></div>
+        <button id="detail-key" type="button">Записать ключ</button>
+        <label>Ключи<select id="detail-key-pick"></select></label>
+        <button id="detail-key-delete" type="button" disabled>Удалить ключ</button>
+      </details>
+    </div>
+    <div class="compare-report">
+      <h3>Нож</h3>
+      <button id="detail-knife" type="button">Поставить пластину касанием</button>
+      <div id="detail-knife-controls" hidden>
+        <div class="skin-coordinates">
+          <label>Толщина, %<input id="detail-size-x" type="number" min=".01" max="200" step="any"></label>
+          <label>Высота, %<input id="detail-size-y" type="number" min=".01" max="200" step="any"></label>
+          <label>Глубина, %<input id="detail-size-z" type="number" min=".01" max="200" step="any"></label>
+        </div>
+        <label><input id="detail-close" type="checkbox" checked> Закрыть срезы</label>
+        <button id="detail-cut" class="primary" type="button" disabled>Отрезать</button>
+      </div>
+      <div class="detail-actions"><button id="detail-piece" type="button">Выбрать кусок</button><button id="detail-keep" type="button" disabled>Оставить кусок</button><button id="detail-delete" type="button" disabled>Удалить кусок</button></div>
+      <div class="detail-actions"><button id="detail-sample" type="button">Пипетка</button><input id="detail-color" type="color" value="#7c6c58" aria-label="Цвет среза"><button id="detail-paint" type="button">Закрасить стык</button></div>
+      <button id="detail-undo" type="button" disabled>Отменить правку сетки</button>
+    </div>
+  </fieldset>
+  <button id="detail-cancel" type="button" hidden>Отменить расчёт</button>
+  <div id="detail-player" class="compare-report" hidden>
+    <label>Анимация для проверки<select id="detail-clip"></select></label>
+    <button id="detail-return" type="button">Вернуться к правке</button>
+  </div>
+  <button id="detail-review" type="button" disabled>Проверить с анимацией</button>
+  <button id="detail-save" type="button" class="primary save-btn" disabled>Сохранить GLB с деталями</button>
 </section>
 <section id="tab-check" class="tab-panel hidden">
     <h2>Анализ совместимости</h2><div id="compat">Загрузи модель для анализа.</div>

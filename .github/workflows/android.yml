@@ -1,7 +1,7 @@
 name: Build GLB FBX Converter APK
 on:
   push:
-    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights, feature/skin-weight-brush, feature/portable-joint-correctives, fix/head-rig-weights, fix/retarget-volume-bones, fix/retarget-arm-reference, fix/retarget-ground-contact, fix/skin-brush-rigid-details, fix/export-result-status, fix/weight-editor-four-views, fix/animation-pose-editor, feature/face-animation, feature/finger-rig]
+    branches: [main, fix/real-geometry-optimizer, fix/3mf-optional-materials-foxgi, feature/offline-glb-codecs, fix/geometry-quality-targets, feature/offline-surface-bake, feature/low-memory-bake, fix/tablet-viewer-layout, fix/bounded-uv-memory, fix/bake-projection-misses, fix/preview-review, feature/npc-blend-shapes, feature/guided-body-rig, fix/preserve-bvh-textures, feature/animation-packs, fix/large-animation-library, feature/visual-animation-catalog, fix/continuous-skin-weights, fix/mixamo-scale-rounding, feature/embedded-motion-library, fix/localized-arm-skin-weights, feature/skin-weight-brush, feature/portable-joint-correctives, fix/head-rig-weights, fix/retarget-volume-bones, fix/retarget-arm-reference, fix/retarget-ground-contact, fix/skin-brush-rigid-details, fix/export-result-status, fix/weight-editor-four-views, fix/animation-pose-editor, feature/face-animation, feature/finger-rig, feature/details-studio]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -47,6 +47,8 @@ jobs:
         run: npm run test:face-browser
       - name: Check finger chains, mobile preview and weight editing
         run: npm run test:fingers-browser
+      - name: Check details, cutter and mobile export
+        run: npm run test:details-browser
       - name: Check production codecs with external requests blocked
         run: npm run test:browser
       - name: Create Android project
@@ -75,9 +77,9 @@ jobs:
       - name: Isolate codec test APK from installed stable apps
         run: |
           set -e
-          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.fingers1"/' android/app/build.gradle
-          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.fingers1"' android/app/build.gradle
-          sed -i 's/Phoenix Model Forge/Forge Пальцы/g' android/app/src/main/res/values/strings.xml
+          sed -i 's/applicationId "com.phoenix.glbfbxconverter"/applicationId "com.phoenix.glbfbxconverter.rigtest.details1"/' android/app/build.gradle
+          grep -q 'applicationId "com.phoenix.glbfbxconverter.rigtest.details1"' android/app/build.gradle
+          sed -i 's/Phoenix Model Forge/Forge Детали/g' android/app/src/main/res/values/strings.xml
       - name: Assemble Android APK
         run: |
           chmod +x android/gradlew
@@ -126,12 +128,12 @@ jobs:
                   assert len(data)==clip['bytes'] and hashlib.sha256(data).hexdigest()==clip['id']
               print('Verified',len(manifest['clips']),'embedded animations and both character groups in APK')
           PY
-          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-FINGERS-TEST.apk
+          cp "$APK" android/app/build/outputs/apk/debug/Phoenix-Forge-DETAILS-TEST.apk
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Phoenix-Forge-FINGERS-TEST-APK
-          path: android/app/build/outputs/apk/debug/Phoenix-Forge-FINGERS-TEST.apk
+          name: Phoenix-Forge-DETAILS-TEST-APK
+          path: android/app/build/outputs/apk/debug/Phoenix-Forge-DETAILS-TEST.apk
           if-no-files-found: error
 
 

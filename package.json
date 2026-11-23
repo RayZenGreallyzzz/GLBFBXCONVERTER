@@ -20,7 +20,8 @@
     "test:skin-browser": "node scripts/check-skin-editor-browser.mjs",
     "test:joints-browser": "node scripts/check-joints-browser.mjs",
     "test:face-browser": "node scripts/check-face-browser.mjs",
-    "test:fingers-browser": "node scripts/check-fingers-browser.mjs"
+    "test:fingers-browser": "node scripts/check-fingers-browser.mjs",
+    "test:details-browser": "node scripts/check-details-browser.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",
