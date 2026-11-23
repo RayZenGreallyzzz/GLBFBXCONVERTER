@@ -79,6 +79,16 @@ try {
   await page.locator('#face-template-open').click();
   assert.ok(await page.locator('#face-setup').evaluate(el=>el.open));
   await page.locator('#face-view-side').click();
+  assert.equal(await page.locator('#face-mode').inputValue(),'side');
+  const before=await page.locator('#face-z').inputValue(), canvas=page.locator('#viewport canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const box=await canvas.boundingBox();
+  await page.mouse.move(box.x+box.width*.51,box.y+box.height*.49);
+  await page.mouse.down();
+  await page.mouse.move(box.x+box.width*.58,box.y+box.height*.55,{steps:4});
+  await page.mouse.up();
+  assert.notEqual(await page.locator('#face-z').inputValue(),before);
+  await page.locator('#face-reset').click();
   await page.locator('#face-x').fill('0.01');
   await page.locator('#face-x').press('Tab');
   await page.locator('#face-generate').click();

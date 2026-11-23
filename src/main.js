@@ -1054,6 +1054,10 @@ $('face-entry').addEventListener('click',()=>{
    window.scrollBy({top:title.getBoundingClientRect().top-viewer.getBoundingClientRect().height-12});
  }else title.scrollIntoView({block:'nearest'});
 });
+$('rig-detail-entry').addEventListener('click',()=>{
+ document.querySelector('[data-tab="details"]').click();
+ $('tab-details').scrollIntoView({block:'nearest'});
+});
 new ResizeObserver(()=>{
  const area=$('viewport');if(area.clientWidth<5||area.clientHeight<5)return;
  renderer.setSize(area.clientWidth,area.clientHeight,false);

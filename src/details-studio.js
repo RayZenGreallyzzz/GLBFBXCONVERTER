@@ -4,6 +4,7 @@ import {asArrayBuffer} from './binary.js';
 import {inspectGlb} from './format.js';
 import {detailBoneLabel} from './detail-labels.js';
 import {startDetailsJob} from './details-jobs.js';
+import {setCameraView,viewDirections} from './view-presets.js';
 
 const $=id=>document.getElementById('detail-'+id);
 const axis=['x','y','z'], p=v=>new THREE.Vector3().fromArray(v);
@@ -35,6 +36,7 @@ export class DetailsStudio {
     this.helper.visible=false;
     const on=(id,event,fn)=>$(id).addEventListener(event,e=>this.guard(()=>fn(e)));
     on('file','change',e=>{const files=[...e.target.files];e.target.value='';return this.import(files)});
+    on('tail','click',()=>this.addTail());
     on('selected','change',()=>this.select());
     on('name','change',()=>{this.item().name=$('name').value.trim()||this.item().name;this.list()});
     on('position','click',()=>this.attach('part'));
@@ -47,8 +49,7 @@ export class DetailsStudio {
     on('reset-place','click',()=>this.resetPlacement());
     on('focus','click',()=>this.focus());
     on('camera','click',()=>this.attach(''));
-    on('front','click',()=>this.focus('front'));
-    on('side','click',()=>this.focus('side'));
+    for(const [id,view] of [['front','front'],['back','back'],['side','left'],['right','right']])on(id,'click',()=>this.focus(view));
     for(const [id,mode] of [['move','translate'],['turn','rotate'],['scale','scale']])on(id,'click',()=>this.mode(mode));
     on('knife','click',()=>this.beginTap('knife'));
     for(const [i,k] of axis.entries())on('size-'+k,'input',()=>{
@@ -63,13 +64,12 @@ export class DetailsStudio {
     on('sample','click',()=>this.beginTap('color'));
     on('paint','click',()=>this.paint());
     on('undo','click',()=>this.undo());
-    on('parent','change',()=>{this.item().parent=Number($('parent').value);this.fields()});
-    on('chain','change',()=>{
-      const item=this.item(), next=Number($('chain').value);
-      item.points=Array.from({length:next?next+1:0},(_,i)=>item.points[i]||null);
-      item.keys=item.keys.filter(k=>k.bone<next);
-      this.fields();
-    });
+    on('parent','change',()=>{this.item().pendingParent=Number($('parent').value);this.refresh(false)});
+    on('bind','click',()=>this.bind());
+    on('add-bones','click',()=>this.beginBones());
+    on('open-motion','click',()=>this.openAnimation());
+    on('chain','change',()=>this.setChain(Number($('chain').value)));
+    on('radius','change',()=>{this.item().radius=ceil($('radius').valueAsNumber||6,1,18);$('radius').value=this.item().radius});
     on('point','change',()=>this.fields(false));
     on('mark','click',()=>this.beginTap('point'));
     for(const k of axis)on('point-'+k,'change',()=>this.storePoint());
@@ -111,7 +111,7 @@ export class DetailsStudio {
   }
   message(text){$('status').textContent=text}
   item(){return this.items.find(r=>r.id===$('selected').value)}
-  subject(){return this.item()||this.body}
+  subject(){const item=this.item();return item?.tail?this.body:item||this.body}
   reference(){
     const item=this.subject();
     if(!item)return 1;
@@ -150,7 +150,7 @@ export class DetailsStudio {
     this.stopPreview();
     this.attach('');this.dropPiece();this.hideKnife();
     if(this.body?.owned){this.body.root.removeFromParent();this.api.release(this.body.root)}
-    for(const item of this.items){item.group.removeFromParent();this.api.release(item.root)}
+    for(const item of this.items){item.group.removeFromParent();if(item.root)this.api.release(item.root)}
     this.items=[];this.history=[];this.body=null;this.source=source;
     const state=this.api.model();
     if(state.type==='glb'&&source&&state.root){
@@ -178,9 +178,20 @@ export class DetailsStudio {
     if(!this.active)return;
     const item=this.item(), available=!!this.body, editing=available&&!busy&&!this.result;
     $('import').hidden=!available;
+    $('tail').disabled=!editing||!this.anchors?.length||this.items.some(part=>part.tail);
     $('file').disabled=!editing;
     $('controls').disabled=!editing;
     $('part').hidden=!item;
+    $('placement').hidden=!!item?.tail;
+    $('region').hidden=!item?.tail;
+    $('knife-panel').hidden=!!item?.tail;
+    $('bind').disabled=!item||item.pendingParent===item.parent||(item.tail&&item.pendingParent<0);
+    $('bind').textContent=item?.parent>=0&&item.pendingParent<0?'Снять крепление':'Привязать к кости';
+    $('binding').textContent=!item||item.parent<0?'Выбери кость и нажми «Привязать к кости».':
+      'Крепление: '+(this.anchors.find(([id])=>id===item.parent)?.[1]||'Кость');
+    $('chain').options[0].disabled=!!item?.tail;
+    $('chain').disabled=!item||item.parent<0;
+    $('add-bones').disabled=!item||item.parent<0;
     $('animation').hidden=!item||item.parent<0||item.points.length<2;
     $('chain-controls').hidden=!item||item.parent<0||!item.points.length;
     $('knife-controls').hidden=!this.placed;
@@ -208,8 +219,9 @@ export class DetailsStudio {
     const item=this.item();
     if(item){
       if(full){
-        $('name').value=item.name;$('parent').value=String(item.parent);
+        $('name').value=item.name;$('parent').value=String(item.pendingParent);
         $('chain').value=String(Math.max(0,item.points.length-1));
+        if(item.tail)$('radius').value=item.radius;
       }
       const point=$('point').value, bone=$('bone').value;
       $('point').replaceChildren(...item.points.map((v,i)=>new Option((i===0?'Основание':i===item.points.length-1?'Кончик':'Сустав '+i)+(v?' · готово':''),i)));
@@ -258,13 +270,13 @@ export class DetailsStudio {
     $('camera').setAttribute('aria-pressed',String(!this.target));
     for(const [id,mode] of [['move','translate'],['turn','rotate'],['scale','scale']]){
       $(id).setAttribute('aria-pressed',String(!!this.target&&this.gizmo.getMode()===mode));
-      $(id).disabled=!this.target&&!this.placed&&!this.item();
+      $(id).disabled=!this.target&&!this.placed&&(!this.item()||this.item().tail);
     }
   }
   mode(mode){
     if(!this.target){
       if(this.placed)this.attach('knife');
-      else if(this.item())this.attach('part');
+      else if(this.item()&&!this.item().tail)this.attach('part');
       else return;
     }
     this.gizmo.setMode(mode);
@@ -290,12 +302,46 @@ export class DetailsStudio {
     const box=new THREE.Box3().setFromObject(current.root), size=box.getSize(new THREE.Vector3()).length(), center=box.getCenter(new THREE.Vector3());
     if(box.isEmpty())return;
     const {camera,orbit}=this.api;
-    const vector=view==='front'?new THREE.Vector3(0,0,1):view==='side'?new THREE.Vector3(1,0,0):camera.position.clone().sub(orbit.target).normalize();
-    orbit.target.copy(center);
-    camera.position.copy(center).addScaledVector(vector,Math.max(.01,size)*1.3/Math.min(1,camera.aspect||1));
+    if(view)this.projection=view;
+    const vector=view?viewDirections[view]:camera.position.clone().sub(orbit.target).normalize();
     camera.near=Math.max(.0001,size/50000);
     camera.far=Math.max(200,size*300);
-    camera.updateProjectionMatrix();orbit.update();camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    setCameraView(camera,orbit,center,vector,Math.max(.01,size)*1.3/Math.min(1,camera.aspect||1));
+  }
+  addTail(){
+    if(!this.anchors?.length||this.items.some(item=>item.tail))return;
+    const parent=this.anchors.find(([,name])=>name==='Таз')?.[0]??-1;
+    const item={id:String(++this.nextId),name:'Хвост',tail:true,group:new THREE.Group(),parent,pendingParent:parent,
+      body:-1,duration:2,points:[null,null,null,null,null],radius:6,keys:[]};
+    this.items.push(item);this.list();$('selected').value=item.id;this.select();
+    this.focus('left');
+    if(parent>=0)this.beginTap('point');
+    else this.message('Для хвоста выбери кость крепления и нажми «Привязать к кости».');
+  }
+  bind(){
+    const item=this.item();
+    item.parent=item.pendingParent;
+    this.fields();
+    this.message(item.parent<0?'Крепление снято.':'Крепление записано. Нажми «Проверить с анимацией», чтобы увидеть его в движении.');
+  }
+  setChain(next){
+    const item=this.item();
+    item.points=Array.from({length:next?next+1:0},(_,i)=>item.points[i]||null);
+    item.keys=item.keys.filter(k=>k.bone<next);
+    this.fields();
+  }
+  beginBones(){
+    if(!this.item().points.length)this.setChain(1);
+    this.beginTap('point');
+    $('chain-controls').scrollIntoView({block:'center'});
+  }
+  openAnimation(){
+    const item=this.item();
+    if(item.parent<0)throw Error('Сначала выбери кость и нажми «Привязать к кости».');
+    if(!item.points.length)throw Error('Нажми «Добавить кости», чтобы записать движение детали.');
+    $('animation').open=true;
+    $('animation').scrollIntoView({block:'center'});
   }
   async busyWork(action){
     if(this.api.model().busy)return;
@@ -307,7 +353,7 @@ export class DetailsStudio {
     if(!this.body||!files.length)return;
     if(this.items.length+files.length>12)throw Error('За один раз можно собрать персонажа и до 12 деталей.');
     await this.busyWork(async()=>{
-      const budget=await this.api.budget(), current=this.body.bytes.byteLength+this.items.reduce((s,i)=>s+i.bytes.byteLength,0);
+      const budget=await this.api.budget(), current=this.body.bytes.byteLength+this.items.reduce((s,i)=>s+(i.bytes?.byteLength||0),0);
       const total=current+files.reduce((n,f)=>n+f.size,0);
       if(total*3+40*1048576>budget*1048576)throw Error('Детали не помещаются в память. Уменьши размер моделей.');
       this.message('Загружаем детали…');
@@ -315,7 +361,7 @@ export class DetailsStudio {
       try{
         const bodyBox=new THREE.Box3().setFromObject(this.body.root), cx=bodyBox.getCenter(new THREE.Vector3());
         let right=bodyBox.max.x;
-        for(const item of this.items)right=Math.max(right,new THREE.Box3().setFromObject(item.root).max.x);
+        for(const item of this.items)if(item.root)right=Math.max(right,new THREE.Box3().setFromObject(item.root).max.x);
         for(const file of files){
           if(!/\.glb$/i.test(file.name))throw Error('Выбирай детали в формате GLB.');
           const bytes=new Uint8Array(await file.arrayBuffer()), j=inspectGlb(bytes).json;
@@ -329,7 +375,7 @@ export class DetailsStudio {
           group.position.set(right+width*.7,cx.y,cx.z);right+=width*1.2;
           offset.position.copy(origin).negate();group.add(offset);offset.add(root);
           const reset=group.position.clone(), id=String(++this.nextId);
-          staged.push({id,name:stripName(file.name),bytes,root,associations:loaded.parser.associations,group,offset,reset,parent:-1,body:-1,duration:2,points:[],keys:[]});
+          staged.push({id,name:stripName(file.name),bytes,root,associations:loaded.parser.associations,group,offset,reset,parent:-1,pendingParent:-1,body:-1,duration:2,points:[],keys:[]});
         }
       }catch(error){
         for(const item of staged)this.api.release(item.root);
@@ -353,7 +399,7 @@ export class DetailsStudio {
   removeItem(){
     const item=this.item();if(!item)return;
     this.select();
-    item.group.removeFromParent();this.api.release(item.root);
+    item.group.removeFromParent();if(item.root)this.api.release(item.root);
     this.items=this.items.filter(i=>i!==item);this.history=this.history.filter(h=>h.id!==item.id);
     this.list();
   }
@@ -370,10 +416,27 @@ export class DetailsStudio {
     this.ray.setFromCamera(new THREE.Vector2((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2),this.api.camera);
     return this.ray.intersectObject(item.root,true).find(h=>h.object.isMesh);
   }
+  placeTailPoint(e){
+    const item=this.item(), index=Number($('point').value), box=new THREE.Box3().setFromObject(this.body.root);
+    const previous=item.points[index]||item.points[index-1];
+    const center=previous?p(previous):box.getCenter(new THREE.Vector3());
+    if(!previous){
+      this.body.root.traverse(node=>{
+        if(node.isBone&&this.body.associations?.get(node)?.nodes===item.parent)node.getWorldPosition(center);
+      });
+    }
+    const rect=this.api.canvas.getBoundingClientRect(), at=new THREE.Vector2((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2);
+    this.ray.setFromCamera(at,this.api.camera);
+    const normal=new THREE.Vector3(...(viewDirections[this.projection]||viewDirections.left));
+    const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,center);
+    const point=this.ray.ray.intersectPlane(plane,new THREE.Vector3());
+    if(point&&box.expandByScalar(this.reference()*.06).containsPoint(point))this.setPoint(point);
+  }
   async picked(e){
     const down=this.down;this.down=null;
     if(!this.active||this.api.model().busy||this.result||!this.tap||this.dragged||
       !down||e.pointerId!==down.id||Math.hypot(e.clientX-down.x,e.clientY-down.y)>10)return;
+    if(this.tap==='point'&&this.item()?.tail){this.placeTailPoint(e);return}
     const hit=this.hit(e);if(!hit)return;
     if(this.tap==='knife'){this.placeKnife(hit.point);return}
     if(this.tap==='color'){this.sampleColor(hit);this.tap='';return}
@@ -559,10 +622,10 @@ export class DetailsStudio {
       }
     }
   }
-  setPoint(world){
+  setPoint(world,advance=true){
     const item=this.item(), index=Number($('point').value);if(!item||!item.points.length)return;
     item.group.updateMatrixWorld(true);item.points[index]=item.group.worldToLocal(world.clone()).toArray();
-    const next=item.points.findIndex((pos,i)=>i>index&&!pos);
+    const next=advance?item.points.findIndex((pos,i)=>i>index&&!pos):-1;
     this.tap='';
     if(next>=0){$('point').value=String(next);this.tap='point'}
     this.fields(false);
@@ -570,7 +633,7 @@ export class DetailsStudio {
   }
   storePoint(){
     const values=axis.map(k=>$('point-'+k).valueAsNumber);
-    if(values.every(Number.isFinite))this.setPoint(p(values));
+    if(values.every(Number.isFinite))this.setPoint(p(values),false);
   }
   keyFields(){
     const item=this.item();if(!item)return;
@@ -597,11 +660,18 @@ export class DetailsStudio {
   async assemble(){
     const clips=this.api.clips();
     const parts=this.items.map(item=>{
+      if(item.pendingParent!==item.parent)throw Error('Подтверди крепление детали «'+item.name+'» кнопкой «Привязать к кости».');
+      if(item.tail&&item.parent<0)throw Error('Сначала привяжи хвост к кости персонажа.');
       if(item.parent>=0&&item.points.some(v=>!v))throw Error('Поставь все точки цепочки у детали «'+item.name+'».');
       const points=item.parent<0?[]:item.points.map(at=>p(at).applyMatrix4(item.group.matrixWorld).toArray());
       const tracks=points.slice(1).map((_,i)=>({bone:i,keys:item.keys.filter(k=>k.bone===i)}));
-      return {name:item.name,parent:item.parent,matrix:this.placement(item).toArray(),bytes:item.bytes,points,
+      const rig={name:item.name,parent:item.parent,points,
         animation:{body:item.body,duration:clips[item.body]?.duration??item.duration,name:item.name+' · Движение',tracks}};
+      if(item.tail){
+        const height=new THREE.Box3().setFromObject(this.body.root).getSize(new THREE.Vector3()).y;
+        return {...rig,tail:true,radius:item.radius*height/100};
+      }
+      return {...rig,matrix:this.placement(item).toArray(),bytes:item.bytes};
     });
     const input=await this.api.input(this.body.bytes);
     if(!parts.length)return {bytes:input};
@@ -611,14 +681,14 @@ export class DetailsStudio {
     this.attach('');this.hideKnife();this.dropPiece();this.tap='';
     await this.busyWork(async()=>{
       this.message('Собираем персонажа с деталями для проверки…');
-      const {bytes}=await this.assemble(), result=await this.api.load(bytes);
+      const {bytes,tailVertices}=await this.assemble(), result=await this.api.load(bytes);
       if(!this.active){this.api.release(result.scene);return}
       this.result={...result,bytes};
       this.api.scene.add(result.scene);
       $('clip').replaceChildren(...result.animations.map((clip,i)=>new Option(clip.name||'Движение '+(i+1),i)));
       $('clip').value=String(result.animations.length-1);
       this.visibility();this.playClip();
-      this.message('Проверь движение деталей на готовой модели.');
+      this.message('Проверь движение деталей на готовой модели.'+(tailVertices?' Веса хвоста: '+tailVertices+' вершин.':''));
     });
   }
   playClip(){

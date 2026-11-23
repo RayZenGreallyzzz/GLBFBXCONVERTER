@@ -18,6 +18,11 @@ export function suggestRigGuides({min,max},positions=null){
  }
  if(positions){
   const median=a=>{a.sort((x,y)=>x-y);return a[Math.floor(a.length/2)]};
+  for(const key of ['hips','chest','neck','head']){
+   const p=out[key],depths=[];
+   for(let i=0;i<positions.length;i+=3)if(Math.abs(positions[i]-cx)<w*.14&&Math.abs(positions[i+1]-p[1])<h*.025)depths.push(positions[i+2]);
+   if(depths.length>=8)p[2]=median(depths);
+  }
   // Geometric draft only. The user confirms the joint centre in both views;
   // this does not identify anatomy or promise an automatic rig without review.
   for(const side of ['left','right'])for(const part of ['Shoulder','Elbow','Wrist']){

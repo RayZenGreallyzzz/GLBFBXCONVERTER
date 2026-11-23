@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {RIG_GUIDES,suggestRigGuides} from './rig-guides.js';
 import {startGuidedRig} from './guided-rig-client.js';
 import {rigBendTestClip} from './rig-preview.js';
+import {setCameraView,viewDirections} from './view-presets.js';
 
 const $=id=>document.getElementById(id);
 export class GuidedRigUI{
@@ -9,7 +10,9 @@ export class GuidedRigUI{
   this.api=api;this.guides=null;this.bounds=null;this.result=null;this.sourceId=null;this.job=null;this.mixer=null;this.testRoot=null;this.view='front';this.tab=false;this.feedback=null;
   this.overlay=new THREE.Group();this.overlay.visible=false;api.scene.add(this.overlay);
   for(const [key,label]of RIG_GUIDES){const o=document.createElement('option');o.value=key;o.textContent=label;$('rig-joint').append(o)}
-  $('rig-draft').addEventListener('click',()=>this.draft());$('rig-front').addEventListener('click',()=>this.setView('front'));$('rig-side').addEventListener('click',()=>this.setView('side'));
+  this.views=[...$('rig-views').querySelectorAll('button')];
+  $('rig-draft').addEventListener('click',()=>this.draft());
+  for(const button of this.views)button.addEventListener('click',()=>this.setView(button.dataset.rigView));
   $('rig-joint').addEventListener('change',()=>{this.fields();this.markers()});
   for(const axis of ['x','y','z'])$('rig-'+axis).addEventListener('change',()=>{if(!this.guides||api.busy())return;const value=Number($('rig-'+axis).value);if(!Number.isFinite(value)){this.fields();return}this.invalidate();this.guides[$('rig-joint').value][['x','y','z'].indexOf(axis)]=value;this.markers();this.refresh()});
   for(const id of ['rig-confirm','rig-edit'])$(id).addEventListener('change',()=>this.refresh());
@@ -28,12 +31,14 @@ export class GuidedRigUI{
   if(id!==this.sourceId){this.sourceId=id;this.guides=null;this.bounds=null;this.clearResult();this.feedback=null;$('rig-confirm').checked=false;this.clearMarkers()}
   const eligible=this.eligible(),busy=this.api.busy();
   $('rig-draft').disabled=!eligible||busy;$('rig-build').disabled=!eligible||busy||!this.guides||!$('rig-confirm').checked;
-  for(const id of ['rig-front','rig-side','rig-joint','rig-x','rig-y','rig-z','rig-edit','rig-confirm','rig-resolution','rig-head-strength'])$(id).disabled=busy||!this.guides;
+  for(const e of [...this.views,...['rig-joint','rig-x','rig-y','rig-z','rig-edit','rig-confirm','rig-resolution','rig-head-strength'].map($)])e.disabled=busy||!this.guides;
   for(const id of ['rig-export','rig-use','rig-edit-weights','rig-use-fingers','rig-test-play'])$(id).disabled=busy||!this.result;
   $('rig-test-stop').disabled=busy||!this.mixer;$('rig-cancel').hidden=!this.job;
   this.overlay.visible=this.tab&&!!this.guides&&$('rig-edit').checked&&!busy;
-  this.api.orbit.enabled=!(this.tab&&this.guides&&$('rig-edit').checked&&!busy);
-  if(!this.job&&!this.result)$('rig-status').textContent=this.feedback||(!s.root?'Загрузи GLB без скелета, анимаций и форм.':!eligible?'Для нового скелета нужен обычный GLB без костей, анимаций и Blend Shapes. Готовый скелет используй во вкладке «Анимации».':!this.guides?'Создай черновик точек и проверь суставы спереди и сбоку.':'Левая и правая стороны относятся к персонажу. Выбери сустав и поставь его центр в обеих проекциях.');
+  const ownsOrbit=this.overlay.visible;
+  if(ownsOrbit||this.ownsOrbit)this.api.orbit.enabled=!ownsOrbit;
+  this.ownsOrbit=ownsOrbit;
+  if(!this.job&&!this.result)$('rig-status').textContent=this.feedback||(!s.root?'Загрузи GLB без скелета, анимаций и форм.':!eligible?'Для готового скелета открой «Детали», чтобы добавить кости хвоста или привязать оружие.':!this.guides?'Создай черновик точек и проверь суставы с четырёх сторон.':'Выбери сустав и поставь его центр. Левая и правая стороны относятся к персонажу.');
  }
  setTab(value){this.tab=value;this.refresh()}
  clearMarkers(){for(const o of [...this.overlay.children]){this.overlay.remove(o);o.geometry?.dispose();o.material?.dispose()}}
@@ -54,15 +59,18 @@ export class GuidedRigUI{
  invalidate({keepConfirmation=false}={}){this.stop();if(this.result)this.api.invalidate();this.result=null;this.feedback=null;if(!keepConfirmation)$('rig-confirm').checked=false}
  setView(view){
   if(!this.bounds)return;this.view=view;const box=new THREE.Box3(new THREE.Vector3(...this.bounds.min),new THREE.Vector3(...this.bounds.max)),center=box.getCenter(new THREE.Vector3()),h=box.getSize(new THREE.Vector3()).length();
-  this.api.orbit.target.copy(center);this.api.camera.up.set(0,1,0);this.api.camera.position.copy(center).add(view==='front'?new THREE.Vector3(0,0,h*1.3):new THREE.Vector3(h*1.3,0,0));this.api.orbit.update();
-  $('rig-front').setAttribute('aria-pressed',String(view==='front'));$('rig-side').setAttribute('aria-pressed',String(view==='side'));this.refresh();
+  const {camera,orbit}=this.api;
+  setCameraView(camera,orbit,center,viewDirections[view],h*1.3/Math.min(1,camera.aspect));
+  for(const button of this.views)button.setAttribute('aria-pressed',String(button.dataset.rigView===view));
+  this.refresh();
  }
  place(event){
   if(!this.tab||!this.guides||this.api.busy()||!$('rig-edit').checked)return;
   const rect=this.api.canvas.getBoundingClientRect(),p=this.guides[$('rig-joint').value],ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),this.api.camera);
-  const plane=new THREE.Plane(this.view==='front'?new THREE.Vector3(0,0,1):new THREE.Vector3(1,0,0),-(this.view==='front'?p[2]:p[0])),point=new THREE.Vector3();
+  const side=this.view==='left'||this.view==='right';
+  const plane=new THREE.Plane(side?new THREE.Vector3(1,0,0):new THREE.Vector3(0,0,1),-p[side?0:2]),point=new THREE.Vector3();
   if(!ray.ray.intersectPlane(plane,point))return;const h=this.bounds.max[1]-this.bounds.min[1];if(point.toArray().some((x,k)=>x<this.bounds.min[k]-h*.2||x>this.bounds.max[k]+h*.2))return;
-  this.invalidate();if(this.view==='front'){p[0]=point.x;p[1]=point.y}else{p[1]=point.y;p[2]=point.z}this.fields();this.markers();this.refresh();
+  this.invalidate();p[1]=point.y;p[side?2:0]=side?point.z:point.x;this.fields();this.markers();this.refresh();
  }
  clearResult(){this.stop();this.result=null;this.testRoot=null;this.refreshResultButtons()}
  refreshResultButtons(){for(const id of ['rig-export','rig-use','rig-edit-weights','rig-use-fingers','rig-test-play','rig-test-stop'])$(id).disabled=true}

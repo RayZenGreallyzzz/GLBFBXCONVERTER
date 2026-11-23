@@ -185,6 +185,7 @@
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-rig" class="tab-panel hidden">
+    <button type="button" id="rig-detail-entry">Добавить кости хвоста или привязать оружие</button>
     <h2 id="finger-heading">Пальцы рук</h2>
     <button type="button" id="finger-open" class="primary" disabled>Подготовить кости пальцев</button>
     <p id="finger-status" class="tip" role="status">Загрузи GLB со скелетом или создай скелет тела.</p>
@@ -225,14 +226,16 @@
     <p class="tip">Тестовый режим для гуманоидного GLB без костей, анимаций и Blend Shapes, стоящего в T/A-позе. Создай черновик точек, проверь центры суставов спереди и сбоку, затем рассчитай веса. Сетка и исходные изображения сохраняются. Всё работает офлайн.</p>
     <button type="button" id="rig-draft" class="primary" disabled>＋ СОЗДАТЬ ЧЕРНОВИК ТОЧЕК</button>
     <div class="compare-report">
-      <div class="row-buttons"><button type="button" id="rig-front" aria-pressed="true" disabled>Спереди</button><button type="button" id="rig-side" aria-pressed="false" disabled>Сбоку</button></div>
+      <div class="row-buttons" id="rig-views" role="group" aria-label="Ракурс расстановки точек">
+        <button type="button" id="rig-front" data-rig-view="front" aria-pressed="true" disabled>Спереди</button><button type="button" id="rig-back" data-rig-view="back" aria-pressed="false" disabled>Сзади</button><button type="button" id="rig-left" data-rig-view="left" aria-pressed="false" disabled>Слева</button><button type="button" id="rig-right" data-rig-view="right" aria-pressed="false" disabled>Справа</button>
+      </div>
       <label>Сустав<select id="rig-joint" disabled></select></label>
-      <p class="tip">Жёлтая точка — выбранный сустав. При включённой расстановке коснись просмотра: спереди задаются положение и высота, сбоку — глубина и высота. Левая и правая стороны относятся к персонажу.</p>
+      <p class="tip">Жёлтая точка показывает выбранный сустав. Спереди и сзади меняй ширину и высоту, слева и справа — глубину и высоту. Стороны указаны для персонажа.</p>
       <label><input type="checkbox" id="rig-edit" checked disabled> Расставлять точки касанием</label>
       <details><summary>Точное положение сустава</summary><label>X <input id="rig-x" type="number" step="any" disabled></label><label>Y <input id="rig-y" type="number" step="any" disabled></label><label>Z <input id="rig-z" type="number" step="any" disabled></label></details>
       <label>Точность расчёта весов<select id="rig-resolution" disabled><option value="32">Экономно</option><option value="48" selected>Баланс</option><option value="64">Точнее — больше памяти</option></select></label>
       <label>Коррекция автовесов головы <output id="rig-head-strength-value">100%</output><input id="rig-head-strength" type="range" min="0" max="100" value="100" disabled></label>
-      <label><input type="checkbox" id="rig-confirm" disabled> Я проверил точки спереди и сбоку</label>
+      <label><input type="checkbox" id="rig-confirm" disabled> Точки суставов проверены</label>
     </div>
     <button type="button" id="rig-build" class="primary" disabled>● СОЗДАТЬ СКЕЛЕТ И ВЕСА</button>
     <button type="button" id="rig-cancel" hidden>Отменить создание скелета</button>
@@ -434,14 +437,19 @@
 </section>
 <section id="tab-details" class="tab-panel hidden">
   <h2>Детали</h2>
-  <label id="detail-import" class="load" hidden>＋ Добавить детали<input id="detail-file" type="file" multiple accept=".glb" hidden></label>
+  <div class="detail-actions">
+    <label id="detail-import" class="load" hidden>＋ Загрузить оружие или деталь<input id="detail-file" type="file" multiple accept=".glb" hidden></label>
+    <button id="detail-tail" type="button" disabled>Добавить кости хвоста на персонаже</button>
+  </div>
   <p id="detail-status" class="tip" role="status">Загрузи готового персонажа в формате GLB.</p>
   <fieldset id="detail-controls" class="detail-fields" disabled>
     <label>Модель в сцене<select id="detail-selected"><option>Персонаж</option></select></label>
     <div class="detail-actions" role="group" aria-label="Вид">
       <button id="detail-focus" type="button">Приблизить</button>
       <button id="detail-front" type="button">Спереди</button>
-      <button id="detail-side" type="button">Сбоку</button>
+      <button id="detail-back" type="button">Сзади</button>
+      <button id="detail-side" type="button">Слева</button>
+      <button id="detail-right" type="button">Справа</button>
     </div>
     <div class="detail-actions" role="group" aria-label="Гизмо">
       <button id="detail-camera" type="button" aria-pressed="true">Камера</button>
@@ -451,18 +459,24 @@
     </div>
     <div id="detail-part" class="compare-report" hidden>
       <label>Имя детали<input id="detail-name" type="text" maxlength="60"></label>
+      <div id="detail-placement">
       <button id="detail-position" type="button">Настроить положение детали</button>
       <details><summary>Точное положение детали</summary>
         <div class="skin-coordinates"><label>X<input id="detail-place-x" type="number" step="any"></label><label>Y<input id="detail-place-y" type="number" step="any"></label><label>Z<input id="detail-place-z" type="number" step="any"></label></div>
-        <div class="detail-actions"><button id="detail-reset-place" type="button">Сбросить положение</button><button id="detail-remove" type="button">Убрать деталь</button></div>
+        <button id="detail-reset-place" type="button">Сбросить положение</button>
       </details>
+      </div>
       <label>Кость крепления<select id="detail-parent"><option value="-1">Без крепления</option></select></label>
+      <div class="detail-actions"><button id="detail-bind" type="button">Привязать к кости</button><button id="detail-add-bones" type="button">Добавить кости</button></div>
+      <p id="detail-binding" class="tip"></p>
       <label>Движение детали<select id="detail-chain"><option value="0">Жёсткое крепление</option><option value="1">Своя кость</option><option value="2">Две кости</option><option value="3">Три кости</option><option value="4">Четыре кости</option></select></label>
       <div id="detail-chain-controls" hidden>
+        <label id="detail-region" hidden>Радиус весов хвоста, % роста<input id="detail-radius" type="number" min="1" max="18" step="0.5" value="6"></label>
         <label>Точка цепочки <output id="detail-points-count"></output><select id="detail-point"></select></label>
         <button id="detail-mark" type="button">Поставить точку касанием</button>
         <div class="skin-coordinates" id="detail-point-fields"><label>X<input id="detail-point-x" type="number" step="any"></label><label>Y<input id="detail-point-y" type="number" step="any"></label><label>Z<input id="detail-point-z" type="number" step="any"></label></div>
       </div>
+      <div class="detail-actions"><button id="detail-open-motion" type="button">Открыть анимацию детали</button><button id="detail-remove" type="button">Убрать деталь</button></div>
       <details id="detail-animation" hidden><summary>Своя анимация</summary>
         <label>Движение тела<select id="detail-motion-body"></select></label>
         <label>Длительность, с<input id="detail-duration" type="number" min=".1" max="120" step=".1" value="2"></label>
@@ -474,7 +488,7 @@
         <button id="detail-key-delete" type="button" disabled>Удалить ключ</button>
       </details>
     </div>
-    <div class="compare-report">
+    <div id="detail-knife-panel" class="compare-report">
       <h3>Нож</h3>
       <button id="detail-knife" type="button">Поставить пластину касанием</button>
       <div id="detail-knife-controls" hidden>

@@ -15,8 +15,8 @@ export function startDetailsJob(operation,input,options,parts=[],onProgress=()=>
         else finish(null,data.result);
       };
       worker.onerror=()=>finish(Error('Ошибка обработчика деталей.'));
-      const source=new Uint8Array(input).slice(), copies=parts.map(p=>({...p,bytes:new Uint8Array(p.bytes).slice()}));
-      worker.postMessage({operation,input:source,options,parts:copies},[source.buffer,...copies.map(p=>p.bytes.buffer)]);
+      const source=new Uint8Array(input).slice(), copies=parts.map(p=>p.bytes?{...p,bytes:new Uint8Array(p.bytes).slice()}:p);
+      worker.postMessage({operation,input:source,options,parts:copies},[source.buffer,...copies.flatMap(p=>p.bytes?[p.bytes.buffer]:[])]);
       timer=setTimeout(()=>finish(Error('Правка заняла больше трёх минут. Уменьши размер моделей.')),180000);
     }catch(error){finish(error)}
   });

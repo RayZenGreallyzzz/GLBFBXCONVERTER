@@ -172,7 +172,10 @@ try{
  const bodyIO=new WebIO().registerExtensions([EXTTextureWebP]),bodyDoc=await bodyIO.readBinary(body.bytes);bodyDoc.getRoot().listTextures()[0].setImage(new Uint8Array(Buffer.from(webp,'base64'))).setMimeType('image/webp');bodyDoc.createExtension(EXTTextureWebP).setRequired(true);body.bytes=await bodyIO.writeBinary(bodyDoc);
  await load(body.bytes,'body-original.glb');await page.locator('[data-tab="rig"]').click();
  assert.equal(await page.locator('#rig-build').isDisabled(),true);await page.locator('#rig-draft').click();
- assert.equal(await page.locator('#rig-joint option').count(),18);await page.locator('#rig-side').click();assert.equal(await page.locator('#rig-side').getAttribute('aria-pressed'),'true');await page.locator('#rig-front').click();
+ assert.equal(await page.locator('#rig-joint option').count(),18);
+ for(const id of ['rig-left','rig-right','rig-back','rig-front']){
+   await page.locator('#'+id).click();assert.equal(await page.locator('#'+id).getAttribute('aria-pressed'),'true');
+ }
  await page.locator('#rig-resolution').selectOption('32');await page.locator('#rig-confirm').check();await page.locator('#rig-build').click();
  await page.locator('#rig-cancel').waitFor({state:'visible'});await page.locator('#rig-cancel').click();
  await page.waitForFunction(()=>/отменено/.test(document.getElementById('rig-status').textContent)&&!document.getElementById('rig-build').disabled);

@@ -4,7 +4,7 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {rigBoneSpec,suggestRigGuides} from '../../src/rig-guides.js';
 import {DIGITS} from '../../src/finger-rig.js';
 
-export async function fingerFixture() {
+export async function fingerFixture({tail=false}={}) {
   const bounds={min:[-1,0,-.23],max:[1,2,.23]}, guides=suggestRigGuides(bounds), bones=rigBoneSpec(guides,bounds);
   const doc=new Document(), buffer=doc.createBuffer(), scene=doc.createScene();
   const nodes=bones.map(b=>doc.createNode(b.name).setTranslation(b.translation.toArray()).setRotation(b.rotation.toArray()));
@@ -39,6 +39,7 @@ export async function fingerFixture() {
     }
     draft.hands[side]={palmDown:palmDown.toArray(),length:.19,fingers};
   }
+  if(tail)cylinder(new Vector3(0,1.09,-.075),new Vector3(0,.82,-.76),.046,0);
   const merged=mergeGeometries(geos), positions=merged.attributes.position.array;
   const joints=new Uint16Array(positions.length/3*4), weights=new Float32Array(joints.length);
   let at=0;

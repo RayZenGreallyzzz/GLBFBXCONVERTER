@@ -27,6 +27,17 @@ export class MouthShapeDraft {
     this.overrides = new Map();
     const v = new Vector3();
     for (let i=0;i<positions.count;i++) v.fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld).toArray(this.points,i*3);
+    const center = this.pivot.dot(this.right), depths = [];
+    for (let i=0;i<this.points.length;i+=3) {
+      v.fromArray(this.points,i);
+      if (Math.abs(v.y-this.pivot.y)<this.height*.06&&
+          Math.abs(v.dot(this.right)-center)<this.height*.13) depths.push(v.dot(this.front));
+    }
+    if (depths.length>=24) {
+      depths.sort((a,b)=>a-b);
+      this.pivot.addScaledVector(this.front,depths[Math.floor(depths.length*.69)]-this.pivot.dot(this.front));
+    }
+    this.faceCenter=this.pivot.clone();
   }
 
   influence(point) {

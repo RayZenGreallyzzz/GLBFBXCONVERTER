@@ -1,7 +1,8 @@
-import {AnimationMixer, LoopOnce, Mesh, MeshBasicMaterial, Raycaster, SphereGeometry, Vector2, Vector3} from 'three';
+import {AnimationMixer, LoopOnce, Mesh, MeshBasicMaterial, Plane, Raycaster, SphereGeometry, Vector2, Vector3} from 'three';
 import {appendFaceClip, appendMouthShapes, faceNodes, FaceTimeline} from './face-animation.js';
 import {jointGlb} from './joint-glb.js';
 import {MouthShapeDraft} from './mouth-shapes.js';
+import {setCameraView} from './view-presets.js';
 
 const $ = id => document.getElementById('face-'+id);
 const number = id => $(id).valueAsNumber;
@@ -163,7 +164,7 @@ export class FaceStudio {
       const meshId=json.nodes[id]?.mesh, m=json.meshes[meshId];
       return group.length===1&&m?.primitives.length===1&&counts.get(meshId)===1&&
         group[0].geometry.attributes.position.count<=500000&&
-        !json.extras?.phoenixJointForms?.meshes.some(m=>m.node===id||m.nodeName===json.nodes[id].name)&&
+        !json.extras?.phoenixJointForms?.meshes?.some(m=>m.node===id||m.nodeName===json.nodes[id].name)&&
         !m.extras?.targetNames?.some(name=>name==='MouthOpen'||name==='MouthClose');
     });
     $('mesh').replaceChildren(...eligible.map(([id,[mesh]])=>new Option(mesh.name||'Меш '+(id+1),id)));
@@ -345,20 +346,35 @@ export class FaceStudio {
   }
 
   camera(side) {
+    if (!this.draft) return;
+    $('mode').value=side;
     this.beginMarking();
     const {camera,orbit}=this.api;
     const draft=this.draft;
-    orbit.target.copy(draft.pivot).addScaledVector(draft.front,draft.unit*.05);
-    camera.position.copy(orbit.target).addScaledVector(side==='side'?draft.right:draft.front,Math.max(.01,draft.unit*.72));
-    orbit.update();
-    camera.updateMatrixWorld(true);
+    const center=draft.faceCenter.clone().addScaledVector(draft.front,draft.unit*.06);
+    setCameraView(camera,orbit,center,side==='side'?draft.right:draft.front,Math.max(.01,draft.unit*.72)/Math.min(1,camera.aspect));
   }
 
-  hit(event) {
+  cast(event) {
     const rect=this.api.canvas.getBoundingClientRect();
     const at=new Vector2((event.clientX-rect.left)/rect.width*2-1,1-(event.clientY-rect.top)/rect.height*2);
     this.ray.setFromCamera(at,this.api.camera);
+  }
+
+  hit(event) {
+    this.cast(event);
     return this.ray.intersectObject(this.draft.mesh,false)[0]?.point;
+  }
+
+  mark(event,mode) {
+    this.cast(event);
+    const {pivot,front,right,faceCenter,height}=this.draft;
+    const normal=mode==='side'?right:front;
+    const point=this.ray.ray.intersectPlane(new Plane().setFromNormalAndCoplanarPoint(normal,pivot),new Vector3());
+    if (!point||point.distanceTo(faceCenter)>height*.32) return;
+    pivot.copy(point);
+    this.marker();
+    $('status').textContent='Шарнир отмечен. Проверь точку с другого ракурса.';
   }
 
   pointerDown(event) {
@@ -367,30 +383,27 @@ export class FaceStudio {
     event.preventDefault();
     event.stopImmediatePropagation();
     this.guard(()=>{
-      const hit=this.hit(event);
-      if (!hit) return;
-      if (mode==='front'||mode==='side') {
-        const axis=mode==='front'?this.draft.right:this.draft.front;
-        const difference=hit.clone().sub(this.draft.pivot);
-        this.draft.pivot.addScaledVector(axis,difference.dot(axis));
-        this.draft.pivot.y=hit.y;
-        this.marker();
-        $('status').textContent='Шарнир отмечен. Проверь точку с другого ракурса.';
-        return;
-      }
       this.pointer=event.pointerId;
       this.api.canvas.setPointerCapture?.(this.pointer);
-      this.paint(hit,mode);
+      if (mode==='front'||mode==='side') this.mark(event,mode);
+      else {
+        const hit=this.hit(event);
+        if (hit) this.paint(hit,mode);
+      }
     });
   }
 
   pointerMove(event) {
-    if (event.pointerId!==this.pointer||!this.active||this.api.model().busy||performance.now()-(this.dabTime||0)<45) return;
+    if (event.pointerId!==this.pointer||!this.active||!$('setup').open||!this.draft||this.api.model().busy) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     this.guard(()=>{
-      const hit=this.hit(event);
-      if (hit) this.paint(hit,$('mode').value);
+      const mode=$('mode').value;
+      if (mode==='front'||mode==='side') this.mark(event,mode);
+      else if (performance.now()-(this.dabTime||0)>=45) {
+        const hit=this.hit(event);
+        if (hit) this.paint(hit,mode);
+      }
     });
   }
 

@@ -1,4 +1,4 @@
-import {Matrix3,Matrix4, Vector3, Quaternion, Euler} from 'three';
+import {Matrix3,Matrix4, Vector3, Quaternion, Euler, MathUtils} from 'three';
 import {PropertyType} from '@gltf-transform/core';
 import {copyToDocument,prune} from '@gltf-transform/functions';
 import {attributeValues} from './static-simplify.js';
@@ -45,7 +45,7 @@ function newChain(doc,buffer,skin,parent,points,bind,name){
   return {arm,nodes};
 }
 
-function assign(detail,point){
+function assign(detail,point,region){
   const {arm,index}=detail;
   if(!arm?.length)return [[index,1]];
   let best=0, at=0, distance=Infinity;
@@ -54,6 +54,7 @@ function assign(detail,point){
     const d=offset.addScaledVector(b.axis,-Math.max(0,Math.min(b.length,t))).lengthSq();
     if(d<distance){distance=d;best=i;at=t/b.length}
   }
+  if(region){region.distance=Math.sqrt(distance);region.projected=at;region.segment=best}
   const a=arm[best].index;
   if(best>0&&at<.22){
     const k=.5*(1-Math.min(.22,Math.max(0,at))/.22);
@@ -64,6 +65,45 @@ function assign(detail,point){
     return [[a,1-k],[arm[best+1].index,k]];
   }
   return [[a,1]];
+}
+
+function bindTail(doc,buffer,sourceNodes,skin,detail,radius){
+  if(!(radius>0&&Number.isFinite(radius)))throw Error('Укажи радиус весов хвоста.');
+  const candidates=sourceNodes.filter(node=>node.getSkin()===skin&&node.getMesh());
+  const count=node=>node.getMesh().listPrimitives().reduce((sum,p)=>sum+(p.getAttribute('POSITION')?.getCount()||0),0);
+  const body=candidates.reduce((best,node)=>!best||count(node)>count(best)?node:best,null);
+  if(!body||count(body)>maxVertices)throw Error('Для хвоста нужен меш персонажа со скелетом до 650 тысяч вершин.');
+  const mesh=body.getMesh().clone(), point=new Vector3(), region={}, world=matrix(body.getWorldMatrix());
+  let changed=0;
+  for(const primitive of body.getMesh().listPrimitives()){
+    const positions=primitive.getAttribute('POSITION'), joints=primitive.getAttribute('JOINTS_0'), weights=primitive.getAttribute('WEIGHTS_0');
+    if(!positions||!joints||!weights||primitive.getAttribute('WEIGHTS_1'))throw Error('Для хвоста нужен меш с четырьмя весами на вершину.');
+    const out=primitive.clone(), vertices=attributeValues(positions), ids=Uint16Array.from(joints.getArray()), values=Float32Array.from(attributeValues(weights));
+    for(let i=0;i<vertices.length;i+=3){
+      const influences=assign(detail,point.fromArray(vertices,i).applyMatrix4(world),region);
+      if(region.distance>=radius||(region.segment===0&&region.projected<=0))continue;
+      const baseFade=region.segment===0?MathUtils.smoothstep(region.projected,0,.43):1;
+      const amount=baseFade*(1-MathUtils.smoothstep(region.distance,radius*.66,radius));
+      if(amount<.0001)continue;
+      const at=i/3*4, combined=new Map();
+      for(let k=0;k<4;k++)if(values[at+k]>0)combined.set(ids[at+k],(combined.get(ids[at+k])||0)+values[at+k]*(1-amount));
+      for(const [bone,w] of influences)combined.set(bone,(combined.get(bone)||0)+w*amount);
+      const sorted=[...combined].filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,4);
+      if(!sorted.some(([bone])=>bone>=detail.arm[0].index))continue;
+      const sum=sorted.reduce((s,[,w])=>s+w,0);
+      for(let k=0;k<4;k++){
+        ids[at+k]=sorted[k]?.[0]||0;
+        values[at+k]=(sorted[k]?.[1]||0)/sum;
+      }
+      changed++;
+    }
+    out.setAttribute('JOINTS_0',appendAccessor(doc,buffer,'VEC4',ids));
+    out.setAttribute('WEIGHTS_0',appendAccessor(doc,buffer,'VEC4',values));
+    mesh.removePrimitive(primitive).addPrimitive(out);
+  }
+  if(!changed)throw Error('В радиусе цепочки нет вершин хвоста. Уточни точки или увеличь радиус.');
+  body.setMesh(mesh);
+  return changed;
 }
 
 function transformPrimitive(doc,buffer,part,already,placement,inverseBind,detail){
@@ -152,24 +192,17 @@ function appendDetailClip(doc,buffer,baseClips,part,nodes,layers){
 }
 
 export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress=()=>{}}={}){
-  const size=base.byteLength+parts.reduce((s,p)=>s+p.bytes.byteLength,0);
+  const size=base.byteLength+parts.reduce((s,p)=>s+(p.bytes?.byteLength||0),0);
   if(size*3+40*MiB>memoryBudgetMiB*MiB)throw Error('Недостаточно памяти для всех деталей. Уменьши размеры моделей.');
   const io=await createCodecIO(base),doc=await io.readBinary(base), root=doc.getRoot(),
     scene=root.getDefaultScene()||root.listScenes()[0], buffer=root.listBuffers()[0]||doc.createBuffer(),
     sourceNodes=root.listNodes(), baseClips=root.listAnimations();
   if(!scene)throw Error('У персонажа нет сцены.');
   removeGeometryCompression(doc);
-  let vertices=0;
+  let vertices=0,tailVertices=0;
   const layers=new Map();
   for(const [partIndex,part] of parts.entries()){
-    const sourceIo=await createCodecIO(part.bytes), source=await sourceIo.readBinary(part.bytes), partRoot=source.getRoot();
-    if(partRoot.listSkins().length||partRoot.listAnimations().length)throw Error('Загрузи деталь как GLB без собственного скелета и клипов.');
-    removeGeometryCompression(source);
-    const sourceScene=partRoot.getDefaultScene()||partRoot.listScenes()[0], original=[];
-    sourceScene?.traverse(n=>{if(n.getMesh())original.push(n)});
-    if(!original.length)throw Error('В детали нет сетки.');
-    const ext=copyToDocument(doc,source,[...new Set(original.map(n=>n.getMesh()))]);
-    const placement=matrix(part.matrix), parent=sourceNodes[part.parent],
+    const parent=sourceNodes[part.parent],
       skin=parent?root.listSkins().find(s=>s.listJoints().includes(parent)):null;
     const bind=new Matrix4();
     let detail=null, motionNodes=[];
@@ -183,6 +216,21 @@ export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress
         detail.arm=result.arm;motionNodes=result.nodes;
       }
     }else if(part.parent>=0)throw Error('Выбери кость крепления в скелете персонажа.');
+    if(part.tail){
+      if(!skin||!detail?.arm?.length)throw Error('Для хвоста выбери кость таза и расставь точки цепочки.');
+      tailVertices+=bindTail(doc,buffer,sourceNodes,skin,detail,part.radius);
+      appendDetailClip(doc,buffer,baseClips,part,motionNodes,layers);
+      onProgress(Math.round((partIndex+1)/parts.length*80));
+      continue;
+    }
+    const sourceIo=await createCodecIO(part.bytes), source=await sourceIo.readBinary(part.bytes), partRoot=source.getRoot();
+    if(partRoot.listSkins().length||partRoot.listAnimations().length)throw Error('Загрузи деталь как GLB без собственного скелета и клипов.');
+    removeGeometryCompression(source);
+    const sourceScene=partRoot.getDefaultScene()||partRoot.listScenes()[0], original=[];
+    sourceScene?.traverse(n=>{if(n.getMesh())original.push(n)});
+    if(!original.length)throw Error('В детали нет сетки.');
+    const ext=copyToDocument(doc,source,[...new Set(original.map(n=>n.getMesh()))]);
+    const placement=matrix(part.matrix);
     const inverse=bind.clone().invert();
     for(const node of original){
       const originalMesh=ext.get(node.getMesh()), mesh=doc.createMesh(part.name).setExtras(originalMesh.getExtras()).setWeights(originalMesh.getWeights());
@@ -204,5 +252,5 @@ export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress
   await doc.transform(prune({propertyTypes:[PropertyType.MESH,PropertyType.PRIMITIVE,PropertyType.ACCESSOR,PropertyType.MATERIAL],keepAttributes:true,keepExtras:true}));
   const bytes=await io.writeBinary(doc), check=inspectGlb(bytes).json;
   if((check.animations||[]).length<baseClips.length)throw Error('Проверка не нашла все исходные анимации.');
-  return {bytes,clips:check.animations?.length||0,parts:parts.length};
+  return {bytes,clips:check.animations?.length||0,parts:parts.length,tailVertices};
 }
