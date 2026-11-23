@@ -150,6 +150,9 @@ main:has(#tab-rig:not(.hidden) #finger-tools:not([hidden]))>.view{position:stick
 .detail-fields input:not([type=checkbox]):not([type=color]){width:100%;min-width:0}
 .detail-fields input:not([type=checkbox]):not([type=color]):not([type=range]){background:#112239;color:#e9f4fc;border:1px solid #315772;border-radius:7px;padding:8px 5px}
 .detail-fields output{color:#83d6ef}
+.detail-axis-sliders label{gap:3px}
+.detail-axis-sliders label>span{display:flex;justify-content:space-between;gap:8px}
+.detail-axis-sliders input[type=range]{min-height:36px;accent-color:#24afd5}
 .detail-actions{display:flex;align-items:stretch;flex-wrap:wrap;gap:6px;margin:8px 0}
 .detail-fields button:not(.primary),#detail-cancel,#detail-return,#detail-review,#detail-tail,#rig-detail-entry{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:9px;min-height:44px;cursor:pointer}
 .detail-fields button[aria-pressed=true]{background:#216d88;color:white}

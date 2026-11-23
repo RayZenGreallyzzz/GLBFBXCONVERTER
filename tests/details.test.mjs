@@ -70,7 +70,7 @@ test('places several parts on the same skin and layers new bone keys over a body
 test('extends the existing character mesh with a tail chain and preserves weights outside its region',async()=>{
  const {bytes:base}=await fingerFixture({tail:true}), io=new WebIO(), original=(await io.readBinary(base)).getRoot();
  const skin=original.listSkins()[0], parent=original.listNodes().indexOf(skin.listJoints()[0]);
- const tail={tail:true,name:'Хвост',parent,radius:.095,points:[[0,1.09,-.075],[0,1,-.30],[0,.91,-.53],[0,.82,-.76]],
+ const tail={tail:true,name:'Хвост',parent,radius:.095,points:[[0,1.09,-.075],[0,1.04,-.19],[0,.99,-.31],[0,.93,-.48]],
    animation:{body:0,duration:1,tracks:[{bone:1,keys:[{time:.5,value:[0,20,0]}]}]}};
  const result=await assembleDetails(base,[tail]), modified=(await io.readBinary(result.bytes)).getRoot();
  const first=skin.listJoints().length;
@@ -79,11 +79,20 @@ test('extends the existing character mesh with a tail chain and preserves weight
  assert.equal(modified.listNodes().filter(n=>n.getMesh()).length,1);
  const weights=root=>root.listMeshes()[0].listPrimitives()[0];
  const ids=weights(modified).getAttribute('JOINTS_0').getArray(), previous=weights(original).getAttribute('JOINTS_0').getArray();
+ const updated=weights(modified).getAttribute('WEIGHTS_0').getArray();
  const positions=weights(original).getAttribute('POSITION').getArray();
  assert.ok(ids.some(id=>id>=first));
- for(let i=0;i<positions.length/3;i++)if(positions[i*3+2]>=-.07){
-   assert.deepEqual(ids.slice(i*4,i*4+4),previous.slice(i*4,i*4+4));
+ let tip=0;
+ for(let i=0;i<positions.length/3;i++){
+   const z=positions[i*3+2], at=i*4;
+   if(z>=-.07)assert.deepEqual(ids.slice(at,at+4),previous.slice(at,at+4));
+   if(z<-.64){
+     tip++;
+     const newWeight=updated.slice(at,at+4).reduce((sum,w,j)=>sum+(ids[at+j]>=first?w:0),0);
+     assert.ok(newWeight>.9999,'the tip continues with the chain beyond the last marker');
+   }
  }
+ assert.ok(tip>0);
  assert.equal(modified.listAnimations()[1].listChannels().length,2);
  await validate(result.bytes);
 });

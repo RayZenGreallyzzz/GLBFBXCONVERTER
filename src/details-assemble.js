@@ -1,13 +1,14 @@
-import {Matrix3,Matrix4, Vector3, Quaternion, Euler, MathUtils} from 'three';
+import {Matrix3,Matrix4, Vector3, Quaternion} from 'three';
 import {PropertyType} from '@gltf-transform/core';
 import {copyToDocument,prune} from '@gltf-transform/functions';
 import {attributeValues} from './static-simplify.js';
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import {inspectGlb} from './format.js';
+import {tailRegion} from './detail-tail.js';
+import {detailFrames,detailTurn} from './detail-motion.js';
 
 const matrix=elements=>new Matrix4().fromArray(elements);
 const unit=new Vector3(1,1,1);
-const radians=degrees=>degrees*Math.PI/180;
 const maxVertices=650000;
 const MiB=1048576;
 
@@ -15,7 +16,7 @@ function appendAccessor(doc,buffer,type,data){
   return doc.createAccessor().setType(type).setBuffer(buffer).setArray(data);
 }
 
-function newChain(doc,buffer,skin,parent,points,bind,name){
+function newChain(doc,buffer,skin,parent,points,bind,name,poseId){
   const joints=skin.listJoints(), first=joints.length;
   if(points.length<2||points.length>5||first+points.length-1>256)throw Error('Для детали выбери от одной до четырёх костей.');
   const ibm=Float32Array.from(skin.getInverseBindMatrices().getArray());
@@ -36,6 +37,7 @@ function newChain(doc,buffer,skin,parent,points,bind,name){
     const p=new Vector3(), r=new Quaternion(), s=new Vector3();
     local.decompose(p,r,s);
     const newNode=doc.createNode(name+' · Кость '+(k+1)).setTranslation(p.toArray()).setRotation(r.normalize().toArray()).setScale(s.toArray());
+    if(poseId)newNode.setExtras({phoenixPoseBone:[poseId,k]});
     parent.addChild(newNode);skin.addJoint(newNode);
     basis=matrix(newNode.getWorldMatrix());
     basis.clone().invert().multiply(bind).toArray(inverse,(first+k)*16);
@@ -73,19 +75,22 @@ function bindTail(doc,buffer,sourceNodes,skin,detail,radius){
   const count=node=>node.getMesh().listPrimitives().reduce((sum,p)=>sum+(p.getAttribute('POSITION')?.getCount()||0),0);
   const body=candidates.reduce((best,node)=>!best||count(node)>count(best)?node:best,null);
   if(!body||count(body)>maxVertices)throw Error('Для хвоста нужен меш персонажа со скелетом до 650 тысяч вершин.');
-  const mesh=body.getMesh().clone(), point=new Vector3(), region={}, world=matrix(body.getWorldMatrix());
-  let changed=0;
-  for(const primitive of body.getMesh().listPrimitives()){
+  const mesh=body.getMesh().clone(), point=new Vector3(), world=matrix(body.getWorldMatrix());
+  const parts=body.getMesh().listPrimitives().map(primitive=>{
     const positions=primitive.getAttribute('POSITION'), joints=primitive.getAttribute('JOINTS_0'), weights=primitive.getAttribute('WEIGHTS_0');
-    if(!positions||!joints||!weights||primitive.getAttribute('WEIGHTS_1'))throw Error('Для хвоста нужен меш с четырьмя весами на вершину.');
-    const out=primitive.clone(), vertices=attributeValues(positions), ids=Uint16Array.from(joints.getArray()), values=Float32Array.from(attributeValues(weights));
-    for(let i=0;i<vertices.length;i+=3){
-      const influences=assign(detail,point.fromArray(vertices,i).applyMatrix4(world),region);
-      if(region.distance>=radius||(region.segment===0&&region.projected<=0))continue;
-      const baseFade=region.segment===0?MathUtils.smoothstep(region.projected,0,.43):1;
-      const amount=baseFade*(1-MathUtils.smoothstep(region.distance,radius*.66,radius));
+    if(!positions||!joints||!weights||primitive.getMode()!==4||primitive.getAttribute('WEIGHTS_1'))
+      throw Error('Для хвоста нужен треугольный меш с четырьмя весами на вершину.');
+    const vertices=Float32Array.from(attributeValues(positions));
+    for(let i=0;i<vertices.length;i+=3)point.fromArray(vertices,i).applyMatrix4(world).toArray(vertices,i);
+    return {primitive,vertices,joints,weights,indices:primitive.getIndices()?.getArray()};
+  });
+  const amounts=tailRegion(parts,detail.arm,radius,(point,region)=>assign(detail,point,region));
+  let changed=0;
+  for(const [partIndex,{primitive,vertices,joints,weights}] of parts.entries()){
+    const out=primitive.clone(), ids=Uint16Array.from(joints.getArray()), values=Float32Array.from(attributeValues(weights));
+    for(const [i,amount] of amounts[partIndex].entries()){
       if(amount<.0001)continue;
-      const at=i/3*4, combined=new Map();
+      const influences=assign(detail,point.fromArray(vertices,i*3)), at=i*4, combined=new Map();
       for(let k=0;k<4;k++)if(values[at+k]>0)combined.set(ids[at+k],(combined.get(ids[at+k])||0)+values[at+k]*(1-amount));
       for(const [bone,w] of influences)combined.set(bone,(combined.get(bone)||0)+w*amount);
       const sorted=[...combined].filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,4);
@@ -173,19 +178,12 @@ function appendDetailClip(doc,buffer,baseClips,part,nodes,layers){
     if(!track.keys.length)continue;
     const target=nodes[track.bone];
     if(!target)throw Error('Проверь кости и ключи детали.');
-    const duration=cfg.duration, frames=new Map([[0,[0,0,0]],[Math.fround(duration),[0,0,0]]]);
-    for(const k of track.keys){
-      if(!Number.isFinite(k.time)||k.time<0||k.time>duration+1e-5||k.value.some(v=>!Number.isFinite(v)))
-        throw Error('Некорректный ключ движения детали.');
-      frames.set(Math.fround(k.time),k.value);
-    }
-    const times=[...frames.keys()].sort((a,b)=>a-b), values=new Float32Array(times.length*4),
+    const frames=detailFrames(track.keys,cfg.duration), values=new Float32Array(frames.length*4),
       rest=new Quaternion().fromArray(target.getRotation()), offset=new Quaternion();
-    times.forEach((time,i)=>{
-      const e=new Euler(...frames.get(time).map(radians));
-      rest.clone().multiply(offset.setFromEuler(e)).normalize().toArray(values,i*4);
+    frames.forEach(([,angles],i)=>{
+      rest.clone().multiply(detailTurn(angles,offset)).normalize().toArray(values,i*4);
     });
-    const sampler=doc.createAnimationSampler().setInput(appendAccessor(doc,buffer,'SCALAR',Float32Array.from(times)))
+    const sampler=doc.createAnimationSampler().setInput(appendAccessor(doc,buffer,'SCALAR',Float32Array.from(frames,([time])=>time)))
       .setOutput(appendAccessor(doc,buffer,'VEC4',values)).setInterpolation('LINEAR');
     animation.addSampler(sampler).addChannel(doc.createAnimationChannel().setTargetNode(target).setTargetPath('rotation').setSampler(sampler));
   }
@@ -212,7 +210,7 @@ export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress
       bind.copy(matrix(first.getWorldMatrix())).multiply(new Matrix4().fromArray(matrices));
       detail={index:skin.listJoints().indexOf(parent)};
       if(part.points?.length){
-        const result=newChain(doc,buffer,skin,parent,part.points,bind,part.name+' '+(partIndex+1));
+        const result=newChain(doc,buffer,skin,parent,part.points,bind,part.name+' '+(partIndex+1),part.poseId);
         detail.arm=result.arm;motionNodes=result.nodes;
       }
     }else if(part.parent>=0)throw Error('Выбери кость крепления в скелете персонажа.');

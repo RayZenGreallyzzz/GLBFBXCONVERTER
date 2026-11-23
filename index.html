@@ -451,13 +451,14 @@
       <button id="detail-side" type="button">Слева</button>
       <button id="detail-right" type="button">Справа</button>
     </div>
-    <div class="detail-actions" role="group" aria-label="Гизмо">
+    <div class="detail-actions" id="detail-gizmo-tools" role="group" aria-label="Гизмо">
       <button id="detail-camera" type="button" aria-pressed="true">Камера</button>
       <button id="detail-move" type="button" aria-pressed="false" disabled>Сдвиг</button>
       <button id="detail-turn" type="button" aria-pressed="false" disabled>Поворот</button>
       <button id="detail-scale" type="button" aria-pressed="false" disabled>Масштаб</button>
     </div>
     <div id="detail-part" class="compare-report" hidden>
+      <fieldset id="detail-configuration" class="detail-fields">
       <label>Имя детали<input id="detail-name" type="text" maxlength="60"></label>
       <div id="detail-placement">
       <button id="detail-position" type="button">Настроить положение детали</button>
@@ -471,21 +472,32 @@
       <p id="detail-binding" class="tip"></p>
       <label>Движение детали<select id="detail-chain"><option value="0">Жёсткое крепление</option><option value="1">Своя кость</option><option value="2">Две кости</option><option value="3">Три кости</option><option value="4">Четыре кости</option></select></label>
       <div id="detail-chain-controls" hidden>
-        <label id="detail-region" hidden>Радиус весов хвоста, % роста<input id="detail-radius" type="number" min="1" max="18" step="0.5" value="6"></label>
+        <label id="detail-region" hidden>Радиус поиска хвоста, % роста<input id="detail-radius" type="number" min="1" max="18" step="0.5" value="6"></label>
         <label>Точка цепочки <output id="detail-points-count"></output><select id="detail-point"></select></label>
         <button id="detail-mark" type="button">Поставить точку касанием</button>
-        <div class="skin-coordinates" id="detail-point-fields"><label>X<input id="detail-point-x" type="number" step="any"></label><label>Y<input id="detail-point-y" type="number" step="any"></label><label>Z<input id="detail-point-z" type="number" step="any"></label></div>
+        <div class="detail-axis-sliders" id="detail-point-fields">
+          <label><span>Положение X <output id="detail-point-value-x"></output></span><input id="detail-point-x" type="range" step="any"></label>
+          <label><span>Положение Y <output id="detail-point-value-y"></output></span><input id="detail-point-y" type="range" step="any"></label>
+          <label><span>Положение Z <output id="detail-point-value-z"></output></span><input id="detail-point-z" type="range" step="any"></label>
+        </div>
       </div>
+      </fieldset>
       <div class="detail-actions"><button id="detail-open-motion" type="button">Открыть анимацию детали</button><button id="detail-remove" type="button">Убрать деталь</button></div>
       <details id="detail-animation" hidden><summary>Своя анимация</summary>
         <label>Движение тела<select id="detail-motion-body"></select></label>
         <label>Длительность, с<input id="detail-duration" type="number" min=".1" max="120" step=".1" value="2"></label>
         <label>Кость детали<select id="detail-bone"></select></label>
         <label>Время <output id="detail-time-value"></output><input id="detail-time" type="range" min="0" max="2" step="any" value="0"></label>
-        <div class="skin-coordinates"><label>Поворот X°<input id="detail-angle-x" type="number" min="-180" max="180" value="0"></label><label>Поворот Y°<input id="detail-angle-y" type="number" min="-180" max="180" value="0"></label><label>Поворот Z°<input id="detail-angle-z" type="number" min="-180" max="180" value="0"></label></div>
+        <p id="detail-pose-status" role="status" class="tip"></p>
+        <div class="detail-axis-sliders">
+          <label><span>Поворот X <output id="detail-angle-value-x"></output></span><input id="detail-angle-x" type="range" min="-180" max="180" step="1" value="0"></label>
+          <label><span>Поворот Y <output id="detail-angle-value-y"></output></span><input id="detail-angle-y" type="range" min="-180" max="180" step="1" value="0"></label>
+          <label><span>Поворот Z <output id="detail-angle-value-z"></output></span><input id="detail-angle-z" type="range" min="-180" max="180" step="1" value="0"></label>
+        </div>
         <button id="detail-key" type="button">Записать ключ</button>
         <label>Ключи<select id="detail-key-pick"></select></label>
         <button id="detail-key-delete" type="button" disabled>Удалить ключ</button>
+        <button id="detail-exit-pose" type="button">Вернуться к точкам</button>
       </details>
     </div>
     <div id="detail-knife-panel" class="compare-report">
