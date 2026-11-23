@@ -7,6 +7,13 @@ export const RIG_GUIDES=Object.freeze([
  ['leftHip','Левый тазобедренный сустав'],['leftKnee','Левое колено'],['leftAnkle','Левая щиколотка'],['leftToe','Основание пальцев левой стопы'],
  ['rightHip','Правый тазобедренный сустав'],['rightKnee','Правое колено'],['rightAnkle','Правая щиколотка'],['rightToe','Основание пальцев правой стопы']
 ]);
+export const RIG_EXTRAS=Object.freeze({
+ tail:{label:'Хвост',bone:'Tail',parent:'Hips',guide:'hips',view:'left',radius:6},
+ leftWing:{label:'Левое крыло',bone:'LeftWing',parent:'Spine2',guide:'chest',view:'back',radius:10},
+ rightWing:{label:'Правое крыло',bone:'RightWing',parent:'Spine2',guide:'chest',view:'back',radius:10},
+ leftEar:{label:'Левое ухо',bone:'LeftEar',parent:'Head',guide:'head',view:'front',radius:3},
+ rightEar:{label:'Правое ухо',bone:'RightEar',parent:'Head',guide:'head',view:'front',radius:3}
+});
 export function suggestRigGuides({min,max},positions=null){
  const h=max[1]-min[1],w=max[0]-min[0],cx=(min[0]+max[0])/2,cz=(min[2]+max[2])/2;
  if(!Number.isFinite(h+w+cx+cz)||h<=0||w<=0)throw Error('Нет объёмной геометрии для скелета');
@@ -38,7 +45,7 @@ export function suggestRigGuides({min,max},positions=null){
   for(const side of ['left','right']){out[side+'Toe'][0]=out[side+'Ankle'][0];out[side+'Toe'][2]=Math.max(out[side+'Toe'][2],out[side+'Ankle'][2]+h*.07)}
  }return out;
 }
-export function rigBoneSpec(guides,bounds){
+export function rigBoneSpec(guides,bounds,extras={}){
  const h=bounds.max[1]-bounds.min[1],eps=h*.004;
  if(!Number.isFinite(h)||h<=1e-8)throw Error('Некорректная высота персонажа');
  const points={};for(const [key,label]of RIG_GUIDES){const v=guides?.[key];if(!Array.isArray(v)||v.length!==3||v.some(x=>!Number.isFinite(x)))throw Error('Проверь точку: '+label);for(let k=0;k<3;k++)if(v[k]<bounds.min[k]-h*.2||v[k]>bounds.max[k]+h*.2)throw Error('Точка слишком далеко от модели: '+label);points[key]=new Vector3(...v)}
@@ -52,6 +59,21 @@ export function rigBoneSpec(guides,bounds){
   const collar=points.chest.clone().lerp(shoulder,.25),handEnd=wrist.clone().add(wrist.clone().sub(elbow).multiplyScalar(.22)),toeEnd=toe.clone().add(toe.clone().sub(ankle).multiplyScalar(.55));
   add(prefix+'Shoulder','Spine2',collar,shoulder);add(prefix+'Arm',prefix+'Shoulder',shoulder,elbow);add(prefix+'ForeArm',prefix+'Arm',elbow,wrist);add(prefix+'Hand',prefix+'ForeArm',wrist,handEnd);add(prefix+'HandEnd',prefix+'Hand',handEnd,handEnd,false);
   add(prefix+'UpLeg','Hips',hip,knee);add(prefix+'Leg',prefix+'UpLeg',knee,ankle);add(prefix+'Foot',prefix+'Leg',ankle,toe);add(prefix+'ToeBase',prefix+'Foot',toe,toeEnd);add(prefix+'ToeEnd',prefix+'ToeBase',toeEnd,toeEnd,false);
+ }
+ for(const [key,extra] of Object.entries(extras)){
+  const type=Object.hasOwn(RIG_EXTRAS,key)&&RIG_EXTRAS[key], chain=extra?.points;
+  if(!type||!Array.isArray(chain)||chain.length<2||chain.length>6||!Number.isFinite(extra.radius)||extra.radius<1||extra.radius>25)
+   throw Error('Проверь число костей и область весов дополнительной цепочки.');
+  const vectors=chain.map((p,i)=>{
+   if(!Array.isArray(p)||p.length!==3||p.some((x,k)=>!Number.isFinite(x)||x<bounds.min[k]-h*.08||x>bounds.max[k]+h*.08))
+    throw Error(type.label+' · проверь точку '+(i+1)+'.');
+   return new Vector3(...p);
+  });
+  if(vectors[0].distanceTo(vectors.at(-1))<eps)throw Error(type.label+' · разнеси основание и кончик.');
+  for(let i=0;i<vectors.length-1;i++){
+   const name='Forge'+type.bone+(i+1), parent=i?'Forge'+type.bone+i:'mixamorig'+type.parent;
+   items.push({name,parent,position:vectors[i],tail:vectors[i+1],deform:true,extra:key});
+  }
  }
  const index=new Map(items.map((b,i)=>[b.name,i]));
  for(const b of items){

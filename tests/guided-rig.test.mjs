@@ -81,3 +81,22 @@ test('head refinement makes the upper head follow a yaw while removing its pull 
  assert.ok(metrics[0].crown>.015&&metrics[0].torso>.005,JSON.stringify(metrics));
  assert.ok(metrics[1].crown<metrics[0].crown*.1&&metrics[1].torso<1e-6,JSON.stringify(metrics));
 });
+
+test('guiding tail, wing and ear chains keeps body weights and binds each appendage in the same GLB',async()=>{
+ const {bytes,guides,extras}=await rigFixture({appendages:true});
+ const plain=await buildGuidedRig(bytes,{guides,resolution:32});
+ const withExtras=await buildGuidedRig(bytes,{guides,extras,resolution:32});
+ assert.equal(withExtras.bones,42);
+ const {json}=inspectGlb(withExtras.bytes);
+ const parent=name=>json.nodes.find(node=>node.children?.includes(json.nodes.findIndex(b=>b.name===name)))?.name;
+ assert.equal(parent('ForgeTail1'),'mixamorigHips');assert.equal(parent('ForgeTail5'),'ForgeTail4');
+ assert.equal(parent('ForgeLeftWing1'),'mixamorigSpine2');assert.equal(parent('ForgeRightEar1'),'mixamorigHead');
+ const base=plain.preview.parts[0], part=withExtras.preview.parts[0];
+ const moved=new Set([...part.skinIndices].filter((id,at)=>id>=27&&part.skinWeights[at]>.01));
+ assert.equal(moved.size,15);
+ for(let n=0;n<part.positions.length/3;n++)if(part.positions[n*3+1]<-.15){
+  assert.deepEqual(part.skinWeights.subarray(n*4,n*4+4),base.skinWeights.subarray(n*4,n*4+4));
+ }
+ assert.equal((await validator.validateBytes(withExtras.bytes)).issues.numErrors,0);
+ await assert.rejects(buildGuidedRig(bytes,{guides,extras:{tail:{radius:6,points:[null,[0,.2,0]]}}}),/проверь точку/);
+});

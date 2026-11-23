@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {chromium} from 'playwright';
 import {fingerFixture} from '../tests/helpers/finger-fixture.mjs';
 import {boxGlb} from '../tests/helpers/details-fixture.mjs';
+import {rigFixture} from '../tests/helpers/rig-fixture.mjs';
 import {inspectGlb} from '../src/format.js';
 
 const origin='http://127.0.0.1:4185';
@@ -134,6 +135,63 @@ try{
   await $('review').click();
   await page.waitForFunction(()=>document.getElementById('detail-status').textContent.includes('Веса хвоста'),{},{timeout:30000});
   assert.equal(await $('clip').locator('option').count(),3);
+  await $('apply').click();
+  await page.waitForFunction(()=>document.getElementById('detail-status').textContent.includes('движения применены'));
+  assert.ok((await $('selected').locator('option').allTextContents()).some(label=>label.startsWith('Хвост')));
+  assert.equal(await $('save').isEnabled(),true);
+  const appliedDownload=page.waitForEvent('download');
+  await $('save').click();
+  const saved=await appliedDownload, savedPath=join(temp,'applied.glb');
+  await saved.saveAs(savedPath);
+  assert.equal(inspectGlb(await readFile(savedPath)).json.animations.length,3);
+
+  const original=await rigFixture({appendages:true});
+  await page.locator('#model-file').setInputFiles(payload('С крыльями и ушами.glb',original.bytes));
+  await page.waitForFunction(()=>document.getElementById('status').textContent.startsWith('✓ Загружено'));
+  await page.locator('[data-tab="rig"]').click();
+  await page.locator('#rig-draft').click();
+  const rig=id=>page.locator('#rig-'+id);
+  await rig('extras').locator('summary').click();
+  await rig('extra-count').selectOption('5');
+  await rig('extra-place').click();
+  assert.equal(await rig('left').getAttribute('aria-pressed'),'true');
+  assert.equal(await rig('confirm').isDisabled(),true);
+  await page.evaluate(({guides,extras})=>{
+    const by=id=>document.getElementById('rig-'+id);
+    const set=(id,value,event='change')=>{
+      const element=by(id);element.value=String(value);element.dispatchEvent(new Event(event,{bubbles:true}));
+    };
+    for(const [joint,xyz] of Object.entries(guides)){
+      set('joint',joint);['x','y','z'].forEach((axis,i)=>set(axis,xyz[i]));
+    }
+    for(const [kind,extra] of Object.entries(extras)){
+      set('extra-kind',kind);set('extra-count',extra.points.length-1);set('extra-radius',extra.radius,'input');
+      extra.points.forEach((xyz,n)=>{
+        set('extra-point',n);['x','y','z'].forEach((axis,i)=>set('extra-'+axis,xyz[i],'input'));
+      });
+    }
+  },{guides:original.guides,extras:original.extras});
+  await rig('resolution').selectOption('32');
+  await rig('confirm').check();await rig('build').click();
+  await page.waitForFunction(()=>!document.getElementById('rig-export').disabled||document.getElementById('rig-status').textContent.includes('Ошибка скелета'),{},{timeout:30000});
+  assert.match(await rig('status').innerText(),/^42 костей/);
+  await rig('use').click();
+  await page.locator('[data-tab="details"]').click();
+  await $('selected').selectOption({label:'Левое крыло'});
+  await $('open-motion').click();
+  await page.waitForFunction(()=>document.getElementById('detail-pose-status').textContent.startsWith('Поворачивай'));
+  assert.equal(await $('bone').locator('option').count(),3);
+  await number('time',.7);await number('angle-z',30);
+  await $('key').click();await $('apply-motion').click();
+  await page.waitForFunction(()=>document.getElementById('detail-status').textContent.includes('движения применены'));
+  const finalDownload=page.waitForEvent('download');
+  await $('save').click();
+  const final=await finalDownload, finalPath=join(temp,'rig-chain-animation.glb');
+  await final.saveAs(finalPath);
+  const finalJson=inspectGlb(await readFile(finalPath)).json;
+  assert.equal(finalJson.skins[0].joints.length,42);
+  assert.equal(finalJson.animations.length,1);
+  assert.equal(finalJson.nodes[finalJson.animations[0].channels[0].target.node].name,'ForgeLeftWing1');
   assert.deepEqual(errors,[]);
   console.log('Details UI: multi-file import, transform modes, finite knife, undo, piece selection, seam paint, mounted parts, animation preview and GLB export.');
 }finally{

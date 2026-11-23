@@ -42,7 +42,15 @@ export function rigBendTestClip(root){
   const bone=root.getObjectByName('mixamorig'+name);if(!bone)continue;
   const values=[],v=new THREE.Vector3(Number(axis==='x'),Number(axis==='y'),Number(axis==='z'));for(const amount of [0,.5,1,.5,0])bone.quaternion.clone().multiply(new THREE.Quaternion().setFromAxisAngle(v,angle*amount)).toArray(values,values.length);
   tracks.push(new THREE.QuaternionKeyframeTrack(bone.name+'.quaternion',times.slice(),new Float32Array(values)));
- }return new THREE.AnimationClip('Проверка сгибов',2,tracks);
+ }
+ root.traverse(bone=>{
+  if(!bone.isBone||!/^Forge(?:Tail|(?:Left|Right)(?:Wing|Ear))[1-5]$/.test(bone.name))return;
+  const axis=new THREE.Vector3(0,0,1),offset=new THREE.Quaternion(),values=[];
+  const angle=bone.name.includes('Right')?-.28:.28;
+  for(const amount of [0,1,0,-1,0])bone.quaternion.clone().multiply(offset.setFromAxisAngle(axis,angle*amount)).toArray(values,values.length);
+  tracks.push(new THREE.QuaternionKeyframeTrack(bone.name+'.quaternion',times.slice(),values));
+ });
+ return new THREE.AnimationClip('Проверка сгибов',2,tracks);
 }
 
 

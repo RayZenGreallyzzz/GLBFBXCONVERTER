@@ -154,7 +154,7 @@ main:has(#tab-rig:not(.hidden) #finger-tools:not([hidden]))>.view{position:stick
 .detail-axis-sliders label>span{display:flex;justify-content:space-between;gap:8px}
 .detail-axis-sliders input[type=range]{min-height:36px;accent-color:#24afd5}
 .detail-actions{display:flex;align-items:stretch;flex-wrap:wrap;gap:6px;margin:8px 0}
-.detail-fields button:not(.primary),#detail-cancel,#detail-return,#detail-review,#detail-tail,#rig-detail-entry{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:9px;min-height:44px;cursor:pointer}
+.detail-fields button:not(.primary),#detail-cancel,#detail-return,#detail-review,#detail-apply,#detail-tail,#rig-detail-entry,#rig-extra-place,#rig-extra-body{border:1px solid #315772;border-radius:8px;background:#182f46;color:#d9efff;padding:9px;min-height:44px;cursor:pointer}
 .detail-fields button[aria-pressed=true]{background:#216d88;color:white}
 .detail-fields button:disabled,#detail-tail:disabled{opacity:.48}
 .detail-fields input[type=color]{width:48px;min-height:38px;padding:2px}

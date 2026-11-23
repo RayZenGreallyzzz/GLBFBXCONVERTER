@@ -9,8 +9,9 @@ import {computeSkinWeights} from './vendor/voxel-skinner/index.js';
 import {localizeArmWeights} from './arm-weights.js';
 import {headWeightRegion,headWeightTargets} from './head-weights.js';
 import {assignBoneWeight} from './skin-weights.js';
+import {weightRigAppendages} from './rig-appendages.js';
 
-export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
+export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48,extras={}}={}){
  const j=inspectGlb(bytes).json;
  if((j.skins||[]).length||(j.animations||[]).length)throw Error('Для создания нового скелета нужен исходный GLB без скелета и анимаций');
  if((j.meshes||[]).some(m=>(m.primitives||[]).some(p=>p.targets?.length)))throw Error('Новый скелет с Blend Shapes пока не поддерживается. Сохрани формы и используй существующий скелет.');
@@ -28,13 +29,14 @@ export function rigPreflight(bytes,{memoryBudgetMiB=384,resolution=48}={}){
  const components={5120:1,5121:1,5122:2,5123:2,5125:4,5126:4},widths={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16};
  for(const a of j.accessors||[]){const size=components[a.componentType]*widths[a.type]*a.count;if(!Number.isSafeInteger(a.count)||a.count<0||!Number.isSafeInteger(size))throw Error('Некорректный размер данных модели');decodedBytes+=size}
  for(const v of j.bufferViews||[]){if(!Number.isSafeInteger(v.byteLength)||v.byteLength<0)throw Error('Некорректный размер буфера');decodedBytes+=v.byteLength}
- const estimatedMiB=Math.ceil((bytes.byteLength*3+decodedBytes*2+vertices*120+triangles*16+(resolution+2)**3*22*16+32*1048576)/1048576);
+ const extraBytes=Object.keys(extras).length?vertices*(extras.tail?116:8):0;
+ const estimatedMiB=Math.ceil((bytes.byteLength*3+decodedBytes*2+vertices*120+extraBytes+triangles*16+(resolution+2)**3*22*16+32*1048576)/1048576);
  if(!Number.isFinite(memoryBudgetMiB)||memoryBudgetMiB<64||memoryBudgetMiB>768||estimatedMiB>memoryBudgetMiB)throw Error('Скелет: расчётная память '+estimatedMiB+' МиБ, доступный предел '+memoryBudgetMiB+' МиБ. Нужен более лёгкий исходник.');
  return {vertices,triangles,estimatedMiB,resolution};
 }
 
-export async function buildGuidedRig(input,{guides,resolution=48,headWeightStrength=1,memoryBudgetMiB=384,onProgress=()=>{}}={}){
- const bytes=input instanceof Uint8Array?input:new Uint8Array(input),plan=rigPreflight(bytes,{resolution,memoryBudgetMiB});
+export async function buildGuidedRig(input,{guides,extras={},resolution=48,headWeightStrength=1,memoryBudgetMiB=384,onProgress=()=>{}}={}){
+ const bytes=input instanceof Uint8Array?input:new Uint8Array(input),plan=rigPreflight(bytes,{resolution,memoryBudgetMiB,extras});
  if(!Number.isFinite(headWeightStrength)||headWeightStrength<0||headWeightStrength>1)throw Error('Сила коррекции головы должна быть от 0 до 100%.');
  onProgress(2,'Читаем исходный GLB…');const io=await createCodecIO(bytes),document=await io.readBinary(bytes);removeGeometryCompression(document);
  const root=document.getRoot(),buffer=root.listBuffers()[0],originalImages=root.listTextures().map(t=>t.getImage()),records=[];let count=0,faceCount=0;
@@ -57,7 +59,7 @@ export async function buildGuidedRig(input,{guides,resolution=48,headWeightStren
  const positions=new Float32Array(count*3),indices=new Uint32Array(faceCount*3);let k=0;
  for(const r of records)for(const p of r.parts){positions.set(p.positions,p.start*3);for(const index of p.indices)indices[k++]=index+p.start}
  const bounds={min:[Infinity,Infinity,Infinity],max:[-Infinity,-Infinity,-Infinity]};for(let i=0;i<positions.length;i++) {const a=i%3;bounds.min[a]=Math.min(bounds.min[a],positions[i]);bounds.max[a]=Math.max(bounds.max[a],positions[i])}
- const spec=rigBoneSpec(guides,bounds),deform=spec.map((b,i)=>({b,i})).filter(x=>x.b.deform),h=bounds.max[1]-bounds.min[1],scale=2/h;
+ const spec=rigBoneSpec(guides,bounds,extras),deform=spec.map((b,i)=>({b,i})).filter(x=>x.b.deform&&!x.b.extra),h=bounds.max[1]-bounds.min[1],scale=2/h;
  if(root.listNodes().some(n=>spec.some(b=>b.name===n.getName())))throw Error('В модели уже есть узлы со стандартными именами скелета. Для нового рига нужна чистая исходная сетка.');
  const normalized=Float32Array.from(positions,x=>x*scale),segments=deform.map(({b})=>({head:b.position.toArray().map(x=>x*scale),tail:b.tail.toArray().map(x=>x*scale)}));
  onProgress(8,'Считаем веса внутри объёма модели…');
@@ -74,8 +76,13 @@ export async function buildGuidedRig(input,{guides,resolution=48,headWeightStren
   const targets=headWeightTargets(part,region,headWeightStrength);
   for(let n=0;n<targets.length;n++)if(Number.isFinite(targets[n]))assignBoneWeight(part,n,region.head,targets[n],region.neck,region.descendants);
  }
+ if(Object.keys(extras).length){
+  onProgress(88,'Привязываем хвост, крылья и уши по точкам…');
+  weightRigAppendages({positions,triangles:indices,weights:skinWeights,indices:skinIndices},spec,extras,h);
+ }
  onProgress(90,'Создаём скелет и проверяем привязку…');
  const nodes=spec.map(b=>document.createNode(b.name).setTranslation(b.translation.toArray()).setRotation(b.rotation.toArray())),names=new Map(spec.map((b,i)=>[b.name,i]));
+ for(const [i,bone] of spec.entries())if(bone.extra)nodes[i].setExtras({phoenixRigChain:bone.extra});
  for(let i=0;i<spec.length;i++)if(spec[i].parent)nodes[names.get(spec[i].parent)].addChild(nodes[i]);
  root.listScenes()[0].addChild(nodes[0]);
  const skin=document.createSkin('Phoenix Humanoid').setSkeleton(nodes[0]);for(const node of nodes)skin.addJoint(node);
@@ -105,5 +112,5 @@ export async function buildGuidedRig(input,{guides,resolution=48,headWeightStren
  onProgress(100,'Скелет готов. Проверь поворот головы и сгибы суставов.');
  const outputNodes=new Map(root.listNodes().map((node,index)=>[node,index]));
  const preview={bones:spec.map(b=>({name:b.name,parent:b.parent,translation:b.translation.toArray(),rotation:b.rotation.toArray()})),parts:records.flatMap(r=>r.parts.map(p=>({node:r.nodeIndex,outputNode:outputNodes.get(r.node),primitive:p.primitiveIndex,positions:p.positions,normals:p.normals,tangents:p.tangents,indices:p.indices,skinIndices:p.skinIndices,skinWeights:p.skinWeights})))};
- return {bytes:output,preview,kind:'rig',beforeBytes:bytes.byteLength,afterBytes:output.byteLength,sourceTriangles:plan.triangles,optimizedTriangles:faceCount,vertices:count,bones:nodes.length,estimatedMiB:plan.estimatedMiB,stats:result.stats,note:'Создан гуманоидный скелет тела; до 4 влияний на вершину. Сетка и исходные изображения сохранены. После привязки тела можно добавить кости пальцев.'};
+ return {bytes:output,preview,kind:'rig',beforeBytes:bytes.byteLength,afterBytes:output.byteLength,sourceTriangles:plan.triangles,optimizedTriangles:faceCount,vertices:count,bones:nodes.length,estimatedMiB:plan.estimatedMiB,stats:result.stats,note:'Создан скелет персонажа. Сетка и исходные изображения сохранены. После привязки тела можно добавить кости пальцев.'};
 }

@@ -1151,6 +1151,18 @@ detailsStudio=new DetailsStudio({
  setBusy:value=>{state.busy=value;buttons()},
  budget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),
  load:bytes=>createModelLoader().parseAsync(asArrayBuffer(bytes),''),
+ adopt:(loaded,bytes)=>{
+   stopMotionPlayback();discardPreview();modelPlayback.dispose();morphPreview.dispose();
+   scene.remove(state.root);release(state.root);
+   state.root=loaded.scene;scene.add(state.root);state.clips=loaded.animations;
+   state.sourceBuffer=asArrayBuffer(bytes);state.sourceFile=null;state.bytes=bytes.byteLength;
+   state.rigLookup=new WeakMap(loaded.parser.associations);
+   if(!state.name.endsWith('_details'))state.name=state.name.slice(0,52)+'_details';
+   resetMotionStudio();refreshModelPlayback();display();showComparison(false);renderer.renderLists.dispose();
+   $('filename').textContent=state.name+'.glb';
+   status('Детали и движения применены к рабочей модели.');
+   return state.sourceBuffer;
+ },
  input:async bytes=>{
    if(!motion.extras.length)return bytes;
    const memoryBudgetMiB=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});
@@ -1158,7 +1170,7 @@ detailsStudio=new DetailsStudio({
    state.root.traverse(node=>{const index=state.rigLookup?.get(node)?.nodes;if(node.isBone&&index!==undefined)nodeIndices.set(node.name,index)});
    return appendGlbAnimations(bytes,motion.extras,{nodeIndices,memoryBudgetMiB});
  },
- save:bytes=>save(bytes,state.name+'_details.glb','model/gltf-binary')
+ save:bytes=>save(bytes,state.name+(state.name.endsWith('_details')?'':'_details')+'.glb','model/gltf-binary')
 });
 fingerStudio=new FingerStudio({
  scene,camera,orbit,canvas:renderer.domElement,

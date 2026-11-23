@@ -223,7 +223,7 @@
       <button type="button" id="arms-use" disabled>Применить веса к рабочей модели</button>
     </div>
     <h2>Создание скелета тела</h2>
-    <p class="tip">Тестовый режим для гуманоидного GLB без костей, анимаций и Blend Shapes, стоящего в T/A-позе. Создай черновик точек, проверь центры суставов спереди и сбоку, затем рассчитай веса. Сетка и исходные изображения сохраняются. Всё работает офлайн.</p>
+    <p class="tip">Загрузи гуманоидный GLB без костей, анимаций и форм, стоящий в Т- или А-позе. Создай черновик суставов и добавь нужные цепочки для хвоста, крыльев или ушей. Сетка и текстуры сохраняются.</p>
     <button type="button" id="rig-draft" class="primary" disabled>＋ СОЗДАТЬ ЧЕРНОВИК ТОЧЕК</button>
     <div class="compare-report">
       <div class="row-buttons" id="rig-views" role="group" aria-label="Ракурс расстановки точек">
@@ -233,6 +233,23 @@
       <p class="tip">Жёлтая точка показывает выбранный сустав. Спереди и сзади меняй ширину и высоту, слева и справа — глубину и высоту. Стороны указаны для персонажа.</p>
       <label><input type="checkbox" id="rig-edit" checked disabled> Расставлять точки касанием</label>
       <details><summary>Точное положение сустава</summary><label>X <input id="rig-x" type="number" step="any" disabled></label><label>Y <input id="rig-y" type="number" step="any" disabled></label><label>Z <input id="rig-z" type="number" step="any" disabled></label></details>
+      <details id="rig-extras" class="advanced" hidden>
+        <summary>Хвост, крылья и уши персонажа</summary>
+        <label>Часть персонажа<select id="rig-extra-kind"></select></label>
+        <label>Число костей<select id="rig-extra-count"></select></label>
+        <p id="rig-extra-status" class="tip" role="status"></p>
+        <div id="rig-extra-points" hidden>
+          <button type="button" id="rig-extra-place">Поставить точки цепочки</button>
+          <label>Точка<select id="rig-extra-point"></select></label>
+          <div class="detail-axis-sliders">
+            <label><span>Положение X <output id="rig-extra-value-x"></output></span><input id="rig-extra-x" type="range" step="any"></label>
+            <label><span>Положение Y <output id="rig-extra-value-y"></output></span><input id="rig-extra-y" type="range" step="any"></label>
+            <label><span>Положение Z <output id="rig-extra-value-z"></output></span><input id="rig-extra-z" type="range" step="any"></label>
+          </div>
+          <label>Радиус весов, % роста <output id="rig-extra-radius-value"></output><input id="rig-extra-radius" type="range" min="1" max="25" step="0.5"></label>
+          <button type="button" id="rig-extra-body">Вернуться к суставам тела</button>
+        </div>
+      </details>
       <label>Точность расчёта весов<select id="rig-resolution" disabled><option value="32">Экономно</option><option value="48" selected>Баланс</option><option value="64">Точнее — больше памяти</option></select></label>
       <label>Коррекция автовесов головы <output id="rig-head-strength-value">100%</output><input id="rig-head-strength" type="range" min="0" max="100" value="100" disabled></label>
       <label><input type="checkbox" id="rig-confirm" disabled> Точки суставов проверены</label>
@@ -499,6 +516,7 @@
         <button id="detail-key" type="button">Записать ключ</button>
         <label>Ключи<select id="detail-key-pick"></select></label>
         <button id="detail-key-delete" type="button" disabled>Удалить ключ</button>
+        <button id="detail-apply-motion" class="primary" type="button" disabled>Применить детали и анимации</button>
         <button id="detail-exit-pose" type="button">Вернуться к точкам</button>
       </details>
     </div>
@@ -525,6 +543,7 @@
     <button id="detail-return" type="button">Вернуться к правке</button>
   </div>
   <button id="detail-review" type="button" disabled>Проверить с анимацией</button>
+  <button id="detail-apply" type="button" disabled>Применить детали к персонажу</button>
   <button id="detail-save" type="button" class="primary save-btn" disabled>Сохранить GLB с деталями</button>
 </section>
 <section id="tab-check" class="tab-panel hidden">

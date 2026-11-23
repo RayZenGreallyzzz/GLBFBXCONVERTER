@@ -6,6 +6,7 @@ import {detailBoneLabel} from './detail-labels.js';
 import {startDetailsJob} from './details-jobs.js';
 import {setCameraView,viewDirections} from './view-presets.js';
 import {detailTurn,sampleDetailTurn} from './detail-motion.js';
+import {RIG_EXTRAS} from './rig-guides.js';
 
 const $=id=>document.getElementById('detail-'+id);
 const axis=['x','y','z'], p=v=>new THREE.Vector3().fromArray(v);
@@ -106,6 +107,7 @@ export class DetailsStudio {
     on('return','click',()=>this.stopPreview());
     on('cancel','click',()=>this.job?.cancel());
     on('save','click',()=>this.save());
+    for(const id of ['apply','apply-motion'])on(id,'click',()=>this.apply());
     api.canvas.addEventListener('pointerdown',e=>{
       this.dragged=!!this.gizmo.axis;
       this.down={id:e.pointerId,x:e.clientX,y:e.clientY};
@@ -118,7 +120,7 @@ export class DetailsStudio {
   }
   message(text){$('status').textContent=text}
   item(){return this.items.find(r=>r.id===$('selected').value)}
-  subject(){const item=this.item();return item?.tail?this.body:item||this.body}
+  subject(){const item=this.item();return item?.tail||item?.existingBones?this.body:item||this.body}
   reference(){
     const item=this.subject();
     if(!item)return 1;
@@ -164,6 +166,7 @@ export class DetailsStudio {
     if(state.type==='glb'&&source&&state.root){
       this.body={id:'body',name:'Персонаж',bytes:new Uint8Array(source),root:state.root,associations:state.rigLookup,owned:false};
       this.readAnchors();
+      this.readExistingChains();
       this.message('Выбери персонажа или добавь детали в сцену.');
     }else this.message('Сначала загрузи персонажа в формате GLB.');
     this.list();
@@ -176,6 +179,22 @@ export class DetailsStudio {
     $('parent').replaceChildren(new Option('Без крепления',-1),...this.anchors.map(([i,label])=>new Option(label,i)));
     this.readMotionChoices();
   }
+  readExistingChains(){
+    const j=inspectGlb(this.body.bytes).json, groups=new Map();
+    for(const [index] of this.anchors){
+      const node=j.nodes[index], kind=node.extras?.phoenixRigChain;
+      const named=Object.hasOwn(RIG_EXTRAS,kind)?RIG_EXTRAS[kind].label:null;
+      const chain=named||node.extras?.phoenixDetailChain||node.name?.match(/^(Хвост \d+) · Кость \d+$/)?.[1];
+      if(!chain)continue;
+      if(!groups.has(chain))groups.set(chain,[]);
+      groups.get(chain).push(index);
+    }
+    for(const [name,existingBones] of groups){
+      existingBones.sort((a,b)=>Number(j.nodes[a].name?.match(/\d+$/)?.[0])-Number(j.nodes[b].name?.match(/\d+$/)?.[0]));
+      const parent=j.nodes.findIndex(n=>n.children?.includes(existingBones[0]));
+      this.items.push({id:String(++this.nextId),name,existingBones,parent,pendingParent:parent,group:new THREE.Group(),points:[],keys:[],body:-1,duration:2});
+    }
+  }
   readMotionChoices(){
     $('motion-body').replaceChildren(new Option('Отдельный клип',-1),
       ...this.api.clips().map((clip,i)=>new Option(clip.name||'Движение '+(i+1),i)));
@@ -185,19 +204,22 @@ export class DetailsStudio {
     if(checkSource&&!busy&&this.source!==state.sourceBuffer)this.clearSession(state.sourceBuffer);
     if(!this.active)return;
     const item=this.item(), available=!!this.body, editing=available&&!busy&&!this.result, posing=!!this.live;
+    const hasChanges=this.items.some(part=>!part.existingBones||part.keys.length)||this.body?.owned;
+    const readyForKeys=!!item&&(!!item.existingBones||item.points.length>=2&&item.points.every(Boolean));
     $('import').hidden=!available;
-    $('tail').disabled=!editing||posing||!this.anchors?.length||this.items.some(part=>part.tail);
+    $('tail').disabled=!editing||posing||!this.anchors?.length||this.items.some(part=>part.tail||part.existingBones&&/^Хвост(?: \d+)?$/.test(part.name));
     $('file').disabled=!editing||posing;
     $('controls').disabled=!editing;
     $('selected').disabled=posing;
     $('configuration').disabled=posing;
+    $('configuration').hidden=!!item?.existingBones;
     $('gizmo-tools').hidden=posing;
     $('open-motion').hidden=posing;
-    $('remove').hidden=posing;
+    $('remove').hidden=posing||!!item?.existingBones;
     $('part').hidden=!item;
     $('placement').hidden=!!item?.tail;
     $('region').hidden=!item?.tail;
-    $('knife-panel').hidden=posing||!!item?.tail;
+    $('knife-panel').hidden=posing||!!item?.tail||!!item?.existingBones;
     $('bind').disabled=!item||item.pendingParent===item.parent||(item.tail&&item.pendingParent<0);
     $('bind').textContent=item?.parent>=0&&item.pendingParent<0?'Снять крепление':'Привязать к кости';
     $('binding').textContent=!item||item.parent<0?'Выбери кость и нажми «Привязать к кости».':
@@ -205,8 +227,7 @@ export class DetailsStudio {
     $('chain').options[0].disabled=!!item?.tail;
     $('chain').disabled=!item||item.parent<0;
     $('add-bones').disabled=!item||item.parent<0;
-    $('animation').hidden=!item||item.parent<0||item.points.length<2;
-    const readyForKeys=!!item&&item.points.length>=2&&item.points.every(Boolean);
+    $('animation').hidden=!item||!item.existingBones&&(item.parent<0||item.points.length<2);
     $('key').disabled=!readyForKeys;
     for(const k of axis)$('angle-'+k).disabled=!readyForKeys;
     $('chain-controls').hidden=!item||item.parent<0||!item.points.length;
@@ -216,8 +237,10 @@ export class DetailsStudio {
     $('keep').disabled=!this.piece||this.piece.faces===this.piece.count;
     $('delete').disabled=$('keep').disabled;
     $('undo').disabled=!this.history.length;
-    $('review').disabled=!editing||!(this.items.length||this.body?.owned);
-    $('save').disabled=!available||busy||!(this.items.length||this.body?.owned);
+    $('review').disabled=!editing||!hasChanges&&this.appliedSource!==this.source;
+    $('apply').disabled=!available||busy||!hasChanges;
+    $('apply-motion').disabled=$('apply').disabled||!item?.keys.length;
+    $('save').disabled=!available||busy||!hasChanges&&this.appliedSource!==this.source;
     $('cancel').hidden=!this.job;
     $('player').hidden=!this.result;
     this.helper.visible=!!this.active&&editing&&!posing;
@@ -242,8 +265,9 @@ export class DetailsStudio {
       const point=$('point').value, bone=$('bone').value;
       $('point').replaceChildren(...item.points.map((v,i)=>new Option((i===0?'Основание':i===item.points.length-1?'Кончик':'Сустав '+i)+(v?' · готово':''),i)));
       $('point').value=point&&item.points[Number(point)]!==undefined?point:'0';
-      $('bone').replaceChildren(...item.points.slice(1).map((_,i)=>new Option('Кость '+(i+1),i)));
-      $('bone').value=bone&&item.points[Number(bone)+1]!==undefined?bone:'0';
+      const keys=item.existingBones||item.points.slice(1);
+      $('bone').replaceChildren(...keys.map((_,i)=>new Option('Кость '+(i+1),i)));
+      $('bone').value=bone&&Number(bone)<keys.length?bone:'0';
       $('motion-body').value=String(item.body);
       $('duration').value=String(this.duration());$('duration').disabled=item.body>=0;
       $('time').max=String(this.duration());
@@ -285,13 +309,13 @@ export class DetailsStudio {
     $('camera').setAttribute('aria-pressed',String(!this.target));
     for(const [id,mode] of [['move','translate'],['turn','rotate'],['scale','scale']]){
       $(id).setAttribute('aria-pressed',String(!!this.target&&this.gizmo.getMode()===mode));
-      $(id).disabled=!this.target&&!this.placed&&(!this.item()||this.item().tail);
+      $(id).disabled=!this.target&&!this.placed&&(!this.item()||this.item().tail||this.item().existingBones);
     }
   }
   mode(mode){
     if(!this.target){
       if(this.placed)this.attach('knife');
-      else if(this.item()&&!this.item().tail)this.attach('part');
+      else if(this.item()&&!this.item().tail&&!this.item().existingBones)this.attach('part');
       else return;
     }
     this.gizmo.setMode(mode);
@@ -353,8 +377,8 @@ export class DetailsStudio {
   }
   openAnimation(){
     const item=this.item();
-    if(item.parent<0)throw Error('Сначала выбери кость и нажми «Привязать к кости».');
-    if(!item.points.length)throw Error('Нажми «Добавить кости», чтобы записать движение детали.');
+    if(!item.existingBones&&item.parent<0)throw Error('Сначала выбери кость и нажми «Привязать к кости».');
+    if(!item.existingBones&&!item.points.length)throw Error('Нажми «Добавить кости», чтобы записать движение детали.');
     $('animation').open=true;
     $('animation').scrollIntoView({block:'center'});
     return this.startLive();
@@ -362,7 +386,7 @@ export class DetailsStudio {
   async startLive(){
     if(this.live||this.result||this.api.model().busy)return;
     const item=this.item();
-    if(!item?.points.length||item.points.some(v=>!v)){
+    if(!item||!item.existingBones&&(!item.points.length||item.points.some(v=>!v))){
       $('pose-status').textContent='Расставь все точки цепочки, чтобы включить просмотр позы.';
       return;
     }
@@ -397,19 +421,25 @@ export class DetailsStudio {
     const live=this.live, item=this.item();if(!live||!item)return;
     const time=$('time').valueAsNumber||0, selected=Number($('bone').value);
     if(live.body!==item.body){
-      live.body=item.body;live.mixer.stopAllAction();live.action=null;
+      live.body=item.body;live.mixer.stopAllAction();live.action=null;live.originalTurns=new Map();
       const clip=live.animations[item.body];
-      if(clip){live.action=live.mixer.clipAction(clip).play();live.action.paused=true}
+      if(clip){
+        live.action=live.mixer.clipAction(clip).play();live.action.paused=true;
+        for(const {node} of live.bones){
+          const track=clip.tracks.find(track=>track.name===node.name+'.quaternion');
+          if(track)live.originalTurns.set(node,track.createInterpolant());
+        }
+      }
     }
     if(live.action){live.action.time=time;live.mixer.update(0)}
     for(const {id,index,node,rest} of live.bones){
       const other=this.items.find(candidate=>candidate.id===id);
       const useKeys=other===item||(item.body>=0&&other.body===item.body);
       node.quaternion.copy(rest);
-      if(!useKeys)continue;
-      const turn=other===item&&index===selected&&angles?detailTurn(angles):
-        sampleDetailTurn(other.keys.filter(key=>key.bone===index),this.duration(),time);
-      node.quaternion.multiply(turn);
+      if(other===item&&index===selected&&angles){node.quaternion.multiply(detailTurn(angles));continue}
+      const keys=useKeys?other.keys.filter(key=>key.bone===index):[];
+      if(keys.length)node.quaternion.multiply(sampleDetailTurn(keys,this.duration(),time));
+      else if(live.originalTurns.has(node))node.quaternion.fromArray(live.originalTurns.get(node).evaluate(time));
     }
     live.scene.updateMatrixWorld(true);
   }
@@ -744,23 +774,25 @@ export class DetailsStudio {
     const time=Math.fround($('time').valueAsNumber), bone=Number($('bone').value),
       value=this.angles();
     item.keys=item.keys.filter(k=>k.time!==time||k.bone!==bone);item.keys.push({time,bone,value});
-    this.keyFields();this.message('Ключ движения детали записан.');
+    this.keyFields();this.refresh(false);this.message('Ключ записан. Нажми «Применить детали и анимации», чтобы добавить движение в рабочую модель.');
   }
   deleteKey(){
     const item=this.item(), time=Math.fround($('time').valueAsNumber), bone=Number($('bone').value);
-    item.keys=item.keys.filter(k=>k.time!==time||k.bone!==bone);this.keyFields();
+    item.keys=item.keys.filter(k=>k.time!==time||k.bone!==bone);this.keyFields();this.refresh(false);
   }
   async assemble({pose=false}={}){
     const clips=this.api.clips();
-    const items=pose?this.items.filter(item=>item.pendingParent===item.parent&&item.points.every(Boolean)&&(!item.tail||item.parent>=0)):this.items;
+    const items=this.items.filter(item=>item.existingBones?(pose||item.keys.length):
+      !pose||item.pendingParent===item.parent&&item.points.every(Boolean)&&(!item.tail||item.parent>=0));
     const parts=items.map(item=>{
       if(item.pendingParent!==item.parent)throw Error('Подтверди крепление детали «'+item.name+'» кнопкой «Привязать к кости».');
       if(item.tail&&item.parent<0)throw Error('Сначала привяжи хвост к кости персонажа.');
       if(item.parent>=0&&item.points.some(v=>!v))throw Error('Поставь все точки цепочки у детали «'+item.name+'».');
       const points=item.parent<0?[]:item.points.map(at=>p(at).applyMatrix4(item.group.matrixWorld).toArray());
-      const tracks=points.slice(1).map((_,i)=>({bone:i,keys:item.keys.filter(k=>k.bone===i)}));
+      const tracks=(item.existingBones||points.slice(1)).map((_,i)=>({bone:i,keys:item.keys.filter(k=>k.bone===i)}));
       const rig={name:item.name,parent:item.parent,points,
         ...(pose?{poseId:item.id}:{animation:{body:item.body,duration:clips[item.body]?.duration??item.duration,name:item.name+' · Движение',tracks}})};
+      if(item.existingBones)return {...rig,existingBones:item.existingBones};
       if(item.tail){
         const height=new THREE.Box3().setFromObject(this.body.root).getSize(new THREE.Vector3()).y;
         return {...rig,tail:true,radius:item.radius*height/100};
@@ -802,6 +834,18 @@ export class DetailsStudio {
       const bytes=this.result?.bytes||(await this.assemble()).bytes;
       const saved=await this.api.save(bytes);
       this.message(saved.message||'GLB сохранён.');
+    });
+  }
+  async apply(){
+    await this.busyWork(async()=>{
+      this.message('Применяем детали и записанные движения…');
+      const bytes=this.result?.bytes||(await this.assemble()).bytes;
+      const loaded=await this.api.load(bytes);
+      if(!this.active){this.api.release(loaded.scene);return}
+      this.stopPreview();$('animation').open=false;
+      this.appliedSource=this.api.adopt(loaded,bytes);
+      this.clearSession(this.appliedSource);
+      this.message('Готово. Детали и движения применены. Нажми «Сохранить GLB с деталями».');
     });
   }
 }

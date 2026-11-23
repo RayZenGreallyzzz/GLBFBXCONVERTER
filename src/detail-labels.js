@@ -1,4 +1,5 @@
 import {canonicalBone} from './animation-retarget.js';
+import {RIG_EXTRAS} from './rig-guides.js';
 
 const names={
   hips:'Таз',spine:'Поясница',spine1:'Корпус',spine2:'Грудь',neck:'Шея',head:'Голова',
@@ -12,6 +13,10 @@ const names={
 export function detailBoneLabel(name,index){
   const id=canonicalBone(name);
   if(names[id])return names[id];
+  for(const chain of Object.values(RIG_EXTRAS)){
+    const prefix='Forge'+chain.bone;
+    if(name?.startsWith(prefix)&&/^[1-5]$/.test(name.slice(prefix.length)))return chain.label+' · Кость '+name.slice(prefix.length);
+  }
   if(/ · Кость \d+$/.test(name||''))return name;
   return 'Кость '+(index+1);
 }

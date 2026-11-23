@@ -5,6 +5,7 @@ import {attributeValues} from './static-simplify.js';
 import {createCodecIO,removeGeometryCompression} from './codec-io.js';
 import {inspectGlb} from './format.js';
 import {tailRegion} from './detail-tail.js';
+import {chainWeights} from './chain-weights.js';
 import {detailFrames,detailTurn} from './detail-motion.js';
 
 const matrix=elements=>new Matrix4().fromArray(elements);
@@ -37,7 +38,7 @@ function newChain(doc,buffer,skin,parent,points,bind,name,poseId){
     const p=new Vector3(), r=new Quaternion(), s=new Vector3();
     local.decompose(p,r,s);
     const newNode=doc.createNode(name+' · Кость '+(k+1)).setTranslation(p.toArray()).setRotation(r.normalize().toArray()).setScale(s.toArray());
-    if(poseId)newNode.setExtras({phoenixPoseBone:[poseId,k]});
+    newNode.setExtras({phoenixDetailChain:name,...(poseId?{phoenixPoseBone:[poseId,k]}:{})});
     parent.addChild(newNode);skin.addJoint(newNode);
     basis=matrix(newNode.getWorldMatrix());
     basis.clone().invert().multiply(bind).toArray(inverse,(first+k)*16);
@@ -45,28 +46,6 @@ function newChain(doc,buffer,skin,parent,points,bind,name,poseId){
   }
   skin.setInverseBindMatrices(appendAccessor(doc,buffer,'MAT4',inverse));
   return {arm,nodes};
-}
-
-function assign(detail,point,region){
-  const {arm,index}=detail;
-  if(!arm?.length)return [[index,1]];
-  let best=0, at=0, distance=Infinity;
-  for(const [i,b] of arm.entries()){
-    const offset=point.clone().sub(b.head), t=offset.dot(b.axis);
-    const d=offset.addScaledVector(b.axis,-Math.max(0,Math.min(b.length,t))).lengthSq();
-    if(d<distance){distance=d;best=i;at=t/b.length}
-  }
-  if(region){region.distance=Math.sqrt(distance);region.projected=at;region.segment=best}
-  const a=arm[best].index;
-  if(best>0&&at<.22){
-    const k=.5*(1-Math.min(.22,Math.max(0,at))/.22);
-    return [[a,1-k],[arm[best-1].index,k]];
-  }
-  if(best+1<arm.length&&at>.78){
-    const k=.5*(Math.min(1,at)-.78)/.22;
-    return [[a,1-k],[arm[best+1].index,k]];
-  }
-  return [[a,1]];
 }
 
 function bindTail(doc,buffer,sourceNodes,skin,detail,radius){
@@ -84,13 +63,13 @@ function bindTail(doc,buffer,sourceNodes,skin,detail,radius){
     for(let i=0;i<vertices.length;i+=3)point.fromArray(vertices,i).applyMatrix4(world).toArray(vertices,i);
     return {primitive,vertices,joints,weights,indices:primitive.getIndices()?.getArray()};
   });
-  const amounts=tailRegion(parts,detail.arm,radius,(point,region)=>assign(detail,point,region));
+  const amounts=tailRegion(parts,detail.arm,radius,(point,region)=>chainWeights(detail,point,region));
   let changed=0;
   for(const [partIndex,{primitive,vertices,joints,weights}] of parts.entries()){
     const out=primitive.clone(), ids=Uint16Array.from(joints.getArray()), values=Float32Array.from(attributeValues(weights));
     for(const [i,amount] of amounts[partIndex].entries()){
       if(amount<.0001)continue;
-      const influences=assign(detail,point.fromArray(vertices,i*3)), at=i*4, combined=new Map();
+      const influences=chainWeights(detail,point.fromArray(vertices,i*3)), at=i*4, combined=new Map();
       for(let k=0;k<4;k++)if(values[at+k]>0)combined.set(ids[at+k],(combined.get(ids[at+k])||0)+values[at+k]*(1-amount));
       for(const [bone,w] of influences)combined.set(bone,(combined.get(bone)||0)+w*amount);
       const sorted=[...combined].filter(([,w])=>w>0).sort((a,b)=>b[1]-a[1]).slice(0,4);
@@ -149,7 +128,7 @@ function transformPrimitive(doc,buffer,part,already,placement,inverseBind,detail
   if(detail){
     const values=attributeValues(source), indices=new Uint16Array(source.getCount()*4), weights=new Float32Array(indices.length);
     for(let i=0;i<source.getCount();i++){
-      const assigned=assign(detail,point.fromArray(values,i*3).applyMatrix4(world));
+      const assigned=chainWeights(detail,point.fromArray(values,i*3).applyMatrix4(world));
       assigned.forEach(([j,w],k)=>{indices[i*4+k]=j;weights[i*4+k]=w});
     }
     out.setAttribute('JOINTS_0',appendAccessor(doc,buffer,'VEC4',indices));
@@ -178,6 +157,10 @@ function appendDetailClip(doc,buffer,baseClips,part,nodes,layers){
     if(!track.keys.length)continue;
     const target=nodes[track.bone];
     if(!target)throw Error('Проверь кости и ключи детали.');
+    for(const old of animation.listChannels())if(old.getTargetNode()===target&&old.getTargetPath()==='rotation'){
+      const sampler=old.getSampler();old.dispose();
+      if(!animation.listChannels().some(channel=>channel.getSampler()===sampler))animation.removeSampler(sampler);
+    }
     const frames=detailFrames(track.keys,cfg.duration), values=new Float32Array(frames.length*4),
       rest=new Quaternion().fromArray(target.getRotation()), offset=new Quaternion();
     frames.forEach(([,angles],i)=>{
@@ -200,6 +183,14 @@ export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress
   let vertices=0,tailVertices=0;
   const layers=new Map();
   for(const [partIndex,part] of parts.entries()){
+    if(part.existingBones){
+      const bones=part.existingBones.map(id=>sourceNodes[id]);
+      const skin=root.listSkins().find(s=>bones.every(b=>s.listJoints().includes(b)));
+      if(!bones.length||!skin)throw Error('В скелете не найдена цепочка детали.');
+      if(part.poseId)for(const [i,bone] of bones.entries())bone.setExtras({...bone.getExtras(),phoenixPoseBone:[part.poseId,i]});
+      appendDetailClip(doc,buffer,baseClips,part,bones,layers);
+      continue;
+    }
     const parent=sourceNodes[part.parent],
       skin=parent?root.listSkins().find(s=>s.listJoints().includes(parent)):null;
     const bind=new Matrix4();
@@ -210,7 +201,10 @@ export async function assembleDetails(base,parts,{memoryBudgetMiB=384,onProgress
       bind.copy(matrix(first.getWorldMatrix())).multiply(new Matrix4().fromArray(matrices));
       detail={index:skin.listJoints().indexOf(parent)};
       if(part.points?.length){
-        const result=newChain(doc,buffer,skin,parent,part.points,bind,part.name+' '+(partIndex+1),part.poseId);
+        let suffix=partIndex+1, name=part.name+' '+suffix;
+        const names=new Set(root.listNodes().map(node=>node.getName()));
+        while(names.has(name+' · Кость 1'))name=part.name+' '+(++suffix);
+        const result=newChain(doc,buffer,skin,parent,part.points,bind,name,part.poseId);
         detail.arm=result.arm;motionNodes=result.nodes;
       }
     }else if(part.parent>=0)throw Error('Выбери кость крепления в скелете персонажа.');
