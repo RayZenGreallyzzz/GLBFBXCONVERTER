@@ -130,3 +130,14 @@ main:has(#tab-face:not(.hidden))>.view{position:sticky;top:0;align-self:start;z-
   main:has(#tab-face:not(.hidden))>.view>:not(#viewport):not(.viewbar){display:none}
   main:has(#tab-face:not(.hidden)) #viewport{height:28vh;min-height:155px}
 }
+
+#finger-tools input[type=range],#finger-result input[type=range]{width:100%;min-height:32px}
+#finger-tools input[type=number]{width:100%;min-width:0}
+#finger-tools output,#finger-result output{color:#83d6ef}
+#finger-tools button[aria-pressed=true]{background:#216d88;color:white}
+#finger-cancel[hidden],#finger-tools[hidden],#finger-result[hidden]{display:none}
+main:has(#tab-rig:not(.hidden) #finger-tools:not([hidden]))>.view{position:sticky;top:0;align-self:start;z-index:6}
+@media(max-width:780px){
+ main:has(#tab-rig:not(.hidden) #finger-tools:not([hidden]))>.view>:not(#viewport){display:none}
+ main:has(#tab-rig:not(.hidden) #finger-tools:not([hidden])) #viewport{height:29vh;min-height:160px}
+}

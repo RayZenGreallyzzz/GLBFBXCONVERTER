@@ -18,7 +18,7 @@ export class GuidedRigUI{
   $('rig-head-strength').addEventListener('input',()=>{$('rig-head-strength-value').textContent=$('rig-head-strength').value+'%'});
   $('rig-build').addEventListener('click',()=>this.build());$('rig-cancel').addEventListener('click',()=>this.job?.cancel());
   $('rig-test-play').addEventListener('click',()=>this.play());$('rig-test-stop').addEventListener('click',()=>this.stop());
-  $('rig-export').addEventListener('click',()=>this.export());$('rig-use').addEventListener('click',()=>this.use());$('rig-edit-weights').addEventListener('click',()=>this.use(true));
+  $('rig-export').addEventListener('click',()=>this.export());$('rig-use').addEventListener('click',()=>this.use());$('rig-edit-weights').addEventListener('click',()=>this.use(true));$('rig-use-fingers').addEventListener('click',()=>this.use('fingers'));
   let down=null;api.canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY}});
   api.canvas.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>8)return;this.place(e)});
  }
@@ -29,7 +29,7 @@ export class GuidedRigUI{
   const eligible=this.eligible(),busy=this.api.busy();
   $('rig-draft').disabled=!eligible||busy;$('rig-build').disabled=!eligible||busy||!this.guides||!$('rig-confirm').checked;
   for(const id of ['rig-front','rig-side','rig-joint','rig-x','rig-y','rig-z','rig-edit','rig-confirm','rig-resolution','rig-head-strength'])$(id).disabled=busy||!this.guides;
-  for(const id of ['rig-export','rig-use','rig-edit-weights','rig-test-play'])$(id).disabled=busy||!this.result;
+  for(const id of ['rig-export','rig-use','rig-edit-weights','rig-use-fingers','rig-test-play'])$(id).disabled=busy||!this.result;
   $('rig-test-stop').disabled=busy||!this.mixer;$('rig-cancel').hidden=!this.job;
   this.overlay.visible=this.tab&&!!this.guides&&$('rig-edit').checked&&!busy;
   this.api.orbit.enabled=!(this.tab&&this.guides&&$('rig-edit').checked&&!busy);
@@ -65,7 +65,7 @@ export class GuidedRigUI{
   this.invalidate();if(this.view==='front'){p[0]=point.x;p[1]=point.y}else{p[1]=point.y;p[2]=point.z}this.fields();this.markers();this.refresh();
  }
  clearResult(){this.stop();this.result=null;this.testRoot=null;this.refreshResultButtons()}
- refreshResultButtons(){for(const id of ['rig-export','rig-use','rig-edit-weights','rig-test-play','rig-test-stop'])$(id).disabled=true}
+ refreshResultButtons(){for(const id of ['rig-export','rig-use','rig-edit-weights','rig-use-fingers','rig-test-play','rig-test-stop'])$(id).disabled=true}
  stop(){if(this.mixer){this.mixer.stopAllAction();if(this.testRoot){this.mixer.uncacheRoot(this.testRoot);this.testRoot.updateMatrixWorld(true)}this.mixer=null}$('rig-test-stop').disabled=true}
  play(){if(!this.result||this.api.busy())return;this.api.stopPlayback();this.stop();this.testRoot=this.api.resultRoot();if(!this.testRoot)return;this.api.showResult();this.mixer=new THREE.AnimationMixer(this.testRoot);this.mixer.clipAction(rigBendTestClip(this.testRoot)).play();this.refresh()}
  update(delta){if(!this.api.busy())this.mixer?.update(delta)}

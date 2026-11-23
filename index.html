@@ -185,12 +185,39 @@
     <button class="primary" id="convert-export" disabled>⇄ КОНВЕРТИРОВАТЬ И СОХРАНИТЬ</button>
   </section>
   <section id="tab-rig" class="tab-panel hidden">
+    <h2 id="finger-heading">Пальцы рук</h2>
+    <button type="button" id="finger-open" class="primary" disabled>Подготовить кости пальцев</button>
+    <p id="finger-status" class="tip" role="status">Загрузи GLB со скелетом или создай скелет тела.</p>
+    <div id="finger-tools" class="compare-report" hidden>
+      <div class="row-buttons">
+        <button id="finger-palm" type="button" aria-pressed="true">Со стороны ладони</button>
+        <button id="finger-edge" type="button" aria-pressed="false">С ребра кисти</button>
+      </div>
+      <label>Кисть<select id="finger-hand"></select></label>
+      <label>Палец<select id="finger-digit"></select></label>
+      <label><input type="checkbox" id="finger-enabled"> Включить этот палец</label>
+      <label>Точка<select id="finger-joint"><option value="0">Основание</option><option value="1">Первый сгиб</option><option value="2">Второй сгиб</option><option value="3">Кончик</option></select></label>
+      <label><input type="checkbox" id="finger-edit" checked> Расставлять точки касанием</label>
+      <details><summary>Координаты точки</summary>
+        <div class="skin-coordinates"><label>X<input id="finger-x" type="number" step="any"></label><label>Y<input id="finger-y" type="number" step="any"></label><label>Z<input id="finger-z" type="number" step="any"></label></div>
+      </details>
+      <label>Радиус влияния <output id="finger-radius-value">10%</output><input id="finger-radius" type="range" min="3" max="29" step=".5" value="10"></label>
+      <label><input id="finger-confirm" type="checkbox"> Я проверил точки включённых пальцев</label>
+      <button id="finger-build" type="button" class="primary" disabled>Создать пальцы и веса</button>
+    </div>
+    <button id="finger-cancel" type="button" hidden>Отменить расчёт пальцев</button>
+    <div id="finger-result" class="compare-report" hidden>
+      <label>Проверить сгиб <output id="finger-test-value">0°</output><input id="finger-test" type="range" min="-75" max="85" value="0"></label>
+      <button id="finger-test-reset" type="button">Исходная поза</button>
+      <button id="finger-save" type="button" class="primary save-btn">Сохранить GLB с пальцами</button>
+      <div class="row-buttons"><button id="finger-use" type="button">Применить пальцы</button><button id="finger-weights" type="button">Править веса пальцев</button></div>
+    </div>
     <div class="compare-report">
       <h2>Веса рук готового скелета</h2>
       <p class="tip">Для GLB со скелетом тела Forge. Исправление ограничивает влияние предплечья на пальцы и сохраняет объём середины руки. После расчёта сравни исходник и результат на своих анимациях.</p>
       <button type="button" id="arms-build" class="primary" disabled>ИСПРАВИТЬ ВЕСА РУК</button>
       <button type="button" id="arms-cancel" hidden>Отменить исправление весов</button>
-      <p id="arms-status" class="tip" role="status">Открой GLB со скелетом тела Forge (27 костей).</p>
+      <p id="arms-status" class="tip" role="status">Открой GLB со скелетом тела Forge.</p>
       <button type="button" id="arms-save" class="primary save-btn" disabled>СОХРАНИТЬ GLB С ИСПРАВЛЕННЫМИ ВЕСАМИ</button>
       <button type="button" id="arms-use" disabled>Применить веса к рабочей модели</button>
     </div>
@@ -213,8 +240,9 @@
     <div class="row-buttons"><button type="button" id="rig-test-play" disabled>▶ Проверить поворот и сгибы</button><button type="button" id="rig-test-stop" disabled>■ Исходная поза</button></div>
     <button type="button" id="rig-export" class="primary save-btn" disabled>▣ СОХРАНИТЬ GLB СО СКЕЛЕТОМ</button>
     <button type="button" id="rig-use" class="primary" disabled>ИСПОЛЬЗОВАТЬ ЭТОТ СКЕЛЕТ ДЛЯ АНИМАЦИЙ</button>
+    <button type="button" id="rig-use-fingers" disabled>ПРИМЕНИТЬ СКЕЛЕТ И ДОБАВИТЬ ПАЛЬЦЫ</button>
     <button type="button" id="rig-edit-weights" disabled>НАСТРОИТЬ ВЕСА ЭТОГО РИГА</button>
-    <p class="tip">Скелет тела: 27 костей, до 4 влияний на вершину. Движение пальцев, ушей и хвоста требует дополнительных костей и весов. Автоматические веса — начальная привязка: проверь плечи, локти, таз и колени. Ошибку посадки точек исправляй на исходнике. До 650 тысяч вершин и 1 млн треугольников; доступная память может ограничить задачу раньше.</p>
+    <p class="tip">Базовый скелет тела содержит 27 костей. Пальцы добавляются после привязки тела. Проверь плечи, локти, таз и колени в движении. До 650 тысяч вершин, 1 млн треугольников и 4 влияний на вершину.</p>
   </section>
   <section id="tab-skin" class="tab-panel hidden">
     <h2>Редактор весов</h2>

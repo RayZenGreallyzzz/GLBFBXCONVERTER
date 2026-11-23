@@ -1,6 +1,6 @@
 import {asBytes} from './binary.js';
 export function startGuidedRig(bytes,options,onProgress=()=>{}){
- const operation=options?.operation==='arm-weights'?'Исправление весов рук':'Создание скелета';
+ const operation={ 'arm-weights':'Исправление весов рук', 'finger-rig':'Создание пальцев', 'finger-draft':'Черновик пальцев' }[options?.operation]||'Создание скелета';
  let worker,timer,finish,finished=false;
  const promise=new Promise((resolve,reject)=>{
   finish=(error,result)=>{if(finished)return;finished=true;clearTimeout(timer);worker?.terminate();error?reject(error):resolve(result)};

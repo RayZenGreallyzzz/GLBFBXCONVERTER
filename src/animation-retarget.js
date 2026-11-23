@@ -42,7 +42,10 @@ const ALIASES={
 // Blender suffixes (.l/.r), Unreal/Mesh2Motion suffixes (_l/_r), and
 // Mixamo names describe the same body joints without changing the actual rig.
 for(const [side,suffix]of [['left','l'],['right','r']])for(const [part,names]of Object.entries({shoulder:['shoulder','clavicle'],arm:['arm','upperarm','uparm'],forearm:['forearm','lowerarm','elbow'],hand:['hand','wrist'],upleg:['upleg','thigh','upperleg'],leg:['leg','calf','lowerleg','shin'],foot:['foot','ankle'],toebase:['toebase','toe','toes','ball']}))ALIASES[side+part].push(...names.map(name=>name+suffix));
-for(const [side,suffix]of [['left','l'],['right','r']])for(const finger of ['thumb','index','middle','ring','pinky'])for(let i=1;i<=3;i++)ALIASES[side+'hand'+finger+i]=[side+'hand'+finger+i,finger+'0'+i+suffix,finger+i+suffix];
+for(const [side,suffix]of [['left','l'],['right','r']])for(const finger of ['thumb','index','middle','ring','pinky'])for(let i=1;i<=3;i++){
+ const spellings=finger==='pinky'?['pinky','little']: [finger];
+ ALIASES[side+'hand'+finger+i]=spellings.flatMap(f=>[side+'hand'+f+i,side+f+i,side+f+'0'+i,f+'0'+i+suffix,f+i+suffix]);
+}
 const REVERSE=new Map(Object.entries(ALIASES).flatMap(([key,names])=>names.map(n=>[n,key])));
 export function canonicalBone(name){const n=tidy(name);return REVERSE.get(n)||n;}
 export function boneMatchPriority(name){const n=tidy(name);return n==='root'?2:/^(?:leftwrist|rightwrist|wrist[lr])$/.test(n)?1:0;}

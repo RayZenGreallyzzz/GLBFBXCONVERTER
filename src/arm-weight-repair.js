@@ -3,7 +3,7 @@ import {asBytes} from './binary.js';
 import {inspectGlb} from './format.js';
 import {localizeArmWeights} from './arm-weights.js';
 export function armRepairEligibility(input){
- try{const j=inspectGlb(input).json,r=j.extras?.phoenixRig;if(r?.profile!=='humanoid-body'||j.skins?.length!==1||j.skins[0].joints?.length!==27)return {eligible:false,reason:'Открой GLB со скелетом тела Forge (27 костей).'};
+ try{const j=inspectGlb(input).json,r=j.extras?.phoenixRig;if(r?.profile!=='humanoid-body'||j.skins?.length!==1||(j.skins[0].joints?.length!==27&&!j.extras?.phoenixFingers))return {eligible:false,reason:'Открой GLB со скелетом тела Forge.'};
   if(r.armLocalWeights===1)return {eligible:false,reason:'Веса рук этой модели уже обновлены.'};return {eligible:true,reason:''};
  }catch{return {eligible:false,reason:'Для исправления весов нужен GLB.'}}
 }

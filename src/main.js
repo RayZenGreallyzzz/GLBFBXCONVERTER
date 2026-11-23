@@ -10,6 +10,7 @@ import {makeJointPreview} from './joint-preview.js';
 import {jointFormWeights,withJointFormTracks} from './joint-form-animation.js';
 import {MotionPoseUI} from './motion-pose-ui.js';
 import {FaceStudio} from './face-studio.js';
+import {FingerStudio} from './finger-studio.js';
 import {appendGlbAnimations} from './glb-add-animations.js';
 import {openMotionPack} from './motion-pack.js';
 import {loadMotionSource} from './motion-import.js';
@@ -60,7 +61,7 @@ const motion={source:null,rows:[],preview:null,extras:[],pose:null,pack:[],bundl
 let embeddedMotions=[],importedMotions=[],selectedMotionFamily='humanoid';
 const modelPlayback=new ModelPlayback(),morphPreview=new MorphPreview();
 let activeBake=null;
-let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null,jointUi=null,faceStudio=null;
+let guidedRigUi=null,armWeightsUi=null,skinEditorUi=null,jointUi=null,faceStudio=null,fingerStudio=null;
 let sourceVisual=null,motionCatalog=null;
 function status(t){$('status').textContent=t}
 function progress(n){$('progress').style.width=n+'%'}
@@ -104,6 +105,7 @@ function buttons(){
  skinEditorUi?.refresh();
  jointUi?.refresh();
  faceStudio?.refresh();
+ fingerStudio?.refresh();
 }
 function suspendGpu(root){
  const textures=new Set();
@@ -148,7 +150,7 @@ function showComparison(optimized=false){
  $('view-optimized').classList.toggle('active',isPreview);
  $('view-original').setAttribute('aria-pressed',String(!isPreview));
  $('view-optimized').setAttribute('aria-pressed',String(isPreview));
- $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Редактор весов':state.preview?.kind==='joint-forms'?'Коррекция суставов':'После оптимизации'):'Исходная модель';
+ $('view-label').textContent=isPreview?(state.preview?.kind==='rig'?'Скелет и веса':state.preview?.kind==='arm-weights'?'Исправленные веса рук':state.preview?.kind==='skin-editor'?'Редактор весов':state.preview?.kind==='joint-forms'?'Коррекция суставов':state.preview?.kind==='finger-rig'?'Скелет с пальцами':'После оптимизации'):'Исходная модель';
  displayMetrics();
 }
 function clear3mfViewport(){
@@ -179,6 +181,7 @@ function discardPreview(){
  skinEditorUi?.cleanup();
  guidedRigUi?.clearResult();
  armWeightsUi?.clearResult();
+ fingerStudio?.clearResult();
  modelPlayback.stop();
  if(state.previewRoot){
    scene.remove(state.previewRoot);release(state.previewRoot);
@@ -674,6 +677,7 @@ const motionPoseUi=new MotionPoseUI($,{
 });
 function stopMotionPlayback(){
  faceStudio?.stop();
+ fingerStudio?.stop();
  skinEditorUi?.stopHeadTest();
  jointUi?.stopPose();
  guidedRigUi?.stop();
@@ -1035,6 +1039,7 @@ for(const button of document.querySelectorAll('[data-tab]'))button.addEventListe
  guidedRigUi?.setTab(button.dataset.tab==='rig');
  skinEditorUi?.setTab(button.dataset.tab==='skin');
  faceStudio?.setTab(button.dataset.tab==='face');
+ fingerStudio?.setTab(button.dataset.tab==='rig');
 });
 $('face-entry').addEventListener('click',()=>{
  document.querySelector('[data-tab="face"]').click();
@@ -1101,8 +1106,12 @@ guidedRigUi=new GuidedRigUI({
   stopMotionPlayback();modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;
   state.root=root;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.clips=[];state.name=(state.name+'_rig').slice(0,60);state.bytes=result.bytes.length;state.type='glb';state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.hasMorphs=false;state.bvhOnly=false;state.info='GLB 2.0. Создан скелет тела: '+result.bones+' костей. Перед игрой проверь деформации.';
   resetMotionStudio();refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();
-  document.querySelector(editWeights?'[data-tab="skin"]':'[data-tab="anim"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии.');buttons();
-  if(editWeights)skinEditorUi.open();
+  const tab=editWeights==='fingers'?'rig':editWeights?'skin':'anim';
+  document.querySelector('[data-tab="'+tab+'"]').click();motionStatus('Скелет готов. Выбери ZIP, BVH, FBX или GLB/glTF с движениями.');status('Скелет применён к рабочей копии.');buttons();
+  if(editWeights==='fingers'){
+    $('finger-heading').scrollIntoView({block:'center'});
+    fingerStudio.open();
+  }else if(editWeights)skinEditorUi.open();
  }
 });
 armWeightsUi=new ArmWeightsUI({
@@ -1125,6 +1134,53 @@ jointUi=new JointCorrectionUI({
  memoryBudget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),save:(bytes,name)=>save(bytes,name,'model/gltf-binary'),
  result:result=>{const preview=makeJointPreview(state.root,state.rigLookup,result.preview),clips=state.clips.map(c=>withJointFormTracks(preview.root,c,result.config));discardPreview();result.associations=preview.associations;state.preview=result;state.previewRoot=preview.root;state.previewClips=clips;state.previewMetrics=modelStats(preview.root,clips);scene.add(preview.root);refreshModelPlayback();displayComparison(result);$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true)},
  use:result=>{const root=state.previewRoot;if(!root||state.preview!==result)throw Error('Копия суставов больше не активна');modelPlayback.dispose();morphPreview.dispose();scene.remove(state.root);release(state.root,{keepTextures:true});delete root.userData.phoenixSharedTextures;state.root=root;state.clips=state.previewClips;state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;state.name=(state.name+'_joints').slice(0,60);state.bytes=result.bytes.length;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;state.rigLookup=result.associations;state.jointConfig=result.config;state.hasMorphs=true;motion.preview=null;refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';$('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();status('Коррекции применены. Новые анимации будут экспортированы вместе с формами сгиба.');buttons()}
+});
+fingerStudio=new FingerStudio({
+ scene,camera,orbit,canvas:renderer.domElement,
+ model:()=>state,busy:value=>{if(value!==undefined){state.busy=value;buttons()}return state.busy},progress,
+ prepare:()=>{stopMotionPlayback();showComparison(false)},
+ showOriginal:()=>showComparison(false),showResult:()=>showComparison(true),resultRoot:()=>state.previewRoot,
+ budget:()=>resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()}),
+ discard:discardPreview,
+ save:async bytes=>{
+   if(motion.extras.length){
+     const budget=await resolveBakeMemoryBudget({android:Capacitor.getPlatform()==='android',deviceMemory:navigator.deviceMemory,readNative:()=>deviceMemory.getInfo()});
+     const nodeIndices=new Map();
+     state.root.traverse(node=>{const index=state.rigLookup?.get(node)?.nodes;if(node.isBone&&index!==undefined)nodeIndices.set(node.name,index)});
+     bytes=appendGlbAnimations(bytes,motion.extras,{nodeIndices,memoryBudgetMiB:budget});
+   }
+   return save(bytes,state.name+'_fingers.glb','model/gltf-binary');
+ },
+ result:async result=>{
+   const loaded=await createModelLoader().parseAsync(asArrayBuffer(result.bytes),'');
+   discardPreview();state.preview=result;state.previewRoot=loaded.scene;state.previewClips=loaded.animations;
+   result.associations=new WeakMap(loaded.parser.associations);state.previewMetrics=modelStats(loaded.scene,loaded.animations);
+   scene.add(loaded.scene);refreshModelPlayback();$('preview-switch').hidden=false;$('view-label').hidden=false;showComparison(true);
+ },
+ use:(result,editWeights)=>{
+   const root=state.previewRoot;
+   if(!root||state.preview!==result)return;
+   stopMotionPlayback();modelPlayback.dispose();morphPreview.dispose();
+   scene.remove(state.root);release(state.root);
+   state.root=root;state.clips=state.previewClips;state.sourceBuffer=asArrayBuffer(result.bytes);state.sourceFile=null;
+   state.previewRoot=null;state.preview=null;state.previewClips=[];state.previewMetrics=null;
+   state.rigLookup=result.associations;state.bytes=result.bytes.byteLength;state.name=(state.name+'_fingers').slice(0,60);
+   motion.preview=null;motion.poseEditors=[];
+   if(motion.source){
+     const previous=new Map(readMotionMapping().map(row=>[row.source,row.target]));
+     const mapping=suggestBoneMappings(motion.source.skeleton,root);
+     for(const line of mapping.mappings){
+       const old=previous.get(line.source);
+       if(old||old===''&&!/Hand(?:Thumb|Index|Middle|Ring|Pinky)[123]$/.test(line.target))line.target=old;
+     }
+     mapping.matched=mapping.mappings.filter(line=>line.target).length;
+     renderMotionMapping(mapping);
+   }
+   refreshModelPlayback();display();$('filename').textContent=state.name+'.glb';
+   $('preview-switch').hidden=true;$('view-label').hidden=true;showComparison(false);renderer.renderLists.dispose();
+   status('Кости пальцев применены.');buttons();
+   if(editWeights){document.querySelector('[data-tab="skin"]').click();skinEditorUi.open()}
+ }
 });
 function tick(now=performance.now()){requestAnimationFrame(tick);const delta=Math.min(playbackClock.getDelta(),.1);if(state.mixer&&!motion.action?.paused)state.mixer.update(delta);if(!state.busy)modelPlayback.update(delta);faceStudio.update(delta);guidedRigUi.update(delta);if(!state.busy)skinEditorUi.update(delta);sourceVisual.update(now/1000,!state.busy&&!$('tab-anim').classList.contains('hidden')&&document.visibilityState!=='hidden');motionCatalog.update(now/1000);orbit.update();if(!motionCatalog.isOpen)renderer.render(scene,camera)}tick();buttons();
 

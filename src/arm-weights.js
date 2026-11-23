@@ -7,6 +7,7 @@ const unit=v=>{const n=Math.hypot(...v);if(!(n>1e-9))throw Error('Нулевая
 export function localizeArmWeights(positions,inputIndices,inputWeights,joints){
  const count=positions.length/3;if(!Number.isSafeInteger(count)||inputIndices.length!==count*4||inputWeights.length!==count*4)throw Error('Не совпали размеры весов рук');
  const byName=new Map(joints.map((b,i)=>[b.name,i])),arms=[];
+ const fingers=new Set(joints.flatMap((b,i)=>/^mixamorig(?:Left|Right)Hand(?:Thumb|Index|Middle|Ring|Pinky)[123]$/i.test(b.name)?[i]:[]));
  for(const side of ['Left','Right']){
   const ids=Object.fromEntries(['Shoulder','Arm','ForeArm','Hand','HandEnd'].map(part=>[part,byName.get('mixamorig'+side+part)]));
   if(Object.values(ids).some(i=>i===undefined))throw Error('Для исправления нужен скелет тела Forge с костями кистей');
@@ -17,6 +18,7 @@ export function localizeArmWeights(positions,inputIndices,inputWeights,joints){
  const skinIndices=new Uint16Array(inputIndices),skinWeights=new Float32Array(inputWeights);let changedVertices=0,maxDiscardedWeight=0;
  for(let n=0;n<count;n++){
   const at=n*4,p=[positions[n*3],positions[n*3+1],positions[n*3+2]];
+  if(fingers.size&&[0,1,2,3].some(k=>inputWeights[at+k]>0&&fingers.has(inputIndices[at+k])))continue;
   for(const arm of arms){
    let confidence=0;for(let k=0;k<4;k++)if(arm.set.has(inputIndices[at+k]))confidence+=inputWeights[at+k];
    const along=dot(sub(p,arm.shoulder),arm.u),alpha=smooth((confidence-.75)/.245)*smooth((along/arm.upperLength+.20)/.52);
