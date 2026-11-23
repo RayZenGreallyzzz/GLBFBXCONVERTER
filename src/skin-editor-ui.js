@@ -4,6 +4,7 @@ import {SkinHistory,makePaintIndex,brushDab,boneWeight,suggestShoulderPoints,pro
 import {makeSkinEditPreview,syncSkinEditPreview,SkinPickSurface} from './skin-preview.js';
 import {headWeightRegion,headWeightTargets} from './head-weights.js';
 import {headTurnTestClip} from './rig-preview.js';
+import {canonicalBone} from './animation-retarget.js';
 import {ModelPlayback} from './model-playback.js';
 const $=id=>document.getElementById(id),frame=()=>new Promise(r=>requestAnimationFrame(r));
 const viewDirections={front:[0,0,1],back:[0,0,-1],left:[1,0,0],right:[-1,0,0]};
@@ -50,14 +51,16 @@ export class SkinEditorUI{
   $('skin-piece-controls').hidden=this.mode!=='detail';
   $('skin-piece-apply').disabled=busy||!this.detail;
   const forge=this.doc?.j.extras?.phoenixRig?.profile==='humanoid-body';
-  const head=forge&&!!this.doc.bones.find(b=>b.name===SKIN_PIVOT_BONES.Head)&&!!this.doc.bones.find(b=>b.name==='mixamorigNeck');
+  const head=!!this.doc?.bones.some(b=>canonicalBone(b.name)==='head')&&this.doc.bones.some(b=>canonicalBone(b.name)==='neck');
+  const pivot=forge&&!!this.drafts?.Head;
   $('skin-shoulder-tools').hidden=!forge;$('skin-head-tools').hidden=!head;
+  $('skin-head-pivot-fields').hidden=!pivot;
   $('skin-head-stop').disabled=busy||!this.headTest.active;
   $('skin-head-strength-value').textContent=$('skin-head-strength').value+'%';
   $('skin-head-adjust').disabled=busy||!head||Number($('skin-head-strength').value)===0;
   $('skin-status').textContent=active?this.feedback:this.eligibility.reason||this.feedback;
   $('skin-mode').querySelector('[value=joint]').disabled=!forge;
-  $('skin-mode').querySelector('[value=head]').disabled=!head;
+  $('skin-mode').querySelector('[value=head]').disabled=!pivot;
   if(!(active&&this.tab&&this.mode==='brush'&&!busy))this.brushCursor.visible=false;
   this.overlay.visible=active&&this.tab&&['joint','head'].includes(this.mode)&&!busy;
   const owns=active&&this.tab&&this.mode!=='view'&&!busy;
@@ -129,7 +132,7 @@ export class SkinEditorUI{
    if(!region)throw Error('Проверь положение Head относительно основания шеи.');
    const strength=Number($('skin-head-strength').value)/100;
    const targets=this.doc.parts.map(p=>headWeightTargets(p,region,strength));
-   const count=this.history.applyBoneWeights(region.head,region.neck,targets);
+   const count=this.history.applyBoneWeights(region.head,region.neck,targets,region.descendants);
    this.sync();
    this.feedback=count?'Коррекция головы: '+count+' вершин. Проверь поворот и при необходимости уточни веса кистью.':'При этой настройке веса головы совпадают с текущими.';
   }catch(e){this.feedback=e.message}

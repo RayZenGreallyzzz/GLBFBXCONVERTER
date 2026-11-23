@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {clone as cloneSkeleton} from 'three/addons/utils/SkeletonUtils.js';
+import {characterBones,findCanonicalBone} from './animation-retarget.js';
 
 export function makeArmWeightsPreview(source,associations,payload){
  const root=cloneSkeleton(source),originals=[],copies=[],lookup=new Map(),materials=new Map();source.traverse(o=>originals.push(o));root.traverse(o=>copies.push(o));root.userData.phoenixSharedTextures=true;
@@ -46,7 +47,7 @@ export function rigBendTestClip(root){
 
 
 export function headTurnTestClip(root){
- const bone=root.getObjectByName('mixamorigHead');
+ const bone=findCanonicalBone(characterBones(root),'head');
  if(!bone)throw Error('В скелете нет кости Head.');
  const y=new THREE.Vector3(0,1,0),x=new THREE.Vector3(1,0,0);
  const poses=[[0,0],[1,0],[-1,0],[0,0],[0,.55],[0,-.42],[0,0]];

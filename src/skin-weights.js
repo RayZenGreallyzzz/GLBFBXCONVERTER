@@ -1,15 +1,31 @@
 const clamp=x=>Math.max(0,Math.min(1,x));export const smooth=x=>{x=clamp(x);return x*x*x*(x*(x*6-15)+10)};
 export function boneWeight(part,n,bone){let w=0;for(let k=0;k<4;k++)if(part.indices[n*4+k]===bone)w+=part.weights[n*4+k];return w}
 function quantizeVertex(part,n){const type=part.W?.a.componentType;if(![5121,5123].includes(type))return;const limit=type===5121?255:65535,q=Array.from(part.weights.subarray(n*4,n*4+4)),encoded=q.map(x=>Math.floor(x*limit)),order=[0,1,2,3].sort((a,b)=>(q[b]*limit-encoded[b])-(q[a]*limit-encoded[a]));for(let k=0,r=limit-encoded.reduce((s,x)=>s+x,0);k<r;k++)encoded[order[k%4]]++;for(let k=0;k<4;k++)part.weights[n*4+k]=encoded[k]/limit}
-export function assignBoneWeight(part,n,bone,value,fallback){
+export function assignBoneWeight(part,n,bone,value,fallback,locked){
  value=clamp(value);
- if(value===1){
+ if(value===1&&!locked?.size){
   part.indices.set([bone,0,0,0],n*4);
   part.weights.set([1,0,0,0],n*4);
   return;
  }
- const other=new Map();for(let k=0;k<4;k++){const i=part.indices[n*4+k],w=part.weights[n*4+k];if(i!==bone&&w>0)other.set(i,(other.get(i)||0)+w)}
- let rows=[...other].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,value>1e-8?3:4);if(value<1-1e-8&&!rows.length)rows=[[fallback,1]];const sum=rows.reduce((s,r)=>s+r[1],0);rows=rows.map(([i,w])=>[i,w*(1-value)/sum]);if(value>1e-8)rows.push([bone,value]);rows.sort((a,b)=>b[1]-a[1]||a[0]-b[0]);for(let k=0;k<4;k++){part.indices[n*4+k]=rows[k]?.[0]??0;part.weights[n*4+k]=rows[k]?.[1]??0}quantizeVertex(part,n);
+ const other=new Map(),fixed=new Map();
+ for(let k=0;k<4;k++){
+  const i=part.indices[n*4+k],w=part.weights[n*4+k];if(i===bone||w<=0)continue;
+  const group=locked?.has(i)?fixed:other;group.set(i,(group.get(i)||0)+w);
+ }
+ const cap=Math.max(0,1-[...fixed.values()].reduce((sum,w)=>sum+w,0));
+ value=Math.min(value,cap);
+ const slots=4-fixed.size-(value>1e-8?1:0);
+ let rows=[...other].sort((a,b)=>b[1]-a[1]||a[0]-b[0]).slice(0,Math.max(0,slots));
+ if(cap-value>1e-8&&!rows.length){
+  if(slots>0)rows=[[fallback,1]];else value=cap;
+ }
+ const sum=rows.reduce((s,r)=>s+r[1],0);
+ rows=rows.map(([i,w])=>[i,w*(cap-value)/sum]).concat([...fixed]);
+ if(value>1e-8)rows.push([bone,value]);
+ rows.sort((a,b)=>b[1]-a[1]||a[0]-b[0]);
+ for(let k=0;k<4;k++){part.indices[n*4+k]=rows[k]?.[0]??0;part.weights[n*4+k]=rows[k]?.[1]??0}
+ quantizeVertex(part,n);
 }
 export function makePaintIndex(part,height){
  const cell=height*.025,buckets=new Map(),groups=new Map(),key=(x,y,z)=>Math.floor(x/cell)+','+Math.floor(y/cell)+','+Math.floor(z/cell),weldKey=(x,y,z)=>Math.round(x/(height*1e-7))+','+Math.round(y/(height*1e-7))+','+Math.round(z/(height*1e-7)),groupOf=new Int32Array(part.positions.length/3),members=[];
@@ -51,7 +67,7 @@ export class SkinHistory{
   this.redoStack=[];this.undoStack.push({...command,bytes});
   while(this.undoStack.length>1&&(this.undoStack.length>this.maxCommands||this.undoStack.reduce((s,c)=>s+c.bytes,0)>this.maxBytes))this.undoStack.shift();
  }
- applyBoneWeights(bone,fallback,targets){
+ applyBoneWeights(bone,fallback,targets,locked){
   if(this.active)throw Error('Заверши текущий мазок.');
   let count=0;
   for(const part of targets)for(const weight of part)if(Number.isFinite(weight))count++;
@@ -66,7 +82,7 @@ export class SkinHistory{
     locations[row*2]=pi;locations[row*2+1]=n;
     I.set(part.indices.subarray(offset,offset+4),row*8);
     W.set(part.weights.subarray(offset,offset+4),row*8);
-    assignBoneWeight(part,n,bone,values[n],fallback);
+    assignBoneWeight(part,n,bone,values[n],fallback,locked);
     I.set(part.indices.subarray(offset,offset+4),row*8+4);
     W.set(part.weights.subarray(offset,offset+4),row*8+4);
     row++;

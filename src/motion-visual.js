@@ -27,11 +27,11 @@ export function createMotionVisual(source,clip=source.clip){
  else{const originalCount=points.length;for(let i=0;i<originalCount&&points.length<72;i++){const b=points[i].bone;if(!b.children.some(n=>n.isBone)){const dir=b.parent?.isBone?pos(b).sub(pos(b.parent)):new THREE.Vector3(0,1,0);if(dir.lengthSq()<1e-12)dir.set(0,1,0);tip(b,i,dir,.18,b.name+'Tip')}}}
  let start=0;if(source.kind==='bvh'&&detectCmuCalibration(source.skeleton,clip))start=clip.tracks.find(t=>t.times.length>1)?.times[1]||0;
  const duration=Math.min(8,clip.duration-start);if(!(duration>0))throw Error('Нет кадров для миниатюры');const frames=Math.min(97,Math.max(2,Math.ceil(duration*12)+1)),values=new Float32Array(frames*points.length*3),mixer=new THREE.AnimationMixer(graph),action=mixer.clipAction(clip).setLoop(THREE.LoopOnce,1);action.clampWhenFinished=true;action.play();
- const bounds={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity},floor=box.min.y*scale;
+ const bounds={minX:Infinity,maxX:-Infinity,minY:Infinity,maxY:-Infinity};let floor=Infinity;
  try{for(let frame=0;frame<frames;frame++){
   mixer.setTime(Math.min(clip.duration-1e-7,start+duration*frame/(frames-1)));graph.updateMatrixWorld(true);const displacement=hip?pos(hip).sub(origin).applyQuaternion(inverse).multiplyScalar(scale):new THREE.Vector3();
   for(let i=0;i<points.length;i++){const p=points[i],v=pos(p.bone);if(p.offset)v.add(p.offset.clone().applyQuaternion(p.bone.getWorldQuaternion(new THREE.Quaternion())));v.sub(origin).applyQuaternion(inverse).multiplyScalar(scale);v.x-=displacement.x;v.z-=displacement.z;
-   if(!v.toArray().every(Number.isFinite))throw Error('Некорректная поза миниатюры');v.toArray(values,(frame*points.length+i)*3);const q=project(v.toArray());bounds.minX=Math.min(bounds.minX,q[0]);bounds.maxX=Math.max(bounds.maxX,q[0]);bounds.minY=Math.min(bounds.minY,q[1]);bounds.maxY=Math.max(bounds.maxY,q[1]);
+   if(!v.toArray().every(Number.isFinite))throw Error('Некорректная поза миниатюры');if(!p.offset)floor=Math.min(floor,v.y);v.toArray(values,(frame*points.length+i)*3);const q=project(v.toArray());bounds.minX=Math.min(bounds.minX,q[0]);bounds.maxX=Math.max(bounds.maxX,q[0]);bounds.minY=Math.min(bounds.minY,q[1]);bounds.maxY=Math.max(bounds.maxY,q[1]);
   }
  }}finally{mixer.stopAllAction();mixer.uncacheRoot(graph)}
  if(!values.every(Number.isFinite))throw Error('Некорректные координаты миниатюры');bounds.minY=Math.min(bounds.minY,floor)-.12;bounds.maxY+=.16;bounds.minX=Math.min(bounds.minX,-.35)-.1;bounds.maxX=Math.max(bounds.maxX,.35)+.1;

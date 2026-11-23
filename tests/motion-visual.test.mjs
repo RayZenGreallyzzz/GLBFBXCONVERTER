@@ -17,6 +17,15 @@ test('thumbnail removes horizontal root travel, keeps a jump visible and fits a 
  assert.ok(Math.abs(a.values[last])<1e-6&&Math.abs(a.values[last+2])<1e-6);assert.ok(a.values[last+1]>a.values[first+1]+.1);assert.ok(a.bounds.maxX-a.bounds.minX<3);
  assert.equal(a.values.length,b.values.length);let error=0;for(let k=0;k<a.values.length;k++)error=Math.max(error,Math.abs(a.values[k]-b.values[k]));assert.ok(error<1e-5,'axis-normalized previews differ: '+error);
 });
+test('thumbnail floor follows the animated feet even when the source rest root has a vertical offset',()=>{
+ const s=source({travel:true}), track=s.clip.tracks.find(t=>t.name==='Hips.position');
+ for(let i=1;i<track.values.length;i+=3)track.values[i]+=3;
+ const visual=createMotionVisual(s), feet=['lefttoebase','righttoebase'].map(name=>visual.pointNames.indexOf(name));
+ const ground=Math.min(...feet.map(index=>visual.values[index*3+1]));
+ const air=Math.min(...feet.map(index=>visual.values[((visual.frames-1)*visual.points+index)*3+1]));
+ assert.ok(Math.abs(ground-visual.floor)<1e-5);
+ assert.ok(air-visual.floor>.2);
+});
 test('long clips produce a bounded eight-second fragment and BVH skeletons need no source mesh',()=>{
  const s=source({duration:40}),visual=createMotionVisual(s);assert.equal(visual.duration,8);assert.equal(visual.fullDuration,40);assert.ok(visual.frames<=97);assert.ok(visual.values.byteLength<=97*72*3*4);
  const bvh=source();delete bvh.root;bvh.kind='bvh';assert.ok(createMotionVisual(bvh).frames>1);

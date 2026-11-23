@@ -272,11 +272,13 @@
       <div class="row-buttons"><button id="skin-undo" disabled>↶ Отменить</button><button id="skin-redo" disabled>↷ Вернуть</button></div>
       <button id="skin-reset">Сбросить все правки</button>
       <details id="skin-head-tools" class="advanced">
-        <summary>Голова и шея · Forge</summary>
+        <summary>Голова и шея</summary>
         <div class="row-buttons"><button id="skin-head-play">▶ Проверить поворот</button><button id="skin-head-stop" disabled>■ Исходная поза</button></div>
+        <div id="skin-head-pivot-fields">
         <p class="tip">Точка Head ставится у основания черепа. Используй касание спереди и сбоку или координаты.</p>
         <div class="skin-coordinates"><label>X<input id="skin-head-x" type="number" step="any"></label><label>Y<input id="skin-head-y" type="number" step="any"></label><label>Z<input id="skin-head-z" type="number" step="any"></label></div>
         <button id="skin-head-pivot">ПРИМЕНИТЬ ТОЧКУ HEAD</button>
+        </div>
         <label>Коррекция весов головы <output id="skin-head-strength-value">100%</output><input id="skin-head-strength" type="range" min="0" max="100" value="100"></label>
         <button id="skin-head-adjust">СКОРРЕКТИРОВАТЬ ВЕСА ГОЛОВЫ</button>
       </details>

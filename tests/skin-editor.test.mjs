@@ -50,6 +50,27 @@ test('head pivot and bulk weights are independently undoable, with matching prev
  history.redo();history.redo();assert.deepEqual(writeSkinDocument(doc),fixed);
 });
 
+test('head correction protects a projecting muzzle and jaw weights while releasing the neck and raised hands',()=>{
+ const bones=[
+  {id:0,name:'Spine',position:[0,1.3,0],parent:-1},{id:1,name:'Neck',position:[0,1.48,0],parent:0},
+  {id:2,name:'Head',position:[0,1.6,0],parent:1},{id:3,name:'Jaw',position:[0,1.59,.15],parent:2},
+  {id:4,name:'LeftHand',position:[.35,1.66,.02],parent:0}
+ ];
+ const p={positions:Float32Array.from([0,1.49,.25,0,1.51,.22,0,1.45,.035,.35,1.66,.02,0,1.7,.06]),
+  indices:Uint16Array.from([0,1,2,0,3,1,0,2,2,1,0,0,4,0,0,0,2,0,0,0]),
+  weights:Float32Array.from([.45,.45,.1,0,.4,.3,.25,.05,.3,.45,.25,0,1,0,0,0,1,0,0,0])};
+ const doc={parts:[p],bones,jointPoints:{}}, history=new SkinHistory(doc,points=>doc.jointPoints=points);
+ const before=p.weights.slice(), beforeIds=p.indices.slice(), region=headWeightRegion(bones,2);
+ assert.equal(history.applyBoneWeights(region.head,region.neck,[headWeightTargets(p,region,1)],region.descendants),3);
+ assert.equal(boneWeight(p,0,region.head),1);
+ assert.ok(Math.abs(boneWeight(p,1,3)-.4)<1e-6);
+ assert.ok(Math.abs(boneWeight(p,1,region.head)-.6)<1e-6);
+ assert.equal(boneWeight(p,2,region.head),0);
+ assert.equal(boneWeight(p,3,4),1);
+ assert.equal(boneWeight(p,4,region.head),1);
+ history.undo();assert.deepEqual(p.weights,before);assert.deepEqual(p.indices,beforeIds);
+});
+
 test('weight-only preview retains the local position of a bone authored as a matrix',()=>{
  const bone=new THREE.Bone();bone.position.set(.1,.2,.3);
  const preview={boneNodes:new Map([[0,bone]]),root:bone,parts:[]};

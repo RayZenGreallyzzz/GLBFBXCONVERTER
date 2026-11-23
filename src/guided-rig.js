@@ -66,12 +66,13 @@ export async function buildGuidedRig(input,{guides,resolution=48,headWeightStren
  const {skinIndices,skinWeights}=result;let unweighted=0;
  for(let v=0;v<count;v++) {let sum=0;const seen=new Set();for(let c=0;c<4;c++){const at=v*4+c,w=skinWeights[at],index=skinIndices[at];if(!Number.isFinite(w)||w<0||index>=deform.length||w>0&&seen.has(index))throw Error('Некорректные веса скелета');if(w>0)seen.add(index);sum+=w;skinIndices[at]=deform[index]?.i||0}if(sum<.9999||sum>1.0001)unweighted++}
  if(unweighted)throw Error('Без надёжных весов осталось вершин: '+unweighted+'. Проверь точки, замкнутость сетки и точность. Экспорт отменён.');
- const bonePoints=spec.map((b,id)=>({id,name:b.name,position:b.position.toArray()}));
+ const boneIds=new Map(spec.map((b,id)=>[b.name,id]));
+ const bonePoints=spec.map((b,id)=>({id,name:b.name,parent:boneIds.get(b.parent),position:b.position.toArray()}));
  const localized=localizeArmWeights(positions,skinIndices,skinWeights,bonePoints);skinIndices.set(localized.skinIndices);skinWeights.set(localized.skinWeights);
  if(headWeightStrength>0){
   const part={positions,indices:skinIndices,weights:skinWeights},region=headWeightRegion(bonePoints,h);
   const targets=headWeightTargets(part,region,headWeightStrength);
-  for(let n=0;n<targets.length;n++)if(Number.isFinite(targets[n]))assignBoneWeight(part,n,region.head,targets[n],region.neck);
+  for(let n=0;n<targets.length;n++)if(Number.isFinite(targets[n]))assignBoneWeight(part,n,region.head,targets[n],region.neck,region.descendants);
  }
  onProgress(90,'Создаём скелет и проверяем привязку…');
  const nodes=spec.map(b=>document.createNode(b.name).setTranslation(b.translation.toArray()).setRotation(b.rotation.toArray())),names=new Map(spec.map((b,i)=>[b.name,i]));
