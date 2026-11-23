@@ -186,7 +186,7 @@ try{
  await page.locator('#rig-test-play').click();await page.locator('#rig-test-stop').click();assert.equal(await page.locator('#rig-test-stop').isDisabled(),true);
  await page.locator('[data-tab="convert"]').click();await page.locator('#target').selectOption('glb');
  const bodyCopyWaiting=page.waitForEvent('download');await page.locator('#convert-export').click();const bodyCopy=await bodyCopyWaiting,bodyPath=join(temp,'body-original-copy.glb');await bodyCopy.saveAs(bodyPath);assert.deepEqual(new Uint8Array(await readFile(bodyPath)),body.bytes);
- await page.locator('[data-tab="rig"]').click();await page.locator('#tab-rig summary').click();
+ await page.locator('[data-tab="rig"]').click();await page.getByText('Точное положение сустава',{exact:true}).click();
  const oldX=await page.locator('#rig-x').inputValue();await page.locator('#rig-x').fill(String(Number(oldX)+.0001));await page.locator('#rig-x').press('Tab');
  assert.equal(await page.locator('#rig-confirm').isChecked(),false);assert.equal(await page.locator('#rig-export').isDisabled(),true);assert.equal(await page.locator('#opt-export').isDisabled(),true);
  await page.locator('#rig-x').fill(oldX);await page.locator('#rig-x').press('Tab');await page.locator('#rig-confirm').check();await createBodyRig();
