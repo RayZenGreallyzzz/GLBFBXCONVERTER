@@ -120,7 +120,7 @@ export class DetailsStudio {
     return Math.max(.00001,size.x,size.y,size.z);
   }
   duration(){
-    const item=this.item(), body=this.api.model().clips[item?.body];
+    const item=this.item(), body=this.api.clips()[item?.body];
     return body?Math.max(.1,body.duration):item?.duration||2;
   }
   setTab(active){
@@ -135,6 +135,7 @@ export class DetailsStudio {
     this.lastView=this.api.model().viewMode;
     this.api.prepare();
     this.refresh();
+    if(this.body){this.readMotionChoices();this.fields(false)}
     this.visibility();
   }
   stopPreview(){
@@ -165,8 +166,11 @@ export class DetailsStudio {
     const bones=new Set((j.skins||[]).flatMap(s=>s.joints));
     this.anchors=[...bones].filter(i=>j.nodes[i]).map(i=>[i,detailBoneLabel(j.nodes[i].name,i)]);
     $('parent').replaceChildren(new Option('Без крепления',-1),...this.anchors.map(([i,label])=>new Option(label,i)));
+    this.readMotionChoices();
+  }
+  readMotionChoices(){
     $('motion-body').replaceChildren(new Option('Отдельный клип',-1),
-      ...this.api.model().clips.map((clip,i)=>new Option(clip.name||'Движение '+(i+1),i)));
+      ...this.api.clips().map((clip,i)=>new Option(clip.name||'Движение '+(i+1),i)));
   }
   refresh(checkSource=true){
     const state=this.api.model(), busy=state.busy;
@@ -591,13 +595,13 @@ export class DetailsStudio {
     item.keys=item.keys.filter(k=>k.time!==time||k.bone!==bone);this.keyFields();
   }
   async assemble(){
+    const clips=this.api.clips();
     const parts=this.items.map(item=>{
       if(item.parent>=0&&item.points.some(v=>!v))throw Error('Поставь все точки цепочки у детали «'+item.name+'».');
       const points=item.parent<0?[]:item.points.map(at=>p(at).applyMatrix4(item.group.matrixWorld).toArray());
       const tracks=points.slice(1).map((_,i)=>({bone:i,keys:item.keys.filter(k=>k.bone===i)}));
       return {name:item.name,parent:item.parent,matrix:this.placement(item).toArray(),bytes:item.bytes,points,
-        animation:{body:item.body,duration:item.body>=0?this.api.model().clips[item.body].duration:item.duration,
-          name:item.name+' · '+(item.body>=0?this.api.model().clips[item.body].name||'Анимация':'Движение'),tracks}};
+        animation:{body:item.body,duration:clips[item.body]?.duration??item.duration,name:item.name+' · Движение',tracks}};
     });
     const input=await this.api.input(this.body.bytes);
     if(!parts.length)return {bytes:input};
@@ -608,6 +612,7 @@ export class DetailsStudio {
     await this.busyWork(async()=>{
       this.message('Собираем персонажа с деталями для проверки…');
       const {bytes}=await this.assemble(), result=await this.api.load(bytes);
+      if(!this.active){this.api.release(result.scene);return}
       this.result={...result,bytes};
       this.api.scene.add(result.scene);
       $('clip').replaceChildren(...result.animations.map((clip,i)=>new Option(clip.name||'Движение '+(i+1),i)));

@@ -29,7 +29,7 @@ test('finite box subtraction closes both cross sections and supports keeping one
  const piece=await detailPiece(result.bytes,{node:0,primitive:0,face:0});
  assert.ok(piece.faces<piece.count);
  const kept=await detailPiece(result.bytes,{node:0,primitive:0,face:0,mode:'keep'});
- const cut=await paintCut(result.bytes,{color:[.1,.2,.3]});
+ const cut=await paintCut(kept.bytes,{color:[.1,.2,.3]});
  const redone=await io.readBinary(cut.bytes);
  assert.deepEqual(redone.getRoot().listMaterials().find(m=>m.getName()===CUT_MATERIAL).getBaseColorFactor(),[.1,.2,.3,1]);
  await Promise.all([result.bytes,kept.bytes,cut.bytes].map(validate));
@@ -54,13 +54,15 @@ test('places several parts on the same skin and layers new bone keys over a body
  const groups=[{bytes:detail,matrix:size,name:'Крыло',parent:head,
    points:[[0,1.8,.3],[.1,1.85,.3],[.17,1.9,.3]],animation:{name:'Мах с телом',body:0,duration:1,
    tracks:[{bone:0,keys:[{time:.5,value:[20,0,0]}]},{bone:1,keys:[{time:.6,value:[0,35,0]}]}]}},
-   {bytes:detail,matrix:new Matrix4().makeTranslation(0,1.5,-.3).toArray(),name:'Рог',parent:head}];
+   {bytes:detail,matrix:new Matrix4().makeTranslation(0,1.5,-.3).toArray(),name:'Рог',parent:head},
+   {bytes:detail,matrix:size,name:'Ухо',parent:head,points:[[0,1.8,.3],[.1,1.85,.3]],animation:{body:0,duration:1,
+   tracks:[{bone:0,keys:[{time:.4,value:[0,0,15]}]}]}}];
  const output=await assembleDetails(base,groups), made=await io.readBinary(output.bytes);
  assert.equal(output.clips,2);
- assert.equal(made.getRoot().listSkins()[0].listJoints().length,joints.length+2);
- assert.equal(made.getRoot().listNodes().filter(n=>['Крыло','Рог'].includes(n.getName())&&!!n.getSkin()).length,2);
+ assert.equal(made.getRoot().listSkins()[0].listJoints().length,joints.length+3);
+ assert.equal(made.getRoot().listNodes().filter(n=>['Крыло','Рог','Ухо'].includes(n.getName())&&!!n.getSkin()).length,3);
  const clips=made.getRoot().listAnimations();
- assert.equal(clips[1].listChannels().length,3);
+ assert.equal(clips[1].listChannels().length,4);
  assert.deepEqual(clips[0].listSamplers()[0].getOutput().getArray(),original.getRoot().listAnimations()[0].listSamplers()[0].getOutput().getArray());
  await validate(output.bytes);
 });

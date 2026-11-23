@@ -12,4 +12,3 @@ export async function boxGlb(name='Box',depth=1){
  box.dispose();
  return new WebIO().writeBinary(doc);
 }
-

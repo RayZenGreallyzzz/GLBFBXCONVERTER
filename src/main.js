@@ -1141,6 +1141,7 @@ jointUi=new JointCorrectionUI({
 });
 detailsStudio=new DetailsStudio({
  scene,camera,orbit,canvas:renderer.domElement,model:()=>state,release,progress,
+ clips:()=>[...state.clips,...motion.extras],
  prepare:()=>{stopMotionPlayback();showComparison(false)},
  showOriginal:()=>showComparison(false),restoreView:view=>showComparison(view==='optimized'),
  setBusy:value=>{state.busy=value;buttons()},
